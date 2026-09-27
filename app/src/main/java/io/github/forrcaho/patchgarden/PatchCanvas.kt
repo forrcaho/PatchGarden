@@ -209,8 +209,8 @@ data class LiveWhen(val param: Int, val value: Int)
  *
  * NUMBER covers anything counted, like a length. WAVE draws the waveform itself, which is
  * how every hardware oscillator labels this control and why: the shape is the name, and
- * reading it needs no translation from the word "saw". DIVISION is a note length from
- * [INTERVALS], and the one choice a panel shows in its header rather than as a row.
+ * reading it needs no translation from the word "saw". DIVISION is a step's length in
+ * beats ([Interval]), and the one choice a panel shows in its header rather than as a row.
  */
 enum class Choice { NUMBER, WAVE, DIVISION, PRESET, ARP, FILTER, SLOPE, NOISE, REVERB }
 
@@ -2255,8 +2255,8 @@ private fun DrawScope.drawIntervalTile(rect: Rect, d: Float, label: String, chos
  */
 internal fun panelIntervalChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
     val height = 28f * d
-    // Wide enough for "16 beats" and "13/beat", and wider with the text: a label in sp in a
-    // box in dp -- see Frame.fontScale.
+    // Wide enough for "16/15 beats", the longest a step can say -- 65dp of 12sp Roboto in 72dp
+    // of room -- and wider with the text: a label in sp in a box in dp -- see Frame.fontScale.
     val width = INTERVAL_CHIP_W * fontScale.coerceAtLeast(1f) * d
     return Rect(
         Offset(panel.right - width - 14f * d, panel.top + (PatchModule.PANEL_HEADER * d - height) / 2f),
@@ -2283,7 +2283,7 @@ internal fun panelLockChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
 
 /**
  * The chip in an SF panel's header that names its instrument and opens the page of them.
- * Where a sequencer's interval chip sits, and wider: it holds a name, not "1/8".
+ * Where a sequencer's interval chip sits, and wider: it holds a name, not "1/2 beat".
  */
 internal fun panelPresetChip(panel: Rect, d: Float): Rect {
     val height = 28f * d
@@ -2422,9 +2422,8 @@ internal class IntervalChooser(
  * beats row where the module has one ([ModuleType.canBeFree]).
  *
  * It stays open while both are chosen, since a step is two choices; a tap anywhere but a tile
- * closes it. Above the rows, one line says what they make, with its note name where it has one
- * ("1 beat ÷ 3 = 1/8T, an eighth triplet"), because two bare numbers do not say "triplet" and
- * the name is how a musician recognizes one.
+ * closes it. Above the rows, one line says what they make ("2 beats ÷ 4 = 1/2 beat"), which is
+ * the header chip's reading shown against the two choices that made it.
  */
 internal fun intervalChooser(panel: Rect, d: Float, fontScale: Float, free: Boolean): IntervalChooser {
     val area = panelBody(panel, d).deflate(10f * d)
@@ -8499,10 +8498,15 @@ internal const val TUNE_RANGE = 2400f
  *
  * A fraction of a beat, numerator and denominator both chosen, because that is what a step is
  * -- Forrest's model, after a first version offered 1/n of a beat and whole beats and had to
- * keep the quarter triplet (2 ÷ 3) as a special case and leave out the dotted eighth (3 ÷ 4).
- * Here neither is special: five beats to a bar with five steps to each is 1 ÷ 5, a quarter
- * triplet 2 ÷ 3, a dotted quarter 3 ÷ 2. Kept as chosen rather than reduced, so 2 ÷ 4 stays
- * what the rows show; it plays as 1 ÷ 2, since only the ratio reaches the engine's arithmetic.
+ * keep 2/3 of a beat as a special case and leave out 3/4. Here neither is special: five beats
+ * to a bar with five steps to each is 1 ÷ 5, and the other two are 2 ÷ 3 and 3 ÷ 4. Kept as
+ * chosen rather than reduced, so 2 ÷ 4 stays what the rows show; it plays as 1 ÷ 2, since only
+ * the ratio reaches the engine's arithmetic.
+ *
+ * Said in beats and nothing else. The first builds named the lengths Western notation has
+ * names for, Bespoke's way -- "1/8", "1/4T", "1/8." -- which makes a beat a quarter note, a
+ * fact about time signatures the app has no use for: a beat here is one tick of the tempo, and
+ * "1/2 beat" says what "1/8" only says once you know what a beat is worth.
  */
 internal data class Interval(val num: Int, val den: Int) {
     /** No length: the module's own time knob is in charge. */
@@ -8516,36 +8520,20 @@ internal data class Interval(val num: Int, val den: Int) {
             return num / g to den / g
         }
 
-    /** Its name as a note length, where it has one: "1/8", "1/8T", "1/8.". */
-    val noteName: String? get() = NOTE_LENGTHS[reduced]?.first
-
-    /** The same, in words: "eighth triplet". */
-    val noteWords: String? get() = NOTE_LENGTHS[reduced]?.second
-
-    /** What the header chip says: the note name where there is one, and the fraction where not. */
-    val label: String get() = when {
-        free -> "free"
-        noteName != null -> noteName!!
-        den == 1 -> "$num beats"
-        else -> "$num\u00F7$den"
+    /**
+     * What the header chip says: how many beats, reduced -- "1 beat", "1/2 beat", "2/3 beat",
+     * "3/2 beats". Reduced because the chip says how long a step *is*, and the rows beneath it
+     * already say how it was chosen.
+     */
+    val label: String get() {
+        if (free) return "free"
+        val (n, m) = reduced
+        return (if (m == 1) "$n" else "$n/$m") + if (n > m) " beats" else " beat"
     }
 
     /** How the interval knob writes it; see [INTERVAL_CODE]. */
     val code: Int get() = if (free) FREE_INTERVAL else INTERVAL_CODE + (num - 1) * MAX_BEATS + (den - 1)
 }
-
-/** Reduced fractions of a beat that are note lengths, with their names. */
-private val NOTE_LENGTHS = mapOf(
-    (4 to 1) to ("1/1" to "whole"), (2 to 1) to ("1/2" to "half"), (1 to 1) to ("1/4" to "quarter"),
-    (1 to 2) to ("1/8" to "eighth"), (1 to 4) to ("1/16" to "sixteenth"),
-    (1 to 8) to ("1/32" to "thirty-second"), (1 to 16) to ("1/64" to "sixty-fourth"),
-    (4 to 3) to ("1/2T" to "half triplet"), (2 to 3) to ("1/4T" to "quarter triplet"),
-    (1 to 3) to ("1/8T" to "eighth triplet"), (1 to 6) to ("1/16T" to "sixteenth triplet"),
-    (1 to 12) to ("1/32T" to "thirty-second triplet"),
-    (6 to 1) to ("1/1." to "dotted whole"), (3 to 1) to ("1/2." to "dotted half"),
-    (3 to 2) to ("1/4." to "dotted quarter"), (3 to 4) to ("1/8." to "dotted eighth"),
-    (3 to 8) to ("1/16." to "dotted sixteenth"), (3 to 16) to ("1/32." to "dotted thirty-second"),
-)
 
 /**
  * What the interval knob meant while it was an index: read, never written, so a patch saved by
@@ -8626,12 +8614,11 @@ internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
     IntervalPick.Free -> INTERVALS[FREE_INTERVAL]
 }
 
-/** The line over the chooser saying what the two rows make: "2 beats ÷ 3 = 1/4T, a quarter triplet". */
+/** The line over the chooser saying what the two rows make: "2 beats ÷ 4 = 1/2 beat". */
 internal fun Interval.readout(): String {
     if (free) return "free: its own knob sets the time"
     val beats = if (num == 1) "1 beat" else "$num beats"
-    val name = noteName?.let { " = $it, ${if (noteWords!!.first() in "aeiou") "an" else "a"} $noteWords" }.orEmpty()
-    return "$beats \u00F7 $den$name"
+    return "$beats \u00F7 $den = $label"
 }
 
 /** The transport's rate. The range mirrors kMinTempo and kMaxTempo in transport.h. */

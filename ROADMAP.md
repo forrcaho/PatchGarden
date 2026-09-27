@@ -225,12 +225,19 @@ that goes in its own section as it always has.
    beats over divisions, his sketch -- with both defaulting to 1: a step a beat.
 
    As built. **The chooser** stays open while both rows are picked, since a step is two
-   choices, and closes on a tap anywhere but a tile. A line above the rows says what they make,
-   with the note name where there is one -- "2 beats ÷ 3 = 1/4T, a quarter triplet" -- because
-   two bare numbers never say "triplet". "Free" ends the beats row on a Delay or an LFO, offered
-   exactly where a knob is live only then. The header chip says the note name, "5 beats", or the
-   fraction ("3÷5" -- a bare "3/5" would read as a note length), and grows with the text size.
-   A choice is kept as made: 2 ÷ 4 stays 2 ÷ 4 on the rows and plays as an eighth.
+   choices, and closes on a tap anywhere but a tile. A line above the rows says what they make
+   -- "2 beats ÷ 4 = 1/2 beat". "Free" ends the beats row on a Delay or an LFO, offered exactly
+   where a knob is live only then. The header chip says the length in beats, reduced -- "1 beat",
+   "1/2 beat", "2/3 beat", "3/2 beats" -- and grows with the text size. A choice is kept as made:
+   2 ÷ 4 stays 2 ÷ 4 on the rows and plays as half a beat.
+
+   **Revised 2026-09-26: beats, not note names.** The first two builds named every length that
+   Western notation names, as Bespoke does -- "1/8", "1/4T" for 2 ÷ 3, "1/4." for 3 ÷ 2 -- with a
+   readout that spelled it out ("= 1/4T, a quarter triplet") on the argument that two bare
+   numbers never say "triplet". Forrest dropped it: that notation makes a beat a quarter note,
+   which is a fact about time signatures the app has no use for, and a step here is already a
+   fraction of a beat, so the fraction is the name. Nothing in the file or the engine changed;
+   only what the chip and the readout say.
 
    **The knob writes beats and divisions outright**, 64 + (beats − 1) × 16 + (divisions − 1),
    and one `intervalParam()` builds it for Steps, Seq, Arp, Euclid, Delay and LFO. Values under

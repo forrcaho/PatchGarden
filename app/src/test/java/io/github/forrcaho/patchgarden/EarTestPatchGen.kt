@@ -44,7 +44,7 @@ class EarTestPatchGen {
         val osc1 = patch.add(Types.Osc, Offset(235f, 40f))!!
         val amp1 = patch.add(Types.Amp, Offset(400f, 40f))!!
         seq1.setParam(0, 8f)   // len
-        seq1.setParam(2, 3f)   // eighths
+        seq1.setParam(2, 3f)   // half a beat
         for (step in 0 until 8) {
             // Half a step long: note, gap, note, gap.
             seq1.addDot(Dot(step, if (step % 2 == 0) -12 else 0, 2))

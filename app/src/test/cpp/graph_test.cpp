@@ -471,13 +471,13 @@ void divisionsOfOneTransportNeverDrift() {
     transport.setTempo(127.0);
     transport.setRunning(true);
 
-    Heard beats, sixteenths, triplets;
+    Heard beats, quarters, thirds;
     const int64_t blocks = 10LL * 60 * 48000 / kBlockSize; // ten minutes
     for (int64_t b = 0; b < blocks; ++b) {
         const int64_t start = b * kBlockSize;
         listen(transport, Interval{1, 1}, start, beats);
-        listen(transport, Interval{1, 4}, start, sixteenths);
-        listen(transport, Interval{1, 3}, start, triplets);
+        listen(transport, Interval{1, 4}, start, quarters);
+        listen(transport, Interval{1, 3}, start, thirds);
         transport.advance(kBlockSize);
     }
 
@@ -504,17 +504,17 @@ void divisionsOfOneTransportNeverDrift() {
     bool divided = true;
     for (std::size_t n = 0; n + 1 < beats.frames.size(); ++n) {
         const int64_t at = beats.frames[n];
-        if (!std::binary_search(sixteenths.frames.begin(), sixteenths.frames.end(), at) ||
-            !std::binary_search(triplets.frames.begin(), triplets.frames.end(), at)) {
+        if (!std::binary_search(quarters.frames.begin(), quarters.frames.end(), at) ||
+            !std::binary_search(thirds.frames.begin(), thirds.frames.end(), at)) {
             together = false;
         }
-        if (between(sixteenths.frames, at, beats.frames[n + 1]) != 4 ||
-            between(triplets.frames, at, beats.frames[n + 1]) != 3) {
+        if (between(quarters.frames, at, beats.frames[n + 1]) != 4 ||
+            between(thirds.frames, at, beats.frames[n + 1]) != 3) {
             divided = false;
         }
     }
-    check(together, "every beat is a sixteenth and a triplet on the very same frame");
-    check(divided, "with exactly four sixteenths and three triplets in every beat");
+    check(together, "every beat is a quarter beat and a third of a beat on the very same frame");
+    check(divided, "with exactly four quarters and three thirds in every beat");
 }
 
 void resumingNeitherRepeatsNorSkipsATick() {
@@ -1150,7 +1150,7 @@ void aSyncedLfoFollowsTheTransportsBeat() {
     graph.postAdd(2, NodeType::Lfo);
     graph.postAdd(3, NodeType::Mix);
     graph.postSetParam(2, 1, 0.0f); // saw, whose value is its phase
-    graph.postSetParam(2, 2, 2.0f); // a quarter: a cycle a beat
+    graph.postSetParam(2, 2, 2.0f); // one beat: a cycle a beat
     graph.postSetModRange(3, 0, 0.0f, 1.0f, false);
     graph.postConnectMod(2, 0, 3, 0);
     graph.postSetTempo(120.0f);
@@ -1185,7 +1185,7 @@ void aSyncedLfoFollowsTheTransportsBeat() {
  * A delay synced to the transport keeps time while the transport is stopped, at the tempo the
  * graph was given -- which only works because the graph hands every node the tempo as well as
  * the running rate (Node::setTiming). The running rate is zero while stopped, and a node that
- * read it would make an eighth no length at all.
+ * read it would make half a beat no length at all.
  */
 void aSyncedDelayKeepsTheGraphsTempoWhileStopped() {
     std::printf("a synced delay keeps the graph's tempo while stopped\n");
@@ -1197,7 +1197,7 @@ void aSyncedDelayKeepsTheGraphsTempoWhileStopped() {
     graph.postConnect(1, 0, 2, 0);
     graph.postConnect(2, 0, 3, 0);
     graph.postSetParam(1, 0, 1.0f);  // the input at unity
-    graph.postSetParam(2, 0, 3.0f);  // an eighth
+    graph.postSetParam(2, 0, 3.0f);  // half a beat
     graph.postSetParam(2, 2, 0.0f);  // one echo
     graph.postSetParam(2, 3, 1.0f);  // and only the echo
     graph.postSetParam(3, 0, 0.25f); // well under the limiter
@@ -1219,7 +1219,7 @@ void aSyncedDelayKeepsTheGraphsTempoWhileStopped() {
         if (std::fabs(out[i]) > std::fabs(out[at])) at = i;
     }
     // Half a beat at 90bpm is a third of a second.
-    check(at == 16000, "an eighth at 90bpm, stopped, lands at 16000, got " + std::to_string(at));
+    check(at == 16000, "half a beat at 90bpm, stopped, lands at 16000, got " + std::to_string(at));
 }
 
 /**

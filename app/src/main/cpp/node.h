@@ -243,7 +243,7 @@ public:
      *
      * [tempo] is the other reading of the same number: how far a frame *would* move the
      * transport at its tempo, running or not. For what keeps time without advancing -- a delay
-     * set to an eighth is an eighth long whether or not anything is playing, and reading the
+     * set to half a beat is half a beat long whether or not anything is playing, and reading the
      * zero above would make it no length at all. Zero from a caller that never set a tempo.
      *
      * [beat] is where the transport is at the block's first frame, held while it is stopped.

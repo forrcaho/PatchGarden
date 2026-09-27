@@ -11,9 +11,9 @@ import org.junit.Test
 
 /**
  * Time divided one way for every module the transport times: a step is some beats divided into
- * some divisions, each from 1 to 16 -- Forrest's model, in which a quarter triplet (2 ÷ 3) and a
- * dotted quarter (3 ÷ 2) are ordinary choices rather than the special cases the first version
- * kept -- with the LFO synced to it as the Delay already was.
+ * some divisions, each from 1 to 16 -- Forrest's model, in which 2/3 of a beat (2 ÷ 3) and 3/2
+ * beats (3 ÷ 2) are ordinary choices rather than the special cases the first version kept --
+ * with the LFO synced to it as the Delay already was.
  */
 class IntervalTest {
 
@@ -47,28 +47,28 @@ class IntervalTest {
     }
 
     @Test
-    fun `a step wears its note name, and says its fraction where it has none`() {
-        assertEquals("1/8", Interval(1, 2).label)
-        assertEquals("unreduced, still an eighth", "1/8", Interval(2, 4).label)
-        assertEquals("1/4T", Interval(2, 3).label)
-        assertEquals("1/4.", Interval(3, 2).label)
-        assertEquals("1/8.", Interval(3, 4).label)
-        assertEquals("1/1", Interval(4, 1).label)
-        assertEquals("3÷5", Interval(3, 5).label)
-        assertEquals("5 beats", Interval(5, 1).label)
+    fun `a step says how many beats it is, and never what note that would be`() {
+        assertEquals("1 beat", Interval(1, 1).label)
+        assertEquals("2 beats", Interval(2, 1).label)
+        assertEquals("1/2 beat", Interval(1, 2).label)
+        assertEquals("reduced, since the chip says the length", "1/2 beat", Interval(2, 4).label)
+        assertEquals("and a whole number when that is what it is", "2 beats", Interval(4, 2).label)
+        assertEquals("2/3 beat", Interval(2, 3).label)
+        assertEquals("more than one is plural", "3/2 beats", Interval(3, 2).label)
+        assertEquals("16/15 beats", Interval(16, 15).label)
         assertEquals("free", INTERVALS[FREE_INTERVAL].label)
 
-        assertEquals("1 beat ÷ 3 = 1/8T, an eighth triplet", Interval(1, 3).readout())
-        assertEquals("3 beats ÷ 2 = 1/4., a dotted quarter", Interval(3, 2).readout())
-        assertEquals("5 beats ÷ 3", Interval(5, 3).readout())
+        assertEquals("1 beat ÷ 3 = 1/3 beat", Interval(1, 3).readout())
+        assertEquals("the rows as chosen, the length reduced", "2 beats ÷ 4 = 1/2 beat", Interval(2, 4).readout())
+        assertEquals("5 beats ÷ 1 = 5 beats", Interval(5, 1).readout())
     }
 
     @Test
     fun `a tap on a row changes that row and keeps the other`() {
-        val eighth = Interval(1, 2)
-        assertEquals(Interval(3, 2), eighth.with(IntervalPick.Beats(3)))
-        assertEquals(Interval(1, 5), eighth.with(IntervalPick.Divisions(5)))
-        assertTrue(eighth.with(IntervalPick.Free).free)
+        val half = Interval(1, 2)
+        assertEquals(Interval(3, 2), half.with(IntervalPick.Beats(3)))
+        assertEquals(Interval(1, 5), half.with(IntervalPick.Divisions(5)))
+        assertTrue(half.with(IntervalPick.Free).free)
         val free = INTERVALS[FREE_INTERVAL]
         assertEquals("from free, the other row starts at 1", Interval(4, 1), free.with(IntervalPick.Beats(4)))
         assertEquals(Interval(1, 3), free.with(IntervalPick.Divisions(3)))
@@ -148,7 +148,7 @@ class IntervalTest {
     // ------------------------------------------------------------------ beats on the grid
 
     @Test
-    fun `a sixteenth grid is marked every four steps, and every sixteen is a bar`() {
+    fun `a quarter-beat grid is marked every four steps, and every sixteen is a bar`() {
         assertEquals(
             listOf(4 to false, 8 to false, 12 to false, 16 to true, 20 to false, 24 to false, 28 to false),
             beatLines(32, Interval(1, 4), 4),
@@ -168,12 +168,12 @@ class IntervalTest {
         assertEquals(listOf(2 to true, 4 to true, 6 to true), beatLines(8, Interval(2, 1), 4))
         assertEquals(listOf(4 to true), beatLines(8, Interval(1, 1), 4))
         assertEquals(
-            "a quarter triplet lands on a beat every third step",
+            "2/3 of a beat lands on a beat every third step",
             listOf(3 to false, 6 to true, 9 to false),
             beatLines(12, Interval(2, 3), 4),
         )
         assertEquals(
-            "a dotted eighth lands on a beat every fourth step",
+            "3/4 of a beat lands on a beat every fourth step",
             listOf(4 to false, 8 to false, 12 to false, 16 to true),
             beatLines(20, Interval(3, 4), 4).take(4).let { listOf(it[0], it[1], it[2], it[3]) },
         )

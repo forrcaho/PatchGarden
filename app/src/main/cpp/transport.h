@@ -4,10 +4,10 @@
 #include <cstdint>
 
 /**
- * A note length, as num/den quarter-note beats: 1/16 is a quarter of a beat.
+ * A step's length, as num/den beats: 1/4 is a quarter of a beat.
  *
  * A ratio rather than a double so that divisions which ought to coincide do. A beat and
- * the triplet starting on it are the same instant; working out each one's boundary count
+ * the third of a beat starting on it are the same instant; working out each one's boundary count
  * as floor(beat * den / num) keeps them on the same frame, because rounding cannot put
  * a larger product below a smaller one -- and a double could not hold a third anyway.
  */

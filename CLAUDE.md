@@ -575,16 +575,16 @@ listening to.
 
 **Timed in beats but not by the transport reads `tempo_`.** `setTiming` hands every node the
 running rate, which is zero while stopped so anything stepping in beats holds still, *and*
-the tempo, which is not. A synced Delay reads the second: an eighth is an eighth long whether
-or not anything is playing, and reading the first made a stopped delay no length at all. It
+the tempo, which is not. A synced Delay reads the second: half a beat is half a beat long
+whether or not anything is playing, and reading the first made a stopped delay no length at all. It
 also hands over `beat_`, where the transport is at the block's first frame, for what has to be
 *in phase* with it and not just at its rate: a synced LFO reads its phase straight off it, so
 its cycles start on the beat and cannot drift from the sequencers, where counting ticks would.
 
 **A step is beats divided into divisions, for every module the transport times.** Numerator
 and denominator both chosen, 1 to 16 each -- Forrest's model, after a first version offered
-1/n of a beat and whole beats and had to keep the quarter triplet (2 ÷ 3) as a special case
-while leaving out the dotted eighth (3 ÷ 4). The knob writes `INTERVAL_CODE + (beats - 1) * 16 +
+1/n of a beat and whole beats and had to keep 2/3 of a beat as a special case while leaving
+out 3/4. The knob writes `INTERVAL_CODE + (beats - 1) * 16 +
 (divisions - 1)`, self-describing, and `intervalOf` in Kotlin and in `nodes.h` reads it; **the
 formula is written once on each side**, and the literals 82 (2 ÷ 3) and 97 (3 ÷ 2) in
 `IntervalTest` and `node_test` are what hold the two to each other. Values under 64 are the old
@@ -594,8 +594,10 @@ was saved. **9 is `FREE_INTERVAL` / `kFreeInterval`** and is still how "free" is
 change for all modules" was Forrest's ask. **A module offers free only when one of its knobs is
 live only then** (`ModuleType.canBeFree`, from `Param.liveWhen`): a Delay's time, an LFO's rate.
 The chooser is two rows, beats over divisions, and **stays open** while both are picked, since
-a step is two choices; a line above them says what they make, with the note name where there is
-one, because two bare numbers never say "triplet". The grids draw a line where each beat
+a step is two choices; a line above them says what they make. **A step is said in beats and
+nothing else** -- "1 beat", "1/2 beat", "2/3 beat", "3/2 beats" -- never as a note length: "1/8"
+and "1/4T" were Bespoke's and made a beat a quarter note, which is a time signature's business
+and not this app's. The grids draw a line where each beat
 begins and a heavier one at each bar (`beatLines`), counted from the top of the loop.
 
 **Nothing carries a pulse yet, and the kind stays anyway.** `Env` was the last thing taking

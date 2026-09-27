@@ -102,7 +102,7 @@ class CatalogTest {
         val slot = rows.indexOfFirst { it.index == time }
         val on = panelRowAt(panel, d, Types.Delay, rows.size, slot).center
         assertEquals(ParamRow(delay, time), panelKnobAt(panel, d, delay, rows, brackets, on))
-        delay.setParam(Types.Delay.intervalParam, 3f) // back to an eighth
+        delay.setParam(Types.Delay.intervalParam, 3f) // back to half a beat
         assertEquals("synced, a finger on it takes nothing", null, panelKnobAt(panel, d, delay, rows, brackets, on))
     }
 

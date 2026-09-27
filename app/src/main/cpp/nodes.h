@@ -65,29 +65,29 @@ enum class NodeType : int32_t {
  * an LFO keeping time of its own, in milliseconds or hertz. It is still how "free" is written.
  */
 constexpr Interval kIntervals[] = {
-        {4, 1}, // 1/1
-        {2, 1}, // 1/2
-        {1, 1}, // 1/4
-        {1, 2}, // 1/8
-        {1, 4}, // 1/16
-        {1, 8}, // 1/32
-        {2, 3}, // 1/4 triplet
-        {1, 3}, // 1/8 triplet
-        {1, 6}, // 1/16 triplet
+        {4, 1},
+        {2, 1},
+        {1, 1},
+        {1, 2},
+        {1, 4},
+        {1, 8},
+        {2, 3},
+        {1, 3},
+        {1, 6},
         {0, 1}, // free: no division
         {1, 5},
         {1, 7},
         {1, 9},
         {1, 10},
         {1, 11},
-        {1, 12}, // 1/32 triplet
+        {1, 12},
         {1, 13},
         {1, 14},
         {1, 15},
-        {1, 16}, // 1/64
-        {3, 1},  // dotted half
+        {1, 16},
+        {3, 1},
         {5, 1},
-        {6, 1},  // dotted whole
+        {6, 1},
         {7, 1},
         {8, 1},
         {9, 1},
@@ -107,7 +107,7 @@ constexpr int32_t kFreeInterval = 9;
  * from 1 to kMaxBeats: kIntervalCode + (beats - 1) * kMaxBeats + (divisions - 1). Self-
  * describing, where an index had to be looked up in a table and could only name what the table
  * held -- and a fraction of a beat, a numerator and a denominator, is Forrest's model of what a
- * step is: 2 ÷ 3 is a quarter triplet and 3 ÷ 2 a dotted quarter, neither a special case.
+ * step is: 2 ÷ 3 is 2/3 of a beat and 3 ÷ 2 is 3/2 beats, neither a special case.
  * Above the old table so the two can never be confused. Mirrors INTERVAL_CODE.
  */
 constexpr int32_t kIntervalCode = 64;
@@ -572,7 +572,7 @@ private:
  * the table. The grid is a two-dimensional view of that one axis and costs the engine
  * nothing: a cell is a degree and nothing here knows about rows.
  *
- * It is ticked at a quarter note, which it uses for nothing but knowing the beat. A note
+ * It is ticked once a beat, which it uses for nothing but knowing the beat. A note
  * has to name the beat it starts on so the right scale resolves it, and a drone must be
  * able to sound with the transport stopped -- so the ticks tell it where the music is
  * without its sounding depending on them.
@@ -623,7 +623,7 @@ private:
      */
     float octaves_[kCells] = {};
     uint32_t nextNoteId_ = 1;
-    /** The last quarter-note boundary seen, which is the beat a note starting now belongs to. */
+    /** The last beat boundary seen, which is the beat a note starting now belongs to. */
     int64_t beat_ = 0;
 
     /** A degree's pitch in the scale sounding on [beat], resolved as OscNode resolves it. */
@@ -873,9 +873,9 @@ private:
 /**
  * An echo: the input again after a time, fed back into itself.
  *
- * The time is a note division of the transport, or -- one past the last division -- free, in
+ * The time is a step of the transport's beats, or free (kFreeInterval) and in
  * milliseconds. A synced time is read from the tempo whether or not the transport is running
- * (Node::tempo_), since an eighth is an eighth long either way.
+ * (Node::tempo_), since half a beat is half a beat long either way.
  *
  * **A changed time glides.** The read point moves toward the new time rather than jumping,
  * which bends the pitch of what is in the line the way tape does and never steps it -- a jump

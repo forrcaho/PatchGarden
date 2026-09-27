@@ -502,7 +502,7 @@ class GestureTest {
     }
 
     @Test
-    fun `a quarter triplet is two beats in three, chosen with the chooser open throughout`() {
+    fun `two beats in three is chosen with the chooser open throughout`() {
         val rig = SeqRig()
         rig.host.chooseInterval(rig.seq, IntervalPick.Beats(2), IntervalPick.Divisions(3))
         assertEquals(Interval(2, 3), rig.seq.interval)
