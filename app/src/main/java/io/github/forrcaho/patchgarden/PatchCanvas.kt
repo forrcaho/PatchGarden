@@ -2064,8 +2064,8 @@ private val MarkDegree = Color(0xFF5A6675)
 private val MarkTonic = Color(0xFFAAB4C2)
 private val MarkZero = Color(0xFFE4E7EC)
 
-private val ChipFill = Color(0xFF1E232B)
-private val ChipEdge = Color(0xFF3A424E)
+internal val ChipFill = Color(0xFF1E232B)
+internal val ChipEdge = Color(0xFF3A424E)
 private val PanelScrim = Color(0xE6161A20)
 private val TileFill = Color(0xFF1A1F27)
 
@@ -3978,8 +3978,15 @@ sealed interface Interaction {
     /**
      * The open-source notices, over the canvas like [Renaming] and for a similar reason: a page
      * of text that scrolls wants a real scrolling composable, not a shape drawn in the canvas.
+     * Reached from [Settings], and closing it goes back there.
      */
     data object Licenses : Interaction
+
+    /** The settings page. */
+    data object Settings : Interaction
+
+    /** Saving the always-on recording. */
+    data object SavingRecording : Interaction
 }
 
 /** What a typed number is going to be written to. */
@@ -4034,8 +4041,11 @@ sealed interface MenuItem {
     /** Takes a saved subpatch out of the library, file and all. */
     data class DeleteSaved(val name: String) : MenuItem
 
-    /** The notices of what the app bundles; see [Interaction.Licenses]. */
-    data object Licenses : MenuItem
+    /** The settings page; see [SettingsOverlay]. */
+    data object Settings : MenuItem
+
+    /** Saving the always-on recording; see [SaveRecordingOverlay]. */
+    data object SaveRecording : MenuItem
 
     /** Makes envelope node [node] the one the envelope waits at while a note is held. */
     data class ReleaseAt(val moduleId: Long, val node: Int) : MenuItem
@@ -4136,8 +4146,9 @@ internal fun addMenuItems(patch: Patch, category: Category, saved: List<String> 
             MenuItem.Save(null).takeIf { patch.free.any { m -> m.parent == TOP } },
             // Next to Save, and only when there is something to clear.
             MenuItem.NewPatch.takeIf { patch.free.isNotEmpty() },
-            // Last: about the app rather than anything on the canvas.
-            MenuItem.Licenses,
+            MenuItem.SaveRecording,
+            // Last: about the app rather than anything on the canvas. The licenses are in it.
+            MenuItem.Settings,
         )
         else -> Types.offered(category).map { MenuItem.Add(it) }
     }
@@ -4815,6 +4826,8 @@ fun PatchCanvas(
     scaleLibrary: ScaleLibrary = ScaleLibrary.of(null),
     /** The SoundFonts an SF panel chooses from. Null in previews and tests. */
     soundFonts: SoundFontLibrary? = null,
+    /** The folder and the recording, for Settings and Save recording. Empty in previews and tests. */
+    app: AppControls = AppControls(),
     /**
      * The view onto the world. Hoisted only so a gesture test can aim where things are drawn;
      * the app leaves it to the default.
@@ -5980,7 +5993,7 @@ fun PatchCanvas(
                         menu = presetMenu, scroll = presetScroll, fontName = name,
                         font = name?.let { soundFonts?.loaded?.get(it) },
                         failed = name != null && soundFonts?.failed(name) == true,
-                        fonts = fontNames, folder = soundFonts?.folder().orEmpty(),
+                        fonts = fontNames, folder = soundFonts?.where().orEmpty(),
                         fontScale = frame.fontScale,
                     )
                 } else {
@@ -6092,7 +6105,17 @@ fun PatchCanvas(
             NumberKeypad(patch, typing.target) { interaction = Interaction.Idle }
         }
         if (interaction == Interaction.Licenses) {
-            LicensesOverlay { interaction = Interaction.Idle }
+            LicensesOverlay { interaction = Interaction.Settings }
+        }
+        if (interaction == Interaction.Settings) {
+            SettingsOverlay(app, onLicenses = { interaction = Interaction.Licenses }) {
+                interaction = Interaction.Idle
+            }
+        }
+        if (interaction == Interaction.SavingRecording) {
+            SaveRecordingOverlay(app, onSettings = { interaction = Interaction.Settings }) {
+                interaction = Interaction.Idle
+            }
         }
         (interaction as? Interaction.Saving)?.let { saving ->
             val subpatch = saving.moduleId?.let { patch.module(it) }
@@ -8576,7 +8599,8 @@ private fun handleTap(
                 if (env.segments.getOrNull(chosen.node)?.sustain == true) env.setSustain(chosen.node)
             }
             is MenuItem.RemoveNode -> patch.module(chosen.moduleId)?.removeSegment(chosen.node)
-            is MenuItem.Licenses -> return Interaction.Licenses
+            is MenuItem.Settings -> return Interaction.Settings
+            is MenuItem.SaveRecording -> return Interaction.SavingRecording
         }
         return Interaction.Idle
     }
@@ -8684,7 +8708,7 @@ private fun handleTap(
         // composable over the canvas and takes every touch while it is up.
         is Interaction.Menu, is Interaction.Selecting,
         is Interaction.Renaming, is Interaction.Typing, is Interaction.Saving, is Interaction.Licenses,
-        is Interaction.Opening,
+        is Interaction.Opening, is Interaction.Settings, is Interaction.SavingRecording,
         -> Interaction.Idle
     }
 }
@@ -9195,7 +9219,8 @@ private fun MenuItem.label(): String = when (this) {
     is MenuItem.ReleaseAt -> "Release here"
     is MenuItem.NoRelease -> "No release"
     is MenuItem.RemoveNode -> "Remove"
-    is MenuItem.Licenses -> "Licenses\u2026"
+    is MenuItem.Settings -> "Settings\u2026"
+    is MenuItem.SaveRecording -> "Save recording\u2026"
 }
 
 private fun MenuItem.tint(): Color = when (this) {
@@ -9213,7 +9238,8 @@ private fun MenuItem.tint(): Color = when (this) {
     // The release's own blue, so the tile is the color of the region it makes.
     is MenuItem.ReleaseAt, is MenuItem.NoRelease -> EnvReleaseMark
     is MenuItem.RemoveNode -> Color(0xFFE07A6B)
-    is MenuItem.Licenses -> Color(0xFF8A93A3)
+    is MenuItem.Settings -> Color(0xFF8A93A3)
+    is MenuItem.SaveRecording -> Types.Subpatch.accent
 }
 
 /**

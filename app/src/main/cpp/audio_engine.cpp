@@ -23,6 +23,12 @@ constexpr float kMasterGain = 0.6f;
 constexpr int kCaptureSeconds = 10;
 
 /**
+ * What the recorder writes through while a save is reading the oldest frames of its window.
+ * A save reads hundreds of megabytes a second; this is a great deal more than it needs.
+ */
+constexpr int kRecordMarginSeconds = 30;
+
+/**
  * One-pole ramp towards the target gain, so toggling the tone fades over a few
  * milliseconds instead of stepping and clicking. A step discontinuity is broadband --
  * it would be audible on any system, and would misrepresent what the stream sounds like.
@@ -92,6 +98,8 @@ bool AudioEngine::start() {
     // Two bursts is the documented starting point: enough to absorb scheduling jitter,
     // small enough to stay in the low-latency regime.
     stream_->setBufferSizeInFrames(stream_->getFramesPerBurst() * 2);
+
+    openRecorderLocked();
 
     if (captureArmed_.load(std::memory_order_acquire)) {
         captureCapacity_ =
@@ -173,6 +181,9 @@ void AudioEngine::stop() {
     // outlived its stream.
     graph_.reset();
 
+    // After the stream, so the last blocks it recorded are in the ring when it drains.
+    recorder_.close();
+
     // Also safe only here, and for the same reason: nothing can be writing into it.
     writeCaptureWav();
     capture_.reset();
@@ -235,18 +246,22 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream * /*stream*
 
         for (int32_t i = 0; i < block; ++i) {
             gain_ += (target - gain_) * smoothing;
+            float l;
+            float r;
             if (channelCount_ >= 2) {
-                const float l = left[i] * gain_;
-                const float r = right[i] * gain_;
+                l = left[i] * gain_;
+                r = right[i] * gain_;
                 *out++ = l;
                 *out++ = r;
-                captureFrame(l, r);
             } else {
-                const float m = (left[i] + right[i]) * 0.5f * gain_;
-                *out++ = m;
-                captureFrame(m, m);
+                l = r = (left[i] + right[i]) * 0.5f * gain_;
+                *out++ = l;
             }
+            captureFrame(l, r);
+            recordBlock_[static_cast<std::size_t>(i) * 2] = l;
+            recordBlock_[static_cast<std::size_t>(i) * 2 + 1] = r;
         }
+        recorder_.write(recordBlock_.data(), block);
         done += block;
     }
 
@@ -398,6 +413,30 @@ std::string AudioEngine::inputStatus() const {
         << " preset=" << static_cast<int>(inputStream_->getInputPreset())
         << " deviceId=" << inputStream_->getDeviceId();
     return out.str();
+}
+
+void AudioEngine::setRecording(const std::string &path, int32_t seconds) {
+    std::lock_guard<std::mutex> lock(streamLock_);
+    recorder_.close();
+    const bool moved = !recordPath_.empty() && recordPath_ != path;
+    if (seconds <= 0 || moved) {
+        // Off is off: the window is hundreds of megabytes of somebody's storage.
+        if (!recordPath_.empty()) ::unlink(recordPath_.c_str());
+    }
+    recordPath_ = path;
+    recordSeconds_ = std::max(0, seconds);
+    if (stream_) openRecorderLocked();
+}
+
+void AudioEngine::openRecorderLocked() {
+    if (recordSeconds_ <= 0 || recordPath_.empty() || sampleRate_ <= 0) return;
+    const bool opened = recorder_.open(
+            recordPath_, sampleRate_,
+            static_cast<int64_t>(recordSeconds_) * sampleRate_,
+            static_cast<int64_t>(kRecordMarginSeconds) * sampleRate_);
+    if (!opened) {
+        __android_log_print(ANDROID_LOG_WARN, kTag, "could not record into %s", recordPath_.c_str());
+    }
 }
 
 void AudioEngine::armCapture(bool enabled, const std::string &path) {

@@ -34,6 +34,7 @@ add_library(patchgarden SHARED
         nodes.cpp
         soundfont.cpp
         processors.cpp
+        recorder.cpp
         native_bridge.cpp)
 
 target_include_directories(patchgarden SYSTEM PRIVATE vendor/daisysp vendor/tinysoundfont)

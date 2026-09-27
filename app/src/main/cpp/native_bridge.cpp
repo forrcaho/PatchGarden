@@ -67,6 +67,15 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeArmCapture(JNIEnv *env, jo
     if (chars != nullptr) env->ReleaseStringUTFChars(path, chars);
 }
 
+JNIEXPORT void JNICALL
+Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetRecording(JNIEnv *env, jobject,
+                                                                  jstring path,
+                                                                  jint seconds) {
+    const char *chars = env->GetStringUTFChars(path, nullptr);
+    engine().setRecording(chars != nullptr ? chars : "", seconds);
+    if (chars != nullptr) env->ReleaseStringUTFChars(path, chars);
+}
+
 JNIEXPORT jstring JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeStatus(JNIEnv *env, jobject) {
     return env->NewStringUTF(engine().status().c_str());

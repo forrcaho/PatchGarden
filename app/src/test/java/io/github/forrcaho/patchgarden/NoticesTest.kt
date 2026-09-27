@@ -50,14 +50,18 @@ class NoticesTest {
         assertTrue("the full text, not a pointer to it", text.contains("END OF TERMS AND CONDITIONS"))
     }
 
-    /** Reachable from the app: the last tile of Patch, the add menu's category for the whole of it. */
+    /**
+     * Reachable from the app: from Settings, the last tile of Patch, the add menu's category for
+     * the whole of it. The page itself is a composable and is opened from there; GestureTest
+     * could open it, but what can regress here is the way in.
+     */
     @Test
-    fun `the add menu's Patch ends with the licenses`() {
+    fun `the add menu's Patch ends with Settings, which holds the licenses`() {
         val empty = addMenuItems(Patch(), Category.PATCH)
-        assertEquals(MenuItem.Licenses, empty.last())
+        assertEquals(MenuItem.Settings, empty.last())
         val full = addMenuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, Category.PATCH)
-        assertEquals(MenuItem.Licenses, full.last())
-        assertTrue("and nowhere a module's menu is", MenuItem.Licenses !in menuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, 100L))
+        assertEquals(MenuItem.Settings, full.last())
+        assertTrue("and nowhere a module's menu is", MenuItem.Settings !in menuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, 100L))
     }
 
     /**

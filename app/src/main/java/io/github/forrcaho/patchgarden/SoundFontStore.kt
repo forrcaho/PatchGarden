@@ -1,12 +1,10 @@
 package io.github.forrcaho.patchgarden
 
-import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /*
  * SoundFonts: the ones the user puts in `soundfonts`, beside the scales and the subpatches.
@@ -38,7 +36,7 @@ class LoadedFont(val handle: Long, val presets: List<SoundFontPreset>) {
 /** The preset parameter's value for [bank] and [program]. */
 fun presetCode(bank: Int, program: Int): Int = bank * 128 + program
 
-class SoundFontLibrary(val directory: File?) {
+class SoundFontLibrary(val folder: Folder?) {
 
     /**
      * Fonts loaded so far, by name. Compose state, because GraphSync's flow reads it: a
@@ -55,13 +53,13 @@ class SoundFontLibrary(val directory: File?) {
 
     /** Every `.sf2` in the folder, by name. */
     fun names(): List<String> =
-        directory?.listFiles { f -> f.isFile && f.name.endsWith(EXTENSION, true) }
-            .orEmpty()
-            .map { it.name.dropLast(EXTENSION.length) }
+        folder?.list().orEmpty()
+            .filter { it.endsWith(EXTENSION, true) }
+            .map { it.dropLast(EXTENSION.length) }
             .sortedBy { it.lowercase() }
 
     /** Where to put them, for a panel with none to show. */
-    fun folder(): String = directory?.absolutePath ?: "the soundfonts folder"
+    fun where(): String = folder?.label ?: "the soundfonts folder"
 
     /** Whether [name] was tried and could not be read. */
     fun failed(name: String): Boolean = name in failed
@@ -81,12 +79,7 @@ class SoundFontLibrary(val directory: File?) {
         if (font == null) failed.add(name) else loaded[name] = font
     }
 
-    private fun read(name: String): ByteArray? = try {
-        directory?.let { File(it, name + EXTENSION) }?.takeIf { it.isFile }?.readBytes()
-    } catch (e: Exception) {
-        Log.w(TAG, "could not read $name", e)
-        null
-    }
+    private fun read(name: String): ByteArray? = folder?.read(name + EXTENSION)
 
     private fun parse(name: String, bytes: ByteArray): LoadedFont? {
         val started = System.nanoTime()
@@ -103,18 +96,7 @@ class SoundFontLibrary(val directory: File?) {
     }
 
     companion object {
-        /**
-         * The folder is `soundfonts` beside `scales` and `subpatches`, made here so it is there
-         * to drop files into over USB.
-         */
-        fun load(context: Context): SoundFontLibrary = SoundFontLibrary(
-            try {
-                val base = context.getExternalFilesDir(null) ?: context.filesDir
-                File(base, "soundfonts").apply { mkdirs() }
-            } catch (e: Exception) {
-                Log.w(TAG, "no soundfont directory", e)
-                null
-            },
-        )
+        /** `soundfonts` in the PatchGarden folder, beside `scales` and `subpatches`. */
+        fun load(home: Home): SoundFontLibrary = SoundFontLibrary(home.folder(Folders.SOUNDFONTS))
     }
 }

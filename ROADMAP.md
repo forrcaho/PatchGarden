@@ -324,12 +324,54 @@ that goes in its own section as it always has.
    first: after Don't save the question stayed on screen, since `produceState` keeps its value
    across a change of key.
 
-6. **Files, Settings and recording.** A PatchGarden folder chosen once through the system's
+6. ~~**Files, Settings and recording.**~~ A PatchGarden folder chosen once through the system's
    folder picker, as Pagan does, holding `soundfonts/`, `scales/`, `subpatches/` and
    `recordings/` -- somewhere another app can be pointed at the same SoundFonts. The first
    launch offers to move what is in app-specific storage now. A small **Settings** page
    changes the folder, sets the recording's length, and shows the version and the licenses,
    which move there from the add menu. Always-on recording saves into `recordings/`.
+
+   **Built 2026-09-27, overnight, straight after 5 at Forrest's say-so.** Checked on the
+   emulator end to end; **not yet on the phone**, where the first launch will offer the folder.
+
+   *The folder.* The libraries read through a `Folder`: app storage, as before, or a Storage
+   Access Framework tree the user picked, whose grant is persisted and let go when replaced. A
+   chosen folder has no files in the java.io sense -- a file is found by name among its folder's
+   children -- and a provider will not overwrite by name, so a write finds the file and
+   truncates it. The patch itself, the recording's window and the debug capture stay in
+   app-private storage: they are the app's working state, not what a person keeps. The first
+   launch offers the folder once ("Not now" is an answer); choosing one offers to move what
+   app storage holds -- copy, check the length, then delete, never replacing a file already
+   there, so a move cut short leaves every file somewhere -- and then **recreates the
+   activity**, since every library reads its folder once at the start and a restart is the one
+   way to know none is still reading the old one. On the emulator: Music/PatchGarden made in
+   the picker, 12 scales and 17 subpatches moved, the old folders left empty, the patch intact.
+
+   *Settings* is a page off Patch: the folder with Change..., the recording's length (off, 1, 5,
+   10 or 30 minutes, with what it costs of the phone), the version, and Licenses..., which moved
+   there from the add menu and closes back to it.
+
+   *Recording* is Phase 8's design as written: the audio thread copies each block into a
+   lock-free ring and returns, a writer thread drains it into a circular file, and the bit depth
+   is chosen at save. The file is a 64-byte header and the window **plus a 30s margin**; a save
+   reads only the window, oldest first, so the writer carrying on during a save has the margin
+   to write through before it could reach a frame being read. Frames go down before the count
+   that includes them. A window of the same rate and length carries on after the app is put
+   away and brought back, so it survives a crash as the design wanted; any other shape starts
+   over, and off deletes the file. **Save recording...** in Patch writes a WAV into
+   `recordings/` named for the patch and the moment -- 16-bit (TPDF-dithered), 24-bit or 32-bit
+   float -- starting where the sound starts, since a window begins wherever it began, and
+   keeping any silence after that. Only into a chosen folder: a recording in app storage is one
+   nobody can find. Saved on the emulator as float: 23s from the note's attack, 523Hz, the C5
+   the Drone cell was playing.
+
+   Tests: `recorder_test` on the host (the window across a wrap, carrying on, starting over,
+   drops), clean under ASan, UBSan and, by hand, TSan; `FilesTest` and `RecordingTest` on the
+   JVM. Seven mutants, six caught; the one missed is a failed disk write counted as written,
+   which nothing on the host can make happen.
+
+   Not done: the undo snapshots timestamped against the window, so a saved recording could carry
+   the patch that made it -- still an idea.
 7. **A level on every synth, `Gain`, and the release.** Every sound source gets a `level` with
    its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
    for `tune` too. An `Env` patches straight into the synth, and because the synth then knows
@@ -2538,7 +2580,7 @@ buys back a good deal of the same screen space for far less work.
 
   An idea rather than a decision: undo snapshots timestamped against the window would let
   a saved recording carry the patch that made it. *Wanted, 2026-09-25, and the saved file
-  should not land in app-specific storage.*
+  should not land in app-specific storage.* *Built 2026-09-27 (Open work, 6), without the snapshots.*
 - In-app open-source licenses screen. MIT requires the notice ship with the binary;
   DaisySP alone brings three (DaisySP, Plaits, Soundpipe) and Oboe brings Apache-2.0.
   *(Done 2026-09-24, before the first release shared with anyone. The notices ship inside

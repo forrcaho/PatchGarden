@@ -18,7 +18,7 @@ import java.io.File
  * examples for anyone writing their own. Seeding only fills in what is absent: a file
  * the user has edited is theirs, and an upgrade must not overwrite it.
  */
-class ScaleLibrary private constructor(val directory: File?, scales: List<Scale>) {
+class ScaleLibrary private constructor(val folder: Folder?, scales: List<Scale>) {
 
     /**
      * Always at least one, and always including the fallback: a patch has to be able to
@@ -36,33 +36,23 @@ class ScaleLibrary private constructor(val directory: File?, scales: List<Scale>
         private const val ASSET_DIR = "scales"
         const val EXTENSION = ".scl"
 
-        fun load(context: Context): ScaleLibrary {
-            val dir = scaleDir(context)
-            if (dir != null) seed(context, dir)
-            return ScaleLibrary(dir, readAll(dir))
+        /** `scales` in the PatchGarden folder, seeded with the bundled set, then read. */
+        fun load(context: Context, home: Home): ScaleLibrary {
+            val folder = home.folder(Folders.SCALES)
+            if (folder != null) seed(context, folder)
+            return ScaleLibrary(folder, readAll(folder))
         }
 
         /** For tests and previews: whatever is in a directory, with no seeding. */
-        fun of(dir: File?): ScaleLibrary = ScaleLibrary(dir, readAll(dir))
+        fun of(dir: File?): ScaleLibrary = dir?.let { DirFolder(it) }.let { ScaleLibrary(it, readAll(it)) }
 
-        private fun scaleDir(context: Context): File? = try {
-            // getExternalFilesDir is null when the volume is unavailable, which is rare
-            // and survivable: the app falls back to internal storage and the user simply
-            // cannot drop files in.
-            val base = context.getExternalFilesDir(null) ?: context.filesDir
-            File(base, "scales").apply { mkdirs() }
-        } catch (e: Exception) {
-            Log.w(TAG, "no scale directory", e)
-            null
-        }
-
-        private fun seed(context: Context, dir: File) {
+        private fun seed(context: Context, folder: Folder) {
             try {
+                val there = folder.list().toSet()
                 context.assets.list(ASSET_DIR).orEmpty().forEach { name ->
-                    val target = File(dir, name)
-                    if (target.exists()) return@forEach
+                    if (name in there) return@forEach
                     context.assets.open("$ASSET_DIR/$name").use { input ->
-                        target.outputStream().use { input.copyTo(it) }
+                        folder.output(name)?.use { input.copyTo(it) }
                     }
                 }
             } catch (e: Exception) {
@@ -70,22 +60,21 @@ class ScaleLibrary private constructor(val directory: File?, scales: List<Scale>
             }
         }
 
-        private fun readAll(dir: File?): List<Scale> {
-            val files = dir?.listFiles { f -> f.isFile && f.name.endsWith(EXTENSION, true) }
-                ?: return emptyList()
+        private fun readAll(folder: Folder?): List<Scale> {
+            val files = folder?.list()?.filter { it.endsWith(EXTENSION, true) } ?: return emptyList()
             return files
-                .sortedBy { it.name.lowercase() }
+                .sortedBy { it.lowercase() }
                 .mapNotNull { file ->
-                    val name = file.name.dropLast(EXTENSION.length)
+                    val name = file.dropLast(EXTENSION.length)
                     val scale = try {
-                        parseScala(name, file.readText())
+                        folder.read(file)?.decodeToString()?.let { parseScala(name, it) }
                     } catch (e: Exception) {
-                        Log.w(TAG, "could not read ${file.name}", e)
+                        Log.w(TAG, "could not read $file", e)
                         null
                     }
                     // A bad file is skipped rather than fatal, and says so: the folder is
                     // user-writable, so a malformed scale is a thing that will happen.
-                    if (scale == null) Log.w(TAG, "ignoring ${file.name}: not a usable scale")
+                    if (scale == null) Log.w(TAG, "ignoring $file: not a usable scale")
                     scale
                 }
                 // Two files claiming one name would make the stored name ambiguous.

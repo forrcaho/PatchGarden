@@ -1,6 +1,5 @@
 package io.github.forrcaho.patchgarden
 
-import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.geometry.Offset
@@ -140,56 +139,38 @@ fun Patch.loadSubpatch(
 }
 
 /**
- * The saved subpatches on disk, beside the scales.
+ * The saved subpatches, in `subpatches` in the PatchGarden folder.
  *
- * In `getExternalFilesDir/subpatches` at Forrest's choice, where the `.scl` files already live:
- * a saved subpatch is something to copy off the phone, mail to someone, or drop in by hand,
- * and none of that is possible in app-private storage.
+ * Beside the scales at Forrest's choice: a saved subpatch is something to copy off the phone,
+ * mail to someone, or drop in by hand, and none of that is possible in app-private storage.
+ * Through [Folder], so it is the same library in app storage or in a folder the user chose.
  */
-class SubpatchLibrary(val directory: File?) {
+class SubpatchLibrary(val folder: Folder?) {
+
+    /** A library in a plain directory: app storage's, or a test's. */
+    constructor(directory: File?) : this(directory?.let { DirFolder(it) })
 
     /** What is saved, by name, in the order a list should show them. */
     fun names(): List<String> =
-        directory?.listFiles { f -> f.isFile && f.name.endsWith(SUBPATCH_EXTENSION, true) }
-            .orEmpty()
-            .map { it.name.dropLast(SUBPATCH_EXTENSION.length) }
+        folder?.list().orEmpty()
+            .filter { it.endsWith(SUBPATCH_EXTENSION, true) }
+            .map { it.dropLast(SUBPATCH_EXTENSION.length) }
             .sortedBy { it.lowercase() }
 
-    fun exists(name: String): Boolean = fileFor(name)?.exists() == true
+    fun exists(name: String): Boolean = fileFor(name)?.let { folder?.exists(it) } == true
 
-    fun read(name: String): String? = try {
-        fileFor(name)?.takeIf { it.isFile }?.readText()
-    } catch (e: Exception) {
-        Log.w(TAG, "could not read subpatch $name", e)
-        null
-    }
+    fun read(name: String): String? = fileFor(name)?.let { folder?.read(it) }?.decodeToString()
 
     /**
      * Takes [name] out of the library, and says whether it went. Deleted rather than moved
      * aside: it is asked for by a tile on a menu of its own, never by a press, and the library
      * is not the patch -- nothing here is undone.
      */
-    fun delete(name: String): Boolean = try {
-        fileFor(name)?.takeIf { it.isFile }?.delete() == true
-    } catch (e: Exception) {
-        Log.w(TAG, "could not delete subpatch $name", e)
-        false
-    }
+    fun delete(name: String): Boolean = fileFor(name)?.let { folder?.delete(it) } == true
 
     /** Writes [json] under [name], replacing what is there. Returns whether it landed. */
-    fun write(name: String, json: String): Boolean = try {
-        val file = fileFor(name)
-        if (file == null) {
-            false
-        } else {
-            directory?.mkdirs()
-            file.writeText(json)
-            true
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "could not save subpatch $name", e)
-        false
-    }
+    fun write(name: String, json: String): Boolean =
+        fileFor(name)?.let { folder?.write(it, json.encodeToByteArray()) } == true
 
     /**
      * [name] if it is free, or the first "name 2", "name 3" that is.
@@ -205,10 +186,8 @@ class SubpatchLibrary(val directory: File?) {
         return "$name $n"
     }
 
-    private fun fileFor(name: String): File? {
-        val safe = safeName(name)
-        return if (safe.isEmpty() || directory == null) null else File(directory, safe + SUBPATCH_EXTENSION)
-    }
+    private fun fileFor(name: String): String? =
+        safeName(name).takeIf { it.isNotEmpty() && folder != null }?.let { it + SUBPATCH_EXTENSION }
 
     companion object {
         /**
@@ -223,14 +202,6 @@ class SubpatchLibrary(val directory: File?) {
                 .trim()
                 .take(MAX_NAME)
 
-        fun load(context: Context): SubpatchLibrary = SubpatchLibrary(
-            try {
-                val base = context.getExternalFilesDir(null) ?: context.filesDir
-                File(base, "subpatches").apply { mkdirs() }
-            } catch (e: Exception) {
-                Log.w(TAG, "no subpatch directory", e)
-                null
-            },
-        )
+        fun load(home: Home): SubpatchLibrary = SubpatchLibrary(home.folder(Folders.SUBPATCHES))
     }
 }

@@ -11,17 +11,20 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
@@ -49,6 +52,8 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
 
     private lateinit var store: PatchStore
+    /** Where the files a person keeps live: the folder they chose, or app storage. */
+    private lateinit var home: Home
     private lateinit var scales: ScaleLibrary
     private lateinit var subpatches: SubpatchLibrary
     private lateinit var soundFonts: SoundFontLibrary
@@ -109,6 +114,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Minutes of always-on recording; 0 is off. A setting, so kept in preferences. */
+    private val recordMinutes = mutableIntStateOf(DEFAULT_RECORDING_MINUTES)
+
+    /** The first launch's offer of a folder, until it is answered either way. */
+    private val offerFolder = mutableStateOf(false)
+
+    /** A move into a folder just chosen, offered or under way. */
+    private val moveOffer = mutableStateOf<MoveOffer?>(null)
+
+    private val recordingFile: File get() = File(filesDir, RECORDING_FILE)
+
+    /**
+     * The system's folder picker. A folder chosen here is the folder from now on; what was in
+     * the old one is offered for moving, and then the activity starts again over the new one --
+     * every library reads its folder once, at the start, and a restart is the one way to be
+     * sure none of them is still reading the old.
+     */
+    private val pickFolder =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+            FolderChoice.markAsked(this)
+            offerFolder.value = false
+            if (tree == null) return@registerForActivityResult
+            val from = home
+            try {
+                FolderChoice.choose(this, tree)
+            } catch (e: Exception) {
+                Toast.makeText(this, "That folder cannot be kept", Toast.LENGTH_LONG).show()
+                return@registerForActivityResult
+            }
+            val to = TreeHome(contentResolver, tree)
+            scope.launch {
+                val files = withContext(Dispatchers.IO) { movable(from, to) }
+                if (files.isEmpty()) recreate() else moveOffer.value = MoveOffer(from, to, files)
+            }
+        }
+
     private val requestMicrophone =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
@@ -124,9 +165,11 @@ class MainActivity : ComponentActivity() {
 
         // Seeds the bundled .scl files into a folder the user can add to, then reads
         // whatever is there. Before the patch loads, because the patch names a tuning.
-        scales = ScaleLibrary.load(this)
-        subpatches = SubpatchLibrary.load(this)
-        soundFonts = SoundFontLibrary.load(this)
+        home = FolderChoice.home(this)
+        scales = ScaleLibrary.load(this, home)
+        subpatches = SubpatchLibrary.load(home)
+        soundFonts = SoundFontLibrary.load(home)
+        offerFolder.value = !FolderChoice.asked(this)
         store = PatchStore(this, scales)
         // Nothing saved, or a file this build refused: an empty canvas, as "New patch" leaves.
         // Demo patches, when there are some, are for the library rather than for here.
@@ -138,6 +181,11 @@ class MainActivity : ComponentActivity() {
         if (BuildConfig.DEBUG) {
             AudioEngine.armCapture(true, File(filesDir, "capture.wav").absolutePath)
         }
+        // Always recording, in every build. Set before the engine starts, which is when the
+        // recorder opens -- at the stream's rate, which nothing knows until then.
+        recordMinutes.intValue = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getInt(RECORD_MINUTES, DEFAULT_RECORDING_MINUTES)
+        AudioEngine.setRecording(recordingFile.absolutePath, recordMinutes.intValue * 60)
 
         // Ask for the panel's fastest mode. The reference device is 120Hz-capable but
         // idles its render rate at 60, and half the perceived latency of a tap is the
@@ -210,28 +258,87 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            PatchGardenApp(
-                patch = patch,
-                outputActive = outputActive.value,
-                onToggleOutput = {
-                    val on = !outputActive.value
-                    outputActive.value = on
-                    AudioEngine.setOutputEnabled(on)
+            val app = AppControls(
+                folder = home.label,
+                folderChosen = home.chosen,
+                onChooseFolder = { pickFolder.launch(null) },
+                recordMinutes = recordMinutes.intValue,
+                onRecordMinutes = { minutes ->
+                    recordMinutes.intValue = minutes
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit { putInt(RECORD_MINUTES, minutes) }
+                    AudioEngine.setRecording(recordingFile.absolutePath, minutes * 60)
                 },
-                onToggleInput = { toggleInput() },
-                canUndo = history.canUndo,
-                canRedo = history.canRedo,
-                onUndo = { restore(history.undo()) },
-                onRedo = { restore(history.redo()) },
-                // Straight to the engine rather than through the patch: where the
-                // transport has got to is a performance state, like the output switch,
-                // so resetting it is neither saved nor undone.
-                onResetTransport = { AudioEngine.resetTransport() },
-                scales = scales.scales,
-                library = subpatches,
-                scaleLibrary = scales,
-                soundFonts = soundFonts,
+                recording = { readRecordingHeader(recordingFile) },
+                onSaveRecording = { depth -> saveRecording(depth) },
             )
+            // The first launch's offer and a move sit over the whole app, the canvas included.
+            Box(Modifier.fillMaxSize()) {
+                PatchGardenApp(
+                    patch = patch,
+                    outputActive = outputActive.value,
+                    onToggleOutput = {
+                        val on = !outputActive.value
+                        outputActive.value = on
+                        AudioEngine.setOutputEnabled(on)
+                    },
+                    onToggleInput = { toggleInput() },
+                    canUndo = history.canUndo,
+                    canRedo = history.canRedo,
+                    onUndo = { restore(history.undo()) },
+                    onRedo = { restore(history.redo()) },
+                    // Straight to the engine rather than through the patch: where the
+                    // transport has got to is a performance state, like the output switch,
+                    // so resetting it is neither saved nor undone.
+                    onResetTransport = { AudioEngine.resetTransport() },
+                    scales = scales.scales,
+                    library = subpatches,
+                    scaleLibrary = scales,
+                    soundFonts = soundFonts,
+                    app = app,
+                )
+                if (offerFolder.value) {
+                    FolderOffer(
+                        onChoose = { pickFolder.launch(null) },
+                        onNotNow = {
+                            FolderChoice.markAsked(this@MainActivity)
+                            offerFolder.value = false
+                        },
+                    )
+                }
+                moveOffer.value?.let { offer ->
+                    MoveOverlay(offer) {
+                        moveOffer.value = null
+                        recreate()
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Writes the recording's window into `recordings/` as a WAV, named for the patch and the
+     * moment. Only into a folder the user chose: a recording in app storage is one nobody can
+     * find, so without one the answer is to choose one.
+     */
+    private suspend fun saveRecording(depth: BitDepth): SavedRecording = withContext(Dispatchers.IO) {
+        if (!home.chosen) return@withContext SavedRecording.NoFolder
+        val header = readRecordingHeader(recordingFile) ?: return@withContext SavedRecording.Silence
+        val folder = home.folder(Folders.RECORDINGS) ?: return@withContext SavedRecording.Failed
+        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH.mm.ss", java.util.Locale.US).format(java.util.Date())
+        val name = "${SubpatchLibrary.safeName(patch.title)} $stamp.wav"
+        val frames = try {
+            folder.output(name, "audio/wav")?.buffered(1 shl 16)?.use { exportRecording(recordingFile, it, depth, header) }
+        } catch (e: Exception) {
+            android.util.Log.w("PatchRecording", "could not save $name", e)
+            null
+        }
+        when (frames) {
+            null -> SavedRecording.Failed
+            0L -> {
+                folder.delete(name)
+                SavedRecording.Silence
+            }
+            else -> SavedRecording.Saved(name, "${home.label}/${Folders.RECORDINGS}")
         }
     }
 
@@ -367,6 +474,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val PREFS = "settings"
+        const val RECORD_MINUTES = "recordMinutes"
         const val SAVE_DEBOUNCE_MS = 500L
         const val HINT_ATTACH_DELAY_MS = 200L
     }
@@ -387,6 +496,7 @@ fun PatchGardenApp(
     library: SubpatchLibrary? = null,
     scaleLibrary: ScaleLibrary = ScaleLibrary.of(null),
     soundFonts: SoundFontLibrary? = null,
+    app: AppControls = AppControls(),
 ) {
     // The canvas paints edge to edge, but the initial framing keeps the patch clear of
     // the cutout, the gesture bar and the corner radius. Measured on the reference
@@ -407,6 +517,7 @@ fun PatchGardenApp(
         library = library,
         scaleLibrary = scaleLibrary,
         soundFonts = soundFonts,
+        app = app,
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF14171C)),

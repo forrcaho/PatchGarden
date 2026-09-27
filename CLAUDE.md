@@ -65,9 +65,13 @@ adb logcat -d -s PatchAudio:V      # engine: stream state, latency, xruns
 adb logcat -d -s PatchSync:V       # every command crossing to the graph (debug builds)
 adb logcat -d -s PatchGesture:V    # what the envelope editor made of each touch (debug builds)
 adb shell run-as io.github.forrcaho.patchgarden cat files/patch.json
+# The PatchGarden folder: wherever Settings says it is once one is chosen (the emulator's is
+# /sdcard/Music/PatchGarden), app storage until then
 adb shell ls /sdcard/Android/data/io.github.forrcaho.patchgarden/files/scales   # tunings
 adb shell ls /sdcard/Android/data/io.github.forrcaho.patchgarden/files/subpatches
 adb logcat -d -s PatchScales:V     # which .scl files loaded, and which were skipped
+adb logcat -d -s PatchFiles:V      # the chosen folder: grants, and anything a move left behind
+adb shell run-as io.github.forrcaho.patchgarden od -A d -t d4 -N 40 files/recording.raw  # the window's header
 ```
 
 `adb shell sleep N` works; a foreground `sleep` on the host does not.
@@ -108,6 +112,9 @@ being edited out from under it.
 | `GraphSync.kt` | the diff over `engineGraph()`, `NodeType` mirror, `GraphCommands` seam |
 | `PatchStore.kt` | JSON persistence, hand-rolled on `org.json` |
 | `SoundFontStore.kt` | the user's `.sf2` banks in `soundfonts`, loaded on demand |
+| `Files.kt` | the PatchGarden folder: app storage or a chosen SAF tree, behind `Folder`; moving |
+| `Settings.kt` | Settings, Save recording, the first launch's folder offer and the move |
+| `Recording.kt` | the recording's window read back and written as a WAV |
 | `SubpatchStore.kt` | the subpatch library: a saved subpatch is a patch file holding one subpatch; Open |
 | `History.kt` | undo as a stack of serialized patches, plus `Patch.replaceWith` |
 | `Scale.kt` | the tuning model: degrees in octaves, with a period |
@@ -123,6 +130,7 @@ being edited out from under it.
 | `soundfont.{h,cpp}` | the SF node over TinySoundFont; a SoundFont loaded once and shared |
 | `synth.h` | `MonoSynth` and `GateRamp`: one note's pitch, glide and declick |
 | `audio_engine.{h,cpp}` | Oboe streams, ADPF, debug capture |
+| `recorder.{h,cpp}` | always recording: a ring, a writer thread and a circular file |
 
 ## Invariants
 
@@ -510,6 +518,28 @@ its `ModuleType` carries its engine id (`engine`) and its `category`, `Types.mod
 list it is added to, and the palette, the name map and what the engine builds all derive from
 those -- a reflective test fails a type declared and never registered.
 
+**What a person keeps lives in the PatchGarden folder; what the app works with does not.**
+`soundfonts/`, `scales/`, `subpatches/` and `recordings/` are in a folder chosen once through
+the system's picker (a Storage Access Framework tree, persisted in the `files` preferences)
+or, until then, app storage -- and every library reads through `Folder`, so none knows which.
+The patch, the recording's window and the debug capture stay in app-private storage. **A chosen
+folder has no `java.io.File` in it**: a file is found by name among its folder's children, and
+a provider will not overwrite by name, so a write finds the file and truncates it. Choosing a
+folder offers to move what was in the old one -- copy, check the length, then delete, never
+replacing a file already there -- and then **recreates the activity**, since every library
+reads its folder once at the start. A recording is saved only into a chosen folder.
+
+**Always recording is the stream's own samples, on disk, and the engine never waits for it.**
+The audio thread copies each block into a lock-free ring (`Recorder::write`, which drops and
+counts a block that does not fit rather than waiting); a writer thread drains it into a
+circular file behind a 64-byte header, frames first and then the count, so a reader that sees
+N can read every frame below N. The file's capacity is the window **and a 30s margin**, and a
+save reads only the window, oldest first: the margin is what the writer has to get through
+before it can reach a frame being read. Kotlin reads the header and the frames itself --
+`setRecording` is the only call across -- and the bit depth is chosen at save. A window of
+the same shape carries on after a stop; any other starts over. The length is a setting and
+off deletes the file, which is hundreds of megabytes.
+
 **Anything sized to hold a label reads `Frame.fontScale`.** Labels are sp, boxes are dp, and
 the reference device runs at font scale 1.5; a menu tile sized for 12sp text overflowed
 there and nowhere else. Grow the box with the setting rather than shrinking the text back
@@ -662,9 +692,11 @@ upstream without `--recursive` when updating. It builds as its own CMake target 
 
 ## Testing
 
-Three suites, all run by `testDebugUnitTest`: JVM tests, `graph_test` and `node_test`. The
-C++ suites compile on the host under **ASan and UBSan** because `graph.cpp` and `nodes.cpp`
-depend on nothing from Android or Oboe; they are skipped where there is no host compiler.
+Four suites, all run by `testDebugUnitTest`: JVM tests, `graph_test`, `node_test` and
+`recorder_test`. The C++ suites compile on the host under **ASan and UBSan** because
+`graph.cpp`, `nodes.cpp` and `recorder.cpp` depend on nothing from Android or Oboe; they are
+skipped where there is no host compiler. The recorder has a thread in it and has also been run
+under TSan by hand, which cannot share a binary with ASan.
 
 **`GestureTest` drives the real gesture loop**, on the JVM under Robolectric: the real
 `PatchCanvas`, real pointer events, targets found with the drawing's own geometry (`Frame`,

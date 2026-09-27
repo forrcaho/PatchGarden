@@ -191,7 +191,7 @@ val hostCxx: String? = System.getenv("PATH")
 
 val nativeGraphTest = tasks.register<Exec>("nativeGraphTest") {
     group = "verification"
-    description = "Compiles and runs the audio graph and node tests on the host toolchain."
+    description = "Compiles and runs the audio graph, node and recorder tests on the host toolchain."
 
     // Skipped rather than failed where there is no host compiler, so a machine that
     // only builds the app is never blocked by a test it cannot run.
@@ -200,6 +200,7 @@ val nativeGraphTest = tasks.register<Exec>("nativeGraphTest") {
     val outDir = layout.buildDirectory.dir("native-test").get().asFile
     val graphBinary = File(outDir, "graph_test").absolutePath
     val nodeBinary = File(outDir, "node_test").absolutePath
+    val recorderBinary = File(outDir, "recorder_test").absolutePath
 
     workingDir = projectDir
     inputs.files(
@@ -244,8 +245,16 @@ val nativeGraphTest = tasks.register<Exec>("nativeGraphTest") {
         append(" src/main/cpp/processors.cpp")
         append(" ").append(vendorDir).append("/*.o")
         append(" -o ").append(nodeBinary)
+        append(" && ")
+        // The recorder has a thread in it; ASan and UBSan here, and it has been run under TSan
+        // by hand, which cannot be combined with ASan in one binary.
+        append(cxx)
+        append(" -std=c++17 -O1 -Wall -Wextra -Werror ").append(sanitize)
+        append(" -I src/main/cpp src/test/cpp/recorder_test.cpp src/main/cpp/recorder.cpp -lpthread")
+        append(" -o ").append(recorderBinary)
         append(" && ").append(graphBinary)
         append(" && ").append(nodeBinary)
+        append(" && ").append(recorderBinary)
     }
     commandLine("bash", "-c", script)
 }

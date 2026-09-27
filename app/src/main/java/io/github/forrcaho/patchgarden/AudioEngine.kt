@@ -240,6 +240,16 @@ object AudioEngine {
         if (available) nativeArmCapture(enabled, path)
     }
 
+    /**
+     * Always recording the last [seconds] of what reaches the stream into [path], or not at all
+     * at 0, which deletes the file. Unlike the debug capture this is in every build, because it
+     * is a feature: something found while exploring can be saved rather than reconstructed. It
+     * never leaves the phone unless a person saves it. See Recording.kt.
+     */
+    fun setRecording(path: String, seconds: Int) {
+        if (available) nativeSetRecording(path, seconds)
+    }
+
     /** What the stream actually negotiated, as key=value pairs. */
     fun status(): String = if (available) nativeStatus() else "state=UNAVAILABLE"
 
@@ -285,6 +295,7 @@ object AudioEngine {
     private external fun nativeCollectGarbage()
     private external fun nativeStatus(): String
     private external fun nativeArmCapture(enabled: Boolean, path: String)
+    private external fun nativeSetRecording(path: String, seconds: Int)
     private external fun nativeStartInput(): Boolean
     private external fun nativeStopInput()
     private external fun nativeInputStatus(): String

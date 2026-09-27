@@ -4,7 +4,9 @@
 #include <oboe/Oboe.h>
 
 #include "graph.h"
+#include "recorder.h"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <memory>
@@ -49,6 +51,14 @@ public:
      * exists.
      */
     void armCapture(bool enabled, const std::string &path);
+
+    /**
+     * Always recording, into [path], a window of the last [seconds] -- 0 turns it off and
+     * deletes the file, which is hundreds of megabytes. Any thread but the audio thread, any
+     * time: while the stream runs the recorder is reopened at once, and otherwise it opens
+     * with the stream. A change of length starts the window over. See Recorder.
+     */
+    void setRecording(const std::string &path, int32_t seconds);
 
     /**
      * Opens the microphone as a second stream, read from inside the output callback.
@@ -146,6 +156,15 @@ private:
 
     // Audio-thread only. Not atomic because nothing else touches it while running.
     float gain_ = 0.0f;
+
+    /** Opens the recorder at the stream's rate, if one is asked for. Caller holds streamLock_. */
+    void openRecorderLocked();
+
+    Recorder recorder_;
+    std::string recordPath_;
+    int32_t recordSeconds_ = 0;
+    /** One block of what reached the stream, interleaved stereo. Audio thread only. */
+    std::array<float, kBlockSize * 2> recordBlock_{};
 
     // Debug capture. captureWrite_ and captureWrapped_ are audio-thread only.
     std::atomic<bool> captureArmed_{false};
