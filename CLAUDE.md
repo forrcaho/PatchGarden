@@ -527,7 +527,9 @@ folder has no `java.io.File` in it**: a file is found by name among its folder's
 a provider will not overwrite by name, so a write finds the file and truncates it. Choosing a
 folder offers to move what was in the old one -- copy, check the length, then delete, never
 replacing a file already there -- and then **recreates the activity**, since every library
-reads its folder once at the start. A recording is saved only into a chosen folder.
+reads its folder once at the start. A recording is saved only into a chosen folder. **A page
+that asks a question is answered by its buttons, never by its scrim**: the folder offer, made
+once, was answered "Not now" on the phone by the tap that woke its dimmed screen. `PageTest`.
 
 **Always recording is the stream's own samples, on disk, and the engine never waits for it.**
 The audio thread copies each block into a lock-free ring (`Recorder::write`, which drops and

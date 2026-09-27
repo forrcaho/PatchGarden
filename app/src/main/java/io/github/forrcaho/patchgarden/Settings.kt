@@ -80,15 +80,21 @@ private val Heading = TextStyle(color = Color(0xFF98A0AD), fontSize = 14.sp)
 private val Body = TextStyle(color = Color(0xFFC9D0DA), fontSize = 15.sp)
 private val Faint = TextStyle(color = Color(0xFF8A93A3), fontSize = 13.sp)
 
-/** A page over the canvas: a scrim that closes it, and a card that does not. */
+/**
+ * A page over the canvas: a card, and a scrim that closes it when the page only shows
+ * something. A page that asks a question -- [asks] -- is answered by its buttons or Back and
+ * never by the scrim, which still takes the tap so it cannot reach the canvas: the folder offer
+ * was answered "Not now" on the phone by the tap that woke its dimmed screen, and it is asked
+ * only once.
+ */
 @Composable
-private fun Page(onDone: () -> Unit, content: @Composable () -> Unit) {
+private fun Page(onDone: () -> Unit, asks: Boolean = false, content: @Composable () -> Unit) {
     BackHandler(onBack = onDone)
     Box(
         Modifier
             .fillMaxSize()
             .background(Color(0xCC000000))
-            .pointerInput(Unit) { detectTapGestures { onDone() } },
+            .pointerInput(asks) { detectTapGestures { if (!asks) onDone() } },
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -297,7 +303,7 @@ internal fun SaveRecordingOverlay(app: AppControls, onSettings: () -> Unit, onDo
  */
 @Composable
 fun FolderOffer(onChoose: () -> Unit, onNotNow: () -> Unit) {
-    Page(onNotNow) {
+    Page(onNotNow, asks = true) {
         BasicText("A folder for PatchGarden", style = Title, modifier = Modifier.padding(bottom = 10.dp))
         BasicText(
             "SoundFonts, scales, saved subpatches and recordings can live in a folder you choose, " +
@@ -347,7 +353,7 @@ class MoveOffer(val from: Home, val to: Home, val files: Map<String, List<String
 fun MoveOverlay(offer: MoveOffer, onFinished: () -> Unit) {
     var moved by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
-    Page(onDone = { if (moved < 0) onFinished() }) {
+    Page(onDone = { if (moved < 0) onFinished() }, asks = true) {
         BasicText("Move your files?", style = Title, modifier = Modifier.padding(bottom = 10.dp))
         if (moved < 0) {
             BasicText(
