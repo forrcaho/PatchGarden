@@ -92,15 +92,13 @@ Each of these was recorded where it was found. They are collected here because t
 they are the work the theme implies. Where each stands after Forrest's review of
 2026-09-25 is in *Open work*, below; the notes here say which part of it.
 
-- **The add menu offers every built-in module before a subpatch.** The palette comes first,
-  and the empty `Subpatch` and `Poly` follow it. *Decided: the menu's Boxes
-  category (Open work, 5).*
-- **A saved subpatch does not sit beside the built-ins.** The library is its own menu behind
-  "Load...", where Phase 7's *Choosing from a library* said the picker has to treat a built-in
-  `Osc` and a saved `BassVoice` the same. That menu stops at twelve tiles
-  (`MAX_SAVED_TILES`) with no list past them, and a saved subpatch cannot be deleted from
-  inside the app. *Decided: saved subpatches listed in Boxes, scrolling, deleted
-  by a long press (Open work, 5).*
+- ~~**The add menu offers every built-in module before a subpatch.**~~ The palette came first,
+  and the empty `Subpatch` and `Poly` followed it. *Done 2026-09-26: Boxes is a chip of its
+  own, as near as any other (Open work, 5).*
+- ~~**A saved subpatch does not sit beside the built-ins.**~~ The library was its own menu
+  behind "Load...", stopping at twelve tiles with no list past them, and a saved subpatch could
+  not be deleted from inside the app. *Done 2026-09-26: saved subpatches are tiles in Boxes,
+  under the boxes, scrolling; a long press on one offers Delete (Open work, 5).*
 - ~~**A knob promotes one level and no further.**~~ A subpatch's own panel had no promote
   chip, so a knob two boxes down stopped at the first edge; and a promoted knob could not be
   given a jack from outside. *Done 2026-09-25: the subpatch's own panel has the promote chip
@@ -260,7 +258,7 @@ that goes in its own section as it always has.
 
    Checked on the emulator. The chooser is still to be settled on the phone.
 
-5. **The add menu in categories**, two taps to a module, grouped by what a module sends --
+5. ~~**The add menu in categories**~~, two taps to a module, grouped by what a module sends --
    which is what its color already says: **Synths** (Osc, Pluck, FM, SF, Noise), **Notes**
    (Seq, Drone, Euclid), **Note fx** (Arp, Chord, Chance), **Effects** (Filter, Delay, Reverb,
    Gain, Mixer), **Mod** (Env, LFO), **Boxes** (a new Subpatch or Poly, empty or made from a
@@ -270,6 +268,62 @@ that goes in its own section as it always has.
    engine id and its category, with the name map and the menu derived from it. The larger
    version -- the engine declaring its modules and the interface reading them at startup --
    is not worth its plumbing.
+
+   **Built 2026-09-26, overnight, from Forrest's answers before he went to sleep.** Checked on
+   the emulator, at font scale 1 and 1.5; **not yet on the phone.**
+
+   *The shape.* Asked, Forrest chose **chips across the top** over a menu of categories and a
+   second menu with a Back -- which is the "filter in place" Phase 7's *Choosing from a
+   library* worked out. Seven chips in a row, the showing category's tiles below it, five to a
+   row, so every category of modules is one row: a module is two taps from a long press, and
+   one when its category is already showing. The menu opens on the category chosen last and
+   never on Patch, so a long press and a stray tap cannot be all it takes to clear the patch.
+   **The chips never move**: the menu is placed for its tallest category -- Boxes, with three
+   rows of library -- whichever is showing, so a chip stays under the finger that is about to
+   choose the next. The cost is a menu that sits higher above a press near the bottom of the
+   screen than the old one did.
+
+   *Boxes.* The two kinds of box, empty and from a selection, then the library as tiles like any
+   module's -- Phase 7's rule that a built-in and a saved subpatch are picked alike -- in whole
+   rows that scroll by a drag, with a thumb when there is more than shows. A long press on a
+   saved one opens a menu of one tile, **Delete**, with the held one lit in red beneath it
+   (Forrest chose the tile over a bare long press, which is the long-press rule; the file is
+   deleted, since the library is not undone). A tap away from that hands the library back rather
+   than closing everything. "Load..." and its twelve-tile ceiling are gone.
+
+   *Patch* is Open..., Save patch..., New patch and Licenses... until Settings arrives with 6.
+   **Open** was not built before: a saved patch could only come back as a box. Forrest's rule:
+   Open replaces the patch, but **a patch that is not saved is offered the save first** -- Save...
+   or Don't save, and tapping away abandons it. Two things were needed to make that true:
+   - A whole-patch file now keeps what is around the box: its cables to Out and from In, the
+     rails' knobs, the scales, the tempo and the name. It had held the box alone, so a patch
+     opened from one would have been silent and in the default tuning. Loading one as a
+     subpatch reads none of that, so nothing else changed and no format version moved. Files
+     saved before this open unwired.
+   - "Saved" is asked of the library rather than remembered: the file under the patch's name
+     is what saving would write now (`isSavedIn`). So **Save patch... now names the patch**, as
+     saving a document does, and opening then re-saving has to be byte-identical -- a test says
+     it is, with a box inside. Undoing back to what was saved makes it saved again.
+
+   Opening unpacks the one plain box through `replaceWith`, so it is one edit and one undo takes
+   it back (checked on the emulator); a poly voice opens boxed, since unpacking it would make one
+   voice of everything.
+
+   *The catalog.* `ModuleType` carries `engine` and `category`; `Types.modules` is the one list
+   a module is added to, and `palette`, `byName` and what the engine is told to build all derive
+   from it -- `NodeType.of`'s name map went. `CatalogTest` reads `Types` by reflection so a type
+   declared and never registered fails, and pins **each category to what its modules send**
+   against the ports: a new module filed under the wrong chip fails there. A sixth module in a
+   category would be a second row, and fails there too, so that is a decision rather than a
+   drift. Gain and Mixer are still Amp and Mix, until 7 and the Mixer land.
+
+   Mutation-checked, nine faults, all caught: the chips placed for the category showing, the
+   category not remembered, Patch remembered, the library's drag panning the canvas instead, a
+   long press deleting on its own, away from Delete closing everything, Open never asking, a
+   saved patch losing its tuning, and one losing its cables. Writing the tests found a real bug
+   first: after Don't save the question stayed on screen, since `produceState` keeps its value
+   across a change of key.
+
 6. **Files, Settings and recording.** A PatchGarden folder chosen once through the system's
    folder picker, as Pagan does, holding `soundfonts/`, `scales/`, `subpatches/` and
    `recordings/` -- somewhere another app can be pointed at the same SoundFonts. The first
@@ -2455,9 +2509,9 @@ clean.
 
 > **The deadline passed without the separation being needed**, because a saved subpatch
 > loads as a copy (*A group can be saved and loaded*, above). What still stands is the
-> first half: the picker has to treat a built-in and a saved subpatch alike. It does not yet
-> -- the library is its own menu behind "Load..." -- and that is on the list of what
-> subpatch-first still asks for, at the top.
+> first half: the picker has to treat a built-in and a saved subpatch alike. **Done
+> 2026-09-26** (Open work, 5): the add menu is category chips over tiles, as this section
+> said, and the library is tiles under Boxes.
 
 A cheaper partial win, available any time: collapsing a module to a title-only strip
 buys back a good deal of the same screen space for far less work.

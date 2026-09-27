@@ -50,12 +50,12 @@ class NoticesTest {
         assertTrue("the full text, not a pointer to it", text.contains("END OF TERMS AND CONDITIONS"))
     }
 
-    /** Reachable from the app: the last tile of the menu that speaks for the whole patch. */
+    /** Reachable from the app: the last tile of Patch, the add menu's category for the whole of it. */
     @Test
-    fun `the canvas menu ends with the licenses`() {
-        val empty = menuItems(Patch(), null)
+    fun `the add menu's Patch ends with the licenses`() {
+        val empty = addMenuItems(Patch(), Category.PATCH)
         assertEquals(MenuItem.Licenses, empty.last())
-        val full = menuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, null)
+        val full = addMenuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, Category.PATCH)
         assertEquals(MenuItem.Licenses, full.last())
         assertTrue("and nowhere a module's menu is", MenuItem.Licenses !in menuItems(Patch().apply { add(Types.Osc, Offset.Zero) }, 100L))
     }

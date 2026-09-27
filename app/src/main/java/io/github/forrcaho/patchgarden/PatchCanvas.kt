@@ -496,6 +496,25 @@ enum class GridKind {
     DRONE,
 }
 
+/**
+ * The add menu's chips, in the order they sit across its top.
+ *
+ * The modules are grouped by what they send, which is what their colors already say -- green
+ * sources of notes, the notes-in-notes-out processors beside them, steel-blue sounds, gray and
+ * steel effects, purple modulation -- so a category is something the eye has already been
+ * told. Boxes and Patch hold no module type of their own beyond the two kinds of box: Boxes
+ * is where the subpatch library is, and Patch is the patch as a whole.
+ */
+enum class Category(val label: String) {
+    SYNTHS("Synths"),
+    NOTES("Notes"),
+    NOTE_FX("Note fx"),
+    EFFECTS("Effects"),
+    MOD("Mod"),
+    BOXES("Boxes"),
+    PATCH("Patch"),
+}
+
 data class ModuleType(
     val name: String,
     val inputs: List<Port>,
@@ -559,6 +578,14 @@ data class ModuleType(
      * that reads oddly and is worth less than the marker.
      */
     val stacked: Boolean = false,
+    /**
+     * The node the engine builds for it: what the module *is* to the audio thread, named in
+     * the one declaration rather than looked up from its name somewhere else. [NodeType.Unknown]
+     * for what never reaches the engine under its own name -- a box and the rails inside one.
+     */
+    val engine: NodeType = NodeType.Unknown,
+    /** Where the add menu offers it, or null for what it never offers. See [Category]. */
+    val category: Category? = null,
 ) {
     /** Indices of the parameters drawn as rows of the panel; the rest live in its header. */
     val rowParams: List<Int> get() = params.indices.filter { !params[it].header }
@@ -626,6 +653,7 @@ object Types {
             // already name.
             Param("track", 0f, 100f, 0f, "%", LIN, short = "trk"),
         ),
+        engine = NodeType.Filter, category = Category.EFFECTS,
     )
     /**
      * Opened by notes rather than by a gate. A pulse is an event and has no duration, so
@@ -639,6 +667,7 @@ object Types {
         // What replaced them is a grid, because an envelope is a shape and the one thing
         // four numbers cannot show you is what they add up to.
         grid = GridKind.ENVELOPE,
+        engine = NodeType.Env, category = Category.MOD,
     )
     /**
      * A slow wave, for turning knobs. Patched to a parameter's modulation port it sweeps
@@ -654,6 +683,7 @@ object Types {
         "Noise", emptyList(), listOf(Port("out", A)),
         Color(0xFF5C6440),
         params = listOf(Param("type", 0f, (NOISE_TYPES.size - 1).toFloat(), 0f, "", STEP, Choice.NOISE)),
+        engine = NodeType.Noise, category = Category.SYNTHS,
     )
     /**
      * An echo: the input again after a time, fed back into itself.
@@ -675,6 +705,7 @@ object Types {
             Param("feedback", 0f, 0.95f, 0.35f, "", LIN, short = "fb"),
             Param("mix", 0f, 1f, 0.35f, "", LIN),
         ),
+        engine = NodeType.Delay, category = Category.EFFECTS,
     )
     /**
      * A reverb, mono in and stereo out: a room or a plate, the two algorithms in reverb.h, to
@@ -692,6 +723,7 @@ object Types {
             Param("damp", 0f, 1f, 0.5f, "", LIN),
             Param("mix", 0f, 1f, 0.3f, "", LIN),
         ),
+        engine = NodeType.Reverb, category = Category.EFFECTS,
     )
     val Lfo = ModuleType(
         "LFO", emptyList(), listOf(Port("out", M)),
@@ -704,6 +736,7 @@ object Types {
             Param("wave", 0f, 3f, 3f, "", STEP, Choice.WAVE),
             intervalParam(default = FREE_INTERVAL),
         ),
+        engine = NodeType.Lfo, category = Category.MOD,
     )
     /**
      * No clock input: the transport steps it, at the interval chosen in its header. Order
@@ -719,6 +752,7 @@ object Types {
         ),
         stepCount = STEP_COUNT,
         grid = GridKind.SEQUENCE,
+        engine = NodeType.Steps,
     )
     /**
      * The sequencer: notes on a grid of steps by degrees, each its own length and a column
@@ -742,6 +776,7 @@ object Types {
             intervalParam(),
         ),
         grid = GridKind.DOTS,
+        engine = NodeType.Seq, category = Category.NOTES,
     )
     /**
      * Passes each note with a probability and drops the rest: the same line with different
@@ -751,6 +786,7 @@ object Types {
         "Chance", listOf(Port("notes", N)), listOf(Port("notes", N)),
         Color(0xFF2C8864),
         params = listOf(Param("chance", 0f, 1f, 0.5f, "", LIN)),
+        engine = NodeType.Chance, category = Category.NOTE_FX,
     )
     /**
      * Each note becomes a chord: the note and up to three more, counted in degrees of the
@@ -766,6 +802,7 @@ object Types {
             Param("note 3", -24f, 24f, 7f, "", STEP, short = "n3"),
             Param("note 4", -24f, 24f, 0f, "", STEP, short = "n4"),
         ),
+        engine = NodeType.Chord, category = Category.NOTE_FX,
     )
     /**
      * The notes held at its input, one at a time on the transport's ticks. Hold a chord on
@@ -779,6 +816,7 @@ object Types {
             Param("octaves", 1f, 4f, 1f, "", STEP, short = "oct"),
             intervalParam(),
         ),
+        engine = NodeType.Arp, category = Category.NOTE_FX,
     )
     /**
      * A Euclidean rhythm: pulses spread as evenly as they go over steps, turned by rotate,
@@ -795,6 +833,7 @@ object Types {
             Param("degree", -24f, 24f, 0f, "", STEP, short = "deg", degree = true),
             intervalParam(),
         ),
+        engine = NodeType.Euclid, category = Category.NOTES,
     )
     /**
      * Notes that stay on until they are turned off, laid out as degrees by octaves.
@@ -811,6 +850,7 @@ object Types {
         params = listOf(Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn")),
         stepCount = DRONE_CELLS,
         grid = GridKind.DRONE,
+        engine = NodeType.Drone, category = Category.NOTES,
     )
     /**
      * Notes in, sound out: one note at a time.
@@ -841,6 +881,7 @@ object Types {
             Param("wave", 0f, 3f, 0f, "", STEP, Choice.WAVE),
             Param("tune", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true),
         ),
+        engine = NodeType.Osc, category = Category.SYNTHS,
     )
     /**
      * A plucked string: Karplus-Strong, one delay line, one note at a time.
@@ -863,6 +904,7 @@ object Types {
             // After the note ends: short is a finger muting it, long lets it ring on.
             Param("R", 0.01f, 10f, 1f, "s", EXP),
         ),
+        engine = NodeType.Pluck, category = Category.SYNTHS,
     )
     /**
      * Two-operator FM for every note: a sine whose phase another sine pushes around.
@@ -887,6 +929,7 @@ object Types {
             // How fast the brightness dies away on its own, under the envelope's loudness.
             Param("fall", 0.01f, 20f, 1f, "s", EXP),
         ),
+        engine = NodeType.Fm, category = Category.SYNTHS,
     )
     /**
      * A SoundFont player: notes in, one instrument of a bank out.
@@ -909,6 +952,7 @@ object Types {
             ),
             Param("level", 0f, 2f, 1f, "", LIN, short = "lvl"),
         ),
+        engine = NodeType.Sf, category = Category.SYNTHS,
     )
     /**
      * A gain something else turns: audio in, modulation in, audio out.
@@ -930,6 +974,7 @@ object Types {
         "Amp", listOf(Port("in", A), Port("mod", M)), listOf(Port("out", A)),
         Color(0xFFA890A8),
         params = listOf(Param("gain", 0f, 2f, 1f, "", LIN, drivenBy = 1)),
+        engine = NodeType.Amp, category = Category.EFFECTS,
     )
     val Mix = ModuleType(
         "Mix",
@@ -942,6 +987,7 @@ object Types {
             Param("c", 0f, 2f, 1f, "", LIN),
             Param("d", 0f, 2f, 1f, "", LIN),
         ),
+        engine = NodeType.Mix, category = Category.EFFECTS,
     )
 
     /** Signal flows left to right, so the sink is welded right and the source left. */
@@ -950,6 +996,7 @@ object Types {
         Color(0xFFE0E0E0),
         params = listOf(Param("level", 0f, 2f, 1f, "", LIN, short = "lvl")),
         pinned = Edge.RIGHT,
+        engine = NodeType.Out,
     )
     val In = ModuleType(
         "In", emptyList(), listOf(Port("L", A), Port("R", A)),
@@ -957,18 +1004,9 @@ object Types {
         // Was a constant, and the right amount depends on the room.
         params = listOf(Param("gain", 0.25f, 64f, 8f, "x", EXP)),
         pinned = Edge.LEFT,
+        engine = NodeType.In,
     )
 
-    /**
-     * Offered by the add menu. Pinned types are deliberately absent.
-     *
-     * There is no Mult, despite the roadmap listing one. A mult exists in hardware
-     * because a physical jack takes one plug; here an output already fans out to as many
-     * inputs as you like, since each input stores its own source. Only summing ever
-     * needed a module, and that is Mix.
-     */
-    val palette =
-        listOf(Osc, Pluck, Fm, Sf, Noise, Drone, Seq, Euclid, Arp, Chord, Chance, Filter, Delay, Reverb, Env, Lfo, Amp, Mix)
 
     /**
      * Modules collapsed into one box. Its ports are its own rather than its type's -- they
@@ -978,6 +1016,7 @@ object Types {
      */
     val Subpatch = ModuleType(
         "Subpatch", emptyList(), emptyList(), Color(0xFFB9C2CE), structural = true, box = true,
+        category = Category.BOXES,
     )
 
     /**
@@ -1006,6 +1045,7 @@ object Types {
         // Its one knob, and the only knob any subpatch has of its own. Not exposable: see
         // PatchModule.canExpose -- a modulator that adds and removes nodes is not a knob.
         params = listOf(Param("voices", 1f, MAX_PORTS.toFloat(), 4f, "", STEP, short = "vce")),
+        category = Category.BOXES,
     )
 
     /**
@@ -1037,15 +1077,40 @@ object Types {
     )
 
     /**
-     * Every type a file can name. Steps is here and not in the palette: Seq took its place in
-     * the Add menu on 2026-09-19, and a patch that has one still loads and plays it -- retiring
-     * it outright would have meant refusing every patch and saved subpatch made with it.
+     * Every module that sounds, in the order the add menu offers them within a category. The
+     * one list a new module is added to; what it is, where it is offered and what the engine
+     * builds are all in its own declaration, and everything below is derived from them.
+     *
+     * Steps is here and offered nowhere: Seq took its place in the add menu on 2026-09-19, and
+     * a patch that has one still loads and plays it -- retiring it outright would have meant
+     * refusing every patch and saved subpatch made with it.
+     *
+     * There is no Mult, despite the roadmap once listing one. A mult exists in hardware because
+     * a physical jack takes one plug; here an output already fans out to as many inputs as you
+     * like, since each input stores its own source. Only summing ever needed a module, and that
+     * is Mix.
      */
+    val modules: List<ModuleType> = listOf(
+        Osc, Pluck, Fm, Sf, Noise,
+        Seq, Drone, Euclid,
+        Arp, Chord, Chance,
+        Filter, Delay, Reverb, Amp, Mix,
+        Env, Lfo,
+        Steps, Out, In,
+    )
+
+    /** Offered by the add menu: every module with a category. Pinned types are never offered. */
+    val palette: List<ModuleType> = modules.filter { it.category != null }
+
+    /** What the add menu offers under [category], in order. */
+    fun offered(category: Category): List<ModuleType> = palette.filter { it.category == category }
+
     /** The two box types, by the name a file calls them. Not in [byName]: neither sounds. */
     val boxes: Map<String, ModuleType> = listOf(Subpatch, Poly).associateBy { it.name }
 
+    /** Every type a file can name that sounds. */
     val byName: Map<String, ModuleType> =
-        (palette + listOf(Steps, Out, In)).associateBy { it.name } +
+        modules.associateBy { it.name } +
             // The name Seq had for its first night. Not a conversion: the same module, renamed.
             mapOf("DotSeq" to Seq)
 }
@@ -3680,7 +3745,7 @@ class Patch {
         modules.forEach { m ->
             if (m.type.structural) return@forEach
             val copies = polyOf(m.id)?.let { voicesOf(it) } ?: 1
-            for (k in 0 until copies) nodes += EngineNode(cloneId(m.id, k), NodeType.of(m.type), m)
+            for (k in 0 until copies) nodes += EngineNode(cloneId(m.id, k), m.type.engine, m)
         }
         polys.forEach { poly ->
             // The note edge takes the poly's own id, so its voices knob reaches it as any
@@ -3848,14 +3913,33 @@ sealed interface Interaction {
         val targetId: Long?,
         /** Set when the press landed on a subpatch's port, which has its own one-item menu. */
         val port: PortRef? = null,
-        /** The library's own menu, whose tiles are the saved subpatches. */
-        val library: Boolean = false,
         /**
          * Set when the press landed on a node of [targetId]'s envelope, whose menu is its
          * release and its removal. The only menu opened over a panel rather than the canvas.
          */
         val node: Int = -1,
+        /**
+         * The add menu, showing this category's tiles under the chips. Set exactly when the
+         * press landed on empty canvas.
+         */
+        val category: Category? = null,
+        /** How many rows of the library the add menu's Boxes has scrolled past. */
+        val scroll: Int = 0,
+        /** A saved subpatch held down in Boxes, whose menu is its deletion. */
+        val saved: String? = null,
+        /**
+         * The menu this one was opened from, and so the one a tap away returns to. Set only for
+         * a saved subpatch's menu, which is opened from inside the add menu and should hand the
+         * library back rather than closing everything.
+         */
+        val back: Menu? = null,
     ) : Interaction
+
+    /**
+     * Opening a saved patch in place of this one. [checked] once the patch has been saved, or
+     * was already, or the user chose not to -- until then the overlay asks first.
+     */
+    data class Opening(val checked: Boolean = false) : Interaction
 
     /**
      * Choosing modules to subpatch. A tap on a module adds or removes it; the Subpatch and Cancel
@@ -3886,8 +3970,10 @@ sealed interface Interaction {
     /**
      * Naming something on its way into the library: a subpatch, or the whole patch when
      * [moduleId] is null. Over the canvas like [Renaming], and for the same reason.
+     * [thenOpen] when this save was asked for on the way to opening another patch, which
+     * carries on once it lands.
      */
-    data class Saving(val moduleId: Long?) : Interaction
+    data class Saving(val moduleId: Long?, val thenOpen: Boolean = false) : Interaction
 
     /**
      * The open-source notices, over the canvas like [Renaming] and for a similar reason: a page
@@ -3936,14 +4022,17 @@ sealed interface MenuItem {
     /** Writes a subpatch to the library. Null is the whole patch, saved as one subpatch. */
     data class Save(val moduleId: Long?) : MenuItem
 
-    /** Opens the library, whose own tiles are the saved subpatches. */
-    data object OpenLibrary : MenuItem
-
     /** One saved subpatch, placed where the menu that offered it was opened. */
     data class Load(val name: String) : MenuItem
 
-    /** The library with nothing in it yet: a tile that says so and dismisses. */
-    data object LibraryEmpty : MenuItem
+    /** One of the add menu's chips across its top: shows that category's tiles. */
+    data class Show(val category: Category) : MenuItem
+
+    /** A saved patch, in place of this one; see [Interaction.Opening]. */
+    data object Open : MenuItem
+
+    /** Takes a saved subpatch out of the library, file and all. */
+    data class DeleteSaved(val name: String) : MenuItem
 
     /** The notices of what the app bundles; see [Interaction.Licenses]. */
     data object Licenses : MenuItem
@@ -3978,17 +4067,20 @@ internal fun Patch.subpatchPortAt(ref: PortRef): Triple<PatchModule, PortDirecti
     }
 }
 
+/**
+ * What a menu opened on something offers: a module, a subpatch's jack, an envelope node or a
+ * saved subpatch. The add menu, opened on nothing, is [addMenuItems].
+ */
 internal fun menuItems(
     patch: Patch,
     targetId: Long?,
     port: PortRef? = null,
-    /** Non-null for the library's own menu: its tiles are what is saved. */
-    saved: List<String>? = null,
     /** An envelope node of [targetId]'s, when the press landed on one. */
     node: Int = -1,
+    /** A saved subpatch held down in the add menu's Boxes. */
+    saved: String? = null,
 ): List<MenuItem> = when {
-    saved != null ->
-        saved.take(MAX_SAVED_TILES).map { MenuItem.Load(it) }.ifEmpty { listOf(MenuItem.LibraryEmpty) }
+    saved != null -> listOf(MenuItem.DeleteSaved(saved))
     port != null -> patch.subpatchPortAt(port)
         ?.let { (subpatch, dir, index) -> listOf(MenuItem.RemovePort(subpatch.id, dir, index)) }
         .orEmpty()
@@ -4009,27 +4101,7 @@ internal fun menuItems(
             )
         }
         .orEmpty()
-    targetId == null -> Types.palette.map { MenuItem.Add(it) } +
-        // The boxes come first among what the menu offers after the modules: an empty one
-        // you go inside, then the same thing made out of what is already on the canvas.
-        // Both kinds of each, except that a poly subpatch cannot be made inside one.
-        listOfNotNull(
-            MenuItem.Add(Types.Subpatch),
-            MenuItem.Add(Types.Poly).takeIf { !patch.insidePoly(patch.scopeOrTop) },
-            MenuItem.StartSubpatch(Types.Subpatch),
-            MenuItem.StartSubpatch(Types.Poly).takeIf { !patch.insidePoly(patch.scopeOrTop) },
-        ) +
-        MenuItem.OpenLibrary +
-        // Saving the patch belongs here rather than on a module: it is about all of them,
-        // and the empty canvas is the only thing that stands for the patch as a whole.
-        listOfNotNull(
-            MenuItem.Save(null).takeIf { patch.free.any { m -> m.parent == TOP } },
-            // Next to Save, and only when there is something to clear.
-            MenuItem.NewPatch.takeIf { patch.free.isNotEmpty() },
-            // Last, and on this menu because it is about the app rather than about anything on
-            // the canvas -- the one menu that already speaks for the whole of what is open.
-            MenuItem.Licenses,
-        )
+    targetId == null -> emptyList()
     patch.module(targetId)?.type?.box == true -> listOfNotNull(
         MenuItem.Duplicate(targetId),
         // Only when it has any: an empty panel would be a door onto nothing, and the way
@@ -4043,13 +4115,32 @@ internal fun menuItems(
 }
 
 /**
- * How many saved subpatches the library's menu shows.
+ * The tiles of the add menu's [category], below its chips.
  *
- * The menu wraps its tiles into rows and would run off the screen before it ran out of
- * names. A library bigger than this wants a list that scrolls, which is the next thing to
- * build here rather than a reason to hold this one back.
+ * A category of modules is those modules, in [Types.modules]' order. **Boxes** is the two
+ * kinds of box, empty and then made from a selection -- a poly subpatch cannot be made inside
+ * one -- and after them the library, every saved subpatch as a tile like any module's, since
+ * the picker has to treat a built-in `Osc` and a saved `BassVoice` alike. **Patch** is what is
+ * about all of it: the empty canvas is the only thing that stands for the patch as a whole.
  */
-internal const val MAX_SAVED_TILES = 12
+internal fun addMenuItems(patch: Patch, category: Category, saved: List<String> = emptyList()): List<MenuItem> =
+    when (category) {
+        Category.BOXES -> listOfNotNull(
+            MenuItem.Add(Types.Subpatch),
+            MenuItem.Add(Types.Poly).takeIf { !patch.insidePoly(patch.scopeOrTop) },
+            MenuItem.StartSubpatch(Types.Subpatch),
+            MenuItem.StartSubpatch(Types.Poly).takeIf { !patch.insidePoly(patch.scopeOrTop) },
+        ) + saved.map { MenuItem.Load(it) }
+        Category.PATCH -> listOfNotNull(
+            MenuItem.Open,
+            MenuItem.Save(null).takeIf { patch.free.any { m -> m.parent == TOP } },
+            // Next to Save, and only when there is something to clear.
+            MenuItem.NewPatch.takeIf { patch.free.isNotEmpty() },
+            // Last: about the app rather than anything on the canvas.
+            MenuItem.Licenses,
+        )
+        else -> Types.offered(category).map { MenuItem.Add(it) }
+    }
 
 /** The subpatches from the top down to the one being looked at, [TOP] first. */
 internal fun Patch.scopePath(): List<Long> {
@@ -4417,6 +4508,8 @@ internal class CanvasControls(
     val saved: List<String> = emptyList(),
     /** Loads a saved subpatch into [Patch] at a world position. The file read is the caller's. */
     val onLoadSubpatch: (String, Offset) -> Unit = { _, _ -> },
+    /** Takes a saved subpatch out of the library. */
+    val onDeleteSaved: (String) -> Unit = {},
 )
 
 /**
@@ -4758,13 +4851,22 @@ fun PatchCanvas(
     // it was during the first composition -- which is false -- and the buttons would
     // draw correctly (that lambda is rebuilt every recomposition) while never being
     // hittable. They did exactly that on the device.
-    // The library's names, read when its menu opens rather than kept live: a file dropped
-    // into the folder over USB should be there the next time you look, and nothing needs
-    // the list before then.
+    // The library's names, read when the add menu opens rather than kept live: a file dropped
+    // into the folder over USB should be there the next time you look, and nothing needs the
+    // list before then. Read again after a deletion, which is the one change made from here.
     var savedSubpatches by remember { mutableStateOf(emptyList<String>()) }
-    val libraryOpen = (interaction as? Interaction.Menu)?.library == true
-    LaunchedEffect(libraryOpen, library) {
-        if (libraryOpen) savedSubpatches = withContext(Dispatchers.IO) { library?.names().orEmpty() }
+    var libraryChanged by remember { mutableIntStateOf(0) }
+    val addMenuOpen = (interaction as? Interaction.Menu)?.let { it.category != null || it.back != null } == true
+    LaunchedEffect(addMenuOpen, library, libraryChanged) {
+        if (addMenuOpen) savedSubpatches = withContext(Dispatchers.IO) { library?.names().orEmpty() }
+    }
+    // Which category the add menu opens on: the one chosen last, so adding three effects in a
+    // row is a tile each after the first. Never Patch, which is not something done twice in a
+    // row, and whose tiles include clearing everything -- a long press and a stray tap must
+    // not be all it takes. View state: not saved, not undone.
+    var addCategory by remember { mutableStateOf(Category.SYNTHS) }
+    LaunchedEffect(interaction) {
+        (interaction as? Interaction.Menu)?.category?.takeIf { it != Category.PATCH }?.let { addCategory = it }
     }
     val io = rememberCoroutineScope()
 
@@ -4779,6 +4881,12 @@ fun PatchCanvas(
                     // is logged where it happened, and a half-loaded subpatch is not a thing
                     // this can leave behind -- loadSubpatch either adopts all of it or none.
                     if (text != null) patch.loadSubpatch(text, at, scaleLibrary)
+                }
+            },
+            onDeleteSaved = { name ->
+                io.launch {
+                    withContext(Dispatchers.IO) { library?.delete(name) }
+                    libraryChanged++
                 }
             },
         ),
@@ -5501,6 +5609,64 @@ fun PatchCanvas(
                             return@awaitEachGesture
                         }
 
+                        // The add menu's library scrolls, and every saved subpatch in it has a
+                        // menu of its own, so a touch there is decided here -- before the canvas
+                        // below can take its first move for a pan of the patch behind the menu.
+                        // Its own short loop, as the panel has, rather than two more outcomes in
+                        // the canvas's.
+                        val shownMenu = interaction as? Interaction.Menu
+                        if (shownMenu?.category == Category.BOXES) {
+                            val layout = menuLayoutOf(
+                                shownMenu, patch, controls.saved, frame.density, frame.canvas, frame.fontScale,
+                            )
+                            if (layout.list?.contains(down.position) == true) {
+                                var moved = false
+                                var held = false
+                                try {
+                                    withTimeout(longPressMs) {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.pressed } ?: break
+                                            if ((change.position - down.position).getDistance() > slop) {
+                                                moved = true
+                                                break
+                                            }
+                                        }
+                                    }
+                                } catch (_: PointerEventTimeoutCancellationException) {
+                                    held = true
+                                }
+                                if (held) {
+                                    // Held on a saved subpatch: its menu, the one thing done *to*
+                                    // it -- deleting, which is always a tile and never the press.
+                                    val load = layout.tiles.firstOrNull { it.first.contains(down.position) }
+                                        ?.second as? MenuItem.Load
+                                    if (load != null) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        interaction = Interaction.Menu(
+                                            down.position, null, saved = load.name, back = shownMenu,
+                                        )
+                                    }
+                                    waitForUpRelease()
+                                } else if (moved) {
+                                    // Up the menu is on through the library, like any list.
+                                    val from = layout.scroll
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.pressed } ?: break
+                                        val rows = ((change.position.y - down.position.y) / layout.listPitch).roundToInt()
+                                        interaction = shownMenu.copy(scroll = (from - rows).coerceIn(0, layout.maxScroll))
+                                        change.consume()
+                                    }
+                                } else {
+                                    interaction = handleTap(
+                                        patch, camera, frame, interaction, down.position, touchPx, controls,
+                                    )
+                                }
+                                return@awaitEachGesture
+                            }
+                        }
+
                         var kind = GestureKind.Undecided
                         var draggedModule: PatchModule? = null
                         var grabOffset = Offset.Zero
@@ -5590,8 +5756,11 @@ fun PatchCanvas(
                                         hitModule.expanded = true
                                     }
                                     Interaction.Idle
+                                } else if (hitModule == null) {
+                                    // Empty canvas: the add menu, on the category chosen last.
+                                    Interaction.Menu(down.position, null, category = addCategory)
                                 } else {
-                                    Interaction.Menu(down.position, hitModule?.id)
+                                    Interaction.Menu(down.position, hitModule.id)
                                 }
                                 // Swallow the rest of the gesture so the release is not a tap.
                                 while (true) {
@@ -5883,16 +6052,22 @@ fun PatchCanvas(
             )
 
             (interaction as? Interaction.Menu)?.let { menu ->
-                drawMenu(
-                menuLayout(
-                    menuItems(
-                        patch, menu.targetId, menu.port, savedSubpatches.takeIf { menu.library },
-                        menu.node,
-                    ),
-                    menu.anchor, d, size, frame.fontScale,
-                ),
-                d, screenMeasurer,
-            )
+                // A saved subpatch's menu is drawn over the add menu it came from, which stays
+                // in sight but dimmed: it is where a tap away goes back to.
+                menu.back?.let { back ->
+                    val under = menuLayoutOf(back, patch, savedSubpatches, d, size, frame.fontScale)
+                    drawMenu(under, d, screenMeasurer)
+                    drawRoundRect(
+                        color = Color(0x99000000), topLeft = under.rect.topLeft, size = under.rect.size,
+                        cornerRadius = CornerRadius(10f * d, 10f * d),
+                    )
+                    // The one held stays lit, edged in the deletion's red: the menu over it says
+                    // only "Delete", and it lands on a neighbor, so this is what says which.
+                    under.tiles.firstOrNull { it.second == MenuItem.Load(menu.saved ?: "") }?.let { (rect, item) ->
+                        drawMenuTile(rect, item, d, screenMeasurer, edge = Color(0xFFE07A6B))
+                    }
+                }
+                drawMenu(menuLayoutOf(menu, patch, savedSubpatches, d, size, frame.fontScale), d, screenMeasurer)
             }
         }
 
@@ -5925,12 +6100,37 @@ fun PatchCanvas(
                 initial = subpatch?.title ?: patch.title,
                 library = library,
                 // Built when the name is known, since saving the whole patch names the subpatch
-                // it makes on the way out.
+                // it makes on the way out -- and names the patch too, as saving a document under
+                // a name does: the patch is now the one in the library by that name, which is
+                // what Open asks when it wants to know whether there is anything to lose.
                 json = { name ->
-                    if (subpatch != null) patch.subpatchToJson(subpatch, name)
-                    else patch.patchToSubpatchJson(name)
+                    if (subpatch != null) {
+                        patch.subpatchToJson(subpatch, name)
+                    } else {
+                        patch.name = name
+                        patch.patchToSubpatchJson(name)
+                    }
                 },
-            ) { interaction = Interaction.Idle }
+            ) { saved ->
+                interaction = if (saving.thenOpen && saved) Interaction.Opening(checked = true) else Interaction.Idle
+            }
+        }
+        (interaction as? Interaction.Opening)?.let { opening ->
+            OpenOverlay(
+                patch = patch,
+                library = library,
+                checked = opening.checked,
+                onSaveFirst = { interaction = Interaction.Saving(null, thenOpen = true) },
+                onSkipSave = { interaction = Interaction.Opening(checked = true) },
+                onOpen = { name ->
+                    interaction = Interaction.Idle
+                    io.launch {
+                        val text = withContext(Dispatchers.IO) { library?.read(name) }
+                        if (text != null) patch.openSaved(text, name, scaleLibrary)
+                    }
+                },
+                onDone = { interaction = Interaction.Idle },
+            )
         }
     }
 }
@@ -6152,7 +6352,8 @@ private fun SaveOverlay(
     initial: String,
     library: SubpatchLibrary?,
     json: (String) -> String?,
-    onDone: () -> Unit,
+    /** Whether anything was written: false when the save was abandoned. */
+    onDone: (Boolean) -> Unit,
 ) {
     var text by remember(initial) {
         mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length)))
@@ -6167,7 +6368,7 @@ private fun SaveOverlay(
         val body = json(name)
         keyboard?.hide()
         if (body != null) io.launch { withContext(Dispatchers.IO) { library?.write(name, body) } }
-        onDone()
+        onDone(body != null)
     }
 
     fun commit() {
@@ -6182,7 +6383,7 @@ private fun SaveOverlay(
             .fillMaxSize()
             .background(Color(0x99000000))
             // Tapping away abandons the save. Unlike a rename, nothing has happened yet.
-            .pointerInput(initial) { detectTapGestures { keyboard?.hide(); onDone() } },
+            .pointerInput(initial) { detectTapGestures { keyboard?.hide(); onDone(false) } },
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -6255,6 +6456,130 @@ private fun SaveOverlay(
     LaunchedEffect(initial) {
         focus.requestFocus()
         keyboard?.show()
+    }
+}
+
+/**
+ * Opening a saved patch in place of this one: first, if the patch has changes the library
+ * does not have, a question -- save them, or not -- and then the library to choose from.
+ *
+ * Forrest's rule, 2026-09-26: Open replaces the patch, but a patch that has not been saved
+ * is offered the save first. Only Open asks. "Saved" is the library's answer rather than a
+ * flag ([isSavedIn]), so the question never comes up for a patch that is already there as it
+ * stands, or for an empty one. Tapping away at either step abandons the open, and so does
+ * abandoning the save it offered; the open itself is one edit, and one undo takes it back.
+ */
+@Composable
+private fun OpenOverlay(
+    patch: Patch,
+    library: SubpatchLibrary?,
+    /** The question has been answered, or never needed asking. */
+    checked: Boolean,
+    onSaveFirst: () -> Unit,
+    onSkipSave: () -> Unit,
+    onOpen: (String) -> Unit,
+    onDone: () -> Unit,
+) {
+    // Null until the library has said: nothing is drawn but the scrim for that moment, rather
+    // than a question that might vanish before it can be read. Set in both branches, since
+    // produceState keeps its value across a change of key -- "Don't save" left the question
+    // standing until it did.
+    val saved by produceState<Boolean?>(if (checked) true else null, checked) {
+        value = if (checked) {
+            true
+        } else {
+            val now = patch.patchToSubpatchJson(patch.title)
+            now == null || withContext(Dispatchers.IO) { library?.read(patch.title) } == now
+        }
+    }
+    val names by produceState<List<String>?>(null, library) {
+        value = withContext(Dispatchers.IO) { library?.names().orEmpty() }
+    }
+    val accent = Types.Subpatch.accent
+    BackHandler(onBack = onDone)
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0x99000000))
+            .pointerInput(Unit) { detectTapGestures { onDone() } },
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Column(
+            Modifier
+                .padding(top = 40.dp, bottom = 20.dp, start = 24.dp, end = 24.dp)
+                .widthIn(max = 420.dp)
+                .background(Color(0xFF1B1F26), RoundedCornerShape(12.dp))
+                .border(2.dp, accent.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                .pointerInput(Unit) { detectTapGestures { } }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            when (saved) {
+                null -> Unit
+                false -> {
+                    BasicText(
+                        "\u201c${patch.title}\u201d has changes that are not saved",
+                        style = TextStyle(color = Color(0xFFE6E9EF), fontSize = 16.sp),
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                    Row(Modifier.fillMaxWidth()) {
+                        listOf("Save\u2026" to onSaveFirst, "Don\u2019t save" to onSkipSave).forEach { (label, act) ->
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 3.dp)
+                                    .height(52.dp)
+                                    .background(
+                                        if (act === onSaveFirst) accent.copy(alpha = 0.85f)
+                                        else Color(0xFFE07A6B).copy(alpha = 0.85f),
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .pointerInput(label) { detectTapGestures { act() } },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                BasicText(
+                                    label,
+                                    style = TextStyle(
+                                        color = Color(0xFF12151A), fontSize = 18.sp, fontWeight = FontWeight.Medium,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                true -> {
+                    BasicText(
+                        "Open a saved patch",
+                        style = TextStyle(color = Color(0xFF98A0AD), fontSize = 14.sp),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    val list = names
+                    if (list != null && list.isEmpty()) {
+                        BasicText(
+                            "Nothing is saved yet",
+                            style = TextStyle(color = Color(0xFF6C7482), fontSize = 16.sp),
+                        )
+                    }
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        list.orEmpty().forEach { name ->
+                            BasicText(
+                                name,
+                                style = TextStyle(
+                                    color = Color(0xFFE6E9EF), fontSize = 18.sp, fontWeight = FontWeight.Medium,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .background(accent.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+                                    .border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                    .pointerInput(name) { detectTapGestures { onOpen(name) } }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -8195,15 +8520,10 @@ private fun handleTap(
     controls: CanvasControls,
 ): Interaction {
     if (current is Interaction.Menu) {
-        val layout = menuLayout(
-            menuItems(
-                patch, current.targetId, current.port, controls.saved.takeIf { current.library },
-                current.node,
-            ),
-            current.anchor, frame.density, frame.canvas, frame.fontScale,
-        )
+        val layout = menuLayoutOf(current, patch, controls.saved, frame.density, frame.canvas, frame.fontScale)
         val chosen = layout.tiles.firstOrNull { it.first.contains(screen) }?.second
-            ?: return Interaction.Idle // tapped away: dismiss
+            // Tapped away: dismissed, back to the menu this one was opened from if any.
+            ?: return current.back ?: Interaction.Idle
         when (chosen) {
             is MenuItem.Add -> {
                 // Place the new module centered on where the long press landed.
@@ -8224,8 +8544,13 @@ private fun handleTap(
                 return if (patch.module(chosen.moduleId) == null) Interaction.Idle
                 else Interaction.Renaming(chosen.moduleId)
             is MenuItem.Save -> return Interaction.Saving(chosen.moduleId)
-            is MenuItem.OpenLibrary ->
-                return Interaction.Menu(current.anchor, null, library = true)
+            // A chip filters in place: the same menu, the same anchor, the other category.
+            is MenuItem.Show -> return current.copy(category = chosen.category, scroll = 0)
+            is MenuItem.Open -> return Interaction.Opening()
+            is MenuItem.DeleteSaved -> {
+                controls.onDeleteSaved(chosen.name)
+                return current.back ?: Interaction.Idle
+            }
             is MenuItem.Load -> {
                 // Centered on the press that opened the menu, as a new module is.
                 val world = camera.toWorld(current.anchor)
@@ -8235,7 +8560,6 @@ private fun handleTap(
                 )
             }
             is MenuItem.NewPatch -> patch.reset()
-            is MenuItem.LibraryEmpty -> Unit
             is MenuItem.RemovePort -> patch.module(chosen.subpatchId)?.let {
                 patch.removeSubpatchPort(it, chosen.dir, chosen.index)
             }
@@ -8360,6 +8684,7 @@ private fun handleTap(
         // composable over the canvas and takes every touch while it is up.
         is Interaction.Menu, is Interaction.Selecting,
         is Interaction.Renaming, is Interaction.Typing, is Interaction.Saving, is Interaction.Licenses,
+        is Interaction.Opening,
         -> Interaction.Idle
     }
 }
@@ -8676,7 +9001,136 @@ private object MenuMetrics {
     const val SCREEN_MARGIN = 10f
 }
 
-internal class MenuLayout(val rect: Rect, val tiles: List<Pair<Rect, MenuItem>>)
+internal class MenuLayout(
+    val rect: Rect,
+    /** Everything a tap can choose, the add menu's chips included, each with where it is. */
+    val tiles: List<Pair<Rect, MenuItem>>,
+    /** The add menu's category, whose chip is lit; null for any other menu. */
+    val lit: Category? = null,
+    /** Where Boxes' library scrolls, when it has anything in it. */
+    val list: Rect? = null,
+    /** How far one row of the library is, in px: what a drag divides by. */
+    val listPitch: Float = 0f,
+    /** The most rows the library can scroll past, 0 when it all shows. */
+    val maxScroll: Int = 0,
+    /** How many it has, clamped to [maxScroll]. */
+    val scroll: Int = 0,
+)
+
+/**
+ * The add menu's shape, in dp before the text size grows it.
+ *
+ * Seven chips across the top, each wide enough for the longest label ("Note fx", 39dp of 12sp
+ * text) with room either side, and five tiles below spanning the same width -- five because
+ * that is the most modules any category holds, so every category of modules is one row and a
+ * module is two taps from a long press, one when the category is already showing.
+ */
+private object AddMenuMetrics {
+    const val CHIP_W = 55f
+    const val CHIP_H = 32f
+    const val COLS = 5
+    /** Rows of the library shown at once in Boxes before it scrolls. */
+    const val LIBRARY_ROWS = 3
+}
+
+/**
+ * Lays out the add menu over [anchor]: the chips, then [category]'s tiles, then in Boxes the
+ * library's rows from [scroll].
+ *
+ * **The chips never move.** The menu is placed for the tallest thing it can show -- a row of
+ * modules and [AddMenuMetrics.LIBRARY_ROWS] of the library -- whichever category is showing,
+ * so a category that is taller than the last does not shift the chips out from under the
+ * finger that chose it. That is the whole of what makes the chips a filter rather than a
+ * second menu: every category is one tap away from any other, from the same place.
+ */
+internal fun addMenuLayout(
+    patch: Patch,
+    category: Category,
+    saved: List<String>,
+    scroll: Int,
+    anchor: Offset,
+    d: Float,
+    canvas: Size,
+    textScale: Float = 1f,
+): MenuLayout {
+    val text = textScale.coerceAtLeast(1f)
+    val gap = MenuMetrics.GAP
+    val chipW = AddMenuMetrics.CHIP_W * text
+    val chipH = AddMenuMetrics.CHIP_H * text
+    val categories = Category.entries
+    val rowW = categories.size * chipW + (categories.size - 1) * gap
+    val cols = AddMenuMetrics.COLS
+    val tileW = (rowW - (cols - 1) * gap) / cols
+    val tileH = MenuMetrics.TILE_H * text
+    val pitch = tileH + gap
+
+    val items = addMenuItems(patch, category, saved)
+    val fixed = items.filter { it !is MenuItem.Load }
+    val library = items.filterIsInstance<MenuItem.Load>()
+    // The rows every category but Boxes' library needs, across all of them, so the chips'
+    // place does not depend on which is showing.
+    val fixedRows = Category.entries.maxOf { c ->
+        ceil(addMenuItems(patch, c).count { it !is MenuItem.Load } / cols.toFloat()).toInt()
+    }.coerceAtLeast(1)
+    val base = 2f * MenuMetrics.PAD + chipH + 2f * gap + fixedRows * pitch - gap
+    val margin = MenuMetrics.SCREEN_MARGIN
+    val fitRows = ((canvas.height / d - 2f * margin - base - gap) / pitch).toInt().coerceAtLeast(0)
+    val libraryRows = minOf(AddMenuMetrics.LIBRARY_ROWS, fitRows)
+    val tallest = base + if (libraryRows > 0) gap + libraryRows * pitch else 0f
+
+    val w = 2f * MenuMetrics.PAD + rowW
+    val left = (anchor.x / d - w / 2f).coerceIn(margin, maxOf(margin, canvas.width / d - w - margin))
+    val top = (anchor.y / d - MenuMetrics.LIFT - base)
+        .coerceAtMost(canvas.height / d - margin - tallest)
+        .coerceAtLeast(margin)
+
+    val tiles = mutableListOf<Pair<Rect, MenuItem>>()
+    categories.forEachIndexed { i, c ->
+        val x = left + MenuMetrics.PAD + i * (chipW + gap)
+        tiles += Rect(Offset(x * d, (top + MenuMetrics.PAD) * d), Size(chipW * d, chipH * d)) to MenuItem.Show(c)
+    }
+    val tilesTop = top + MenuMetrics.PAD + chipH + 2f * gap
+    fixed.forEachIndexed { i, item ->
+        val x = left + MenuMetrics.PAD + (i % cols) * (tileW + gap)
+        val y = tilesTop + (i / cols) * pitch
+        tiles += Rect(Offset(x * d, y * d), Size(tileW * d, tileH * d)) to item
+    }
+
+    var bottom = tilesTop + ceil(fixed.size / cols.toFloat()).toInt().coerceAtLeast(1) * pitch - gap
+    var list: Rect? = null
+    var maxScroll = 0
+    var from = 0
+    if (library.isNotEmpty() && libraryRows > 0) {
+        val rows = ceil(library.size / cols.toFloat()).toInt()
+        val shown = minOf(rows, libraryRows)
+        maxScroll = rows - shown
+        from = scroll.coerceIn(0, maxScroll)
+        val listTop = bottom + 2f * gap
+        library.drop(from * cols).take(shown * cols).forEachIndexed { i, item ->
+            val x = left + MenuMetrics.PAD + (i % cols) * (tileW + gap)
+            val y = listTop + (i / cols) * pitch
+            tiles += Rect(Offset(x * d, y * d), Size(tileW * d, tileH * d)) to item
+        }
+        list = Rect(Offset((left + MenuMetrics.PAD) * d, listTop * d), Size(rowW * d, (shown * pitch - gap) * d))
+        bottom = listTop + shown * pitch - gap
+    }
+    val h = bottom + MenuMetrics.PAD - top
+    return MenuLayout(
+        Rect(Offset(left * d, top * d), Size(w * d, h * d)), tiles, category, list, pitch * d, maxScroll, from,
+    )
+}
+
+/** Whichever layout [menu] has: the add menu's, or the plain grid every other menu is. */
+internal fun menuLayoutOf(
+    menu: Interaction.Menu,
+    patch: Patch,
+    saved: List<String>,
+    d: Float,
+    canvas: Size,
+    textScale: Float = 1f,
+): MenuLayout = menu.category?.let {
+    addMenuLayout(patch, it, saved, menu.scroll, menu.anchor, d, canvas, textScale)
+} ?: menuLayout(menuItems(patch, menu.targetId, menu.port, menu.node, menu.saved), menu.anchor, d, canvas, textScale)
 
 internal fun menuLayout(
     items: List<MenuItem>,
@@ -8731,9 +9185,10 @@ private fun MenuItem.label(): String = when (this) {
     is MenuItem.RemovePort -> "Remove port"
     is MenuItem.NewPatch -> "New patch"
     is MenuItem.Save -> if (moduleId == null) "Save patch\u2026" else "Save\u2026"
-    is MenuItem.OpenLibrary -> "Load\u2026"
     is MenuItem.Load -> name
-    is MenuItem.LibraryEmpty -> "Nothing saved"
+    is MenuItem.Show -> category.label
+    is MenuItem.Open -> "Open\u2026"
+    is MenuItem.DeleteSaved -> "Delete"
     is MenuItem.Delete -> "Delete"
     is MenuItem.StartSubpatch -> "${type.name}\u2026"
     is MenuItem.Unpack -> "Unpack"
@@ -8749,8 +9204,9 @@ private fun MenuItem.tint(): Color = when (this) {
     is MenuItem.Controls -> Types.Subpatch.accent
     is MenuItem.RemovePort -> Color(0xFFE07A6B)
     is MenuItem.NewPatch -> Color(0xFFE07A6B)
-    is MenuItem.Save, is MenuItem.OpenLibrary, is MenuItem.Load -> Types.Subpatch.accent
-    is MenuItem.LibraryEmpty -> Color(0xFF6C7482)
+    is MenuItem.Save, is MenuItem.Load, is MenuItem.Open -> Types.Subpatch.accent
+    is MenuItem.Show -> category.accent
+    is MenuItem.DeleteSaved -> Color(0xFFE07A6B)
     is MenuItem.Delete -> Color(0xFFE07A6B)
     is MenuItem.StartSubpatch -> type.accent
     is MenuItem.Unpack -> Types.Subpatch.accent
@@ -8759,6 +9215,17 @@ private fun MenuItem.tint(): Color = when (this) {
     is MenuItem.RemoveNode -> Color(0xFFE07A6B)
     is MenuItem.Licenses -> Color(0xFF8A93A3)
 }
+
+/**
+ * A category's color: the accent of the first module it offers, so the chip says in color what
+ * the tiles under it will say -- which is the reason the categories are what they are.
+ */
+internal val Category.accent: Color
+    get() = when (this) {
+        Category.BOXES -> Types.Subpatch.accent
+        Category.PATCH -> Color(0xFF8A93A3)
+        else -> Types.offered(this).first().accent
+    }
 
 private fun DrawScope.drawMenu(layout: MenuLayout, d: Float, measurer: TextMeasurer) {
     drawRoundRect(
@@ -8774,33 +9241,63 @@ private fun DrawScope.drawMenu(layout: MenuLayout, d: Float, measurer: TextMeasu
         cornerRadius = CornerRadius(10f * d, 10f * d),
         style = Stroke(width = 1f * d),
     )
-    layout.tiles.forEach { (rect, item) ->
-        val tint = item.tint()
-        drawRoundRect(
-            color = tint.copy(alpha = 0.16f),
-            topLeft = rect.topLeft,
-            size = rect.size,
-            cornerRadius = CornerRadius(6f * d, 6f * d),
+    layout.list?.let { list ->
+        // A rule between the boxes and the library, so the saved ones read as a list of their
+        // own; and where there is more than shows, a thumb on the right saying how much and where.
+        drawLine(
+            Color(0xFF3A424E),
+            Offset(list.left, list.top - 3f * d), Offset(list.right, list.top - 3f * d),
+            strokeWidth = 1f * d,
         )
-        drawRoundRect(
-            color = tint.copy(alpha = 0.55f),
-            topLeft = rect.topLeft,
-            size = rect.size,
-            cornerRadius = CornerRadius(6f * d, 6f * d),
-            style = Stroke(width = 1f * d),
-        )
-        val text = measurer.fitting(
-            item.label(), MenuLabelStyle,
-            rect.width - 2f * MENU_LABEL_PAD * d, rect.height - 2f * MENU_LABEL_PAD * d,
-        )
-        drawText(
-            text,
-            topLeft = Offset(
-                rect.left + (rect.width - text.size.width) / 2f,
-                rect.top + (rect.height - text.size.height) / 2f,
-            ),
-        )
+        if (layout.maxScroll > 0) {
+            // Rows shown: the list's height is shown * pitch less one gap, so this rounds up to it.
+            val shown = ((list.height + layout.listPitch / 2f) / layout.listPitch).toInt().coerceAtLeast(1)
+            val rows = layout.maxScroll + shown
+            val trackX = layout.rect.right - 3.5f * d
+            val thumbH = list.height * shown / rows
+            val offset = list.height * layout.scroll / rows
+            drawLine(
+                Color(0xFF8A93A3), Offset(trackX, list.top + offset), Offset(trackX, list.top + offset + thumbH),
+                strokeWidth = 2.5f * d, cap = StrokeCap.Round,
+            )
+        }
     }
+    layout.tiles.forEach { (rect, item) ->
+        if (item is MenuItem.Show) {
+            drawChip(rect, d, item.label(), item.category == layout.lit, item.tint(), measurer)
+            return@forEach
+        }
+        drawMenuTile(rect, item, d, measurer)
+    }
+}
+
+/** One tile: its label on a ground and an edge in the color of what it does. */
+private fun DrawScope.drawMenuTile(rect: Rect, item: MenuItem, d: Float, measurer: TextMeasurer, edge: Color? = null) {
+    val tint = item.tint()
+    drawRoundRect(
+        color = tint.copy(alpha = 0.16f),
+        topLeft = rect.topLeft,
+        size = rect.size,
+        cornerRadius = CornerRadius(6f * d, 6f * d),
+    )
+    drawRoundRect(
+        color = edge ?: tint.copy(alpha = 0.55f),
+        topLeft = rect.topLeft,
+        size = rect.size,
+        cornerRadius = CornerRadius(6f * d, 6f * d),
+        style = Stroke(width = (if (edge != null) 2f else 1f) * d),
+    )
+    val text = measurer.fitting(
+        item.label(), MenuLabelStyle,
+        rect.width - 2f * MENU_LABEL_PAD * d, rect.height - 2f * MENU_LABEL_PAD * d,
+    )
+    drawText(
+        text,
+        topLeft = Offset(
+            rect.left + (rect.width - text.size.width) / 2f,
+            rect.top + (rect.height - text.size.height) / 2f,
+        ),
+    )
 }
 
 /** Clear space either side of a tile's label, in dp. */

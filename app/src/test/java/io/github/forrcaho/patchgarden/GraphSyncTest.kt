@@ -502,7 +502,7 @@ class ModuleContractTest {
         Types.byName.values.forEach { type ->
             assertTrue(
                 "${type.name} maps to NodeType.Unknown, so it would be silent",
-                NodeType.of(type) != NodeType.Unknown,
+                type.engine != NodeType.Unknown,
             )
         }
     }

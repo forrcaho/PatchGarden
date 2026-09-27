@@ -601,33 +601,88 @@ class MenuLayoutTest {
     /**
      * The reference device runs at font scale 1.5, where 12sp labels are 18dp tall in
      * tiles sized for 12: "Save patch..." spilled into the tile beside it. Tiles grow with
-     * the setting, and the biggest menu there is -- every module, both boxes twice over,
-     * Load and Save patch -- still has to fit the screen at that size, wherever it is
-     * opened.
+     * the setting, and the add menu at its tallest -- Boxes, with a library long enough to
+     * scroll -- still has to fit the screen at that size, wherever it is opened.
      */
     @Test
     fun `at a large text size the tiles grow and the whole menu still fits`() {
-        // The menu as the app builds it, for a patch with something in it -- which is when it
-        // is longest. This list was written out by hand once, and it left out New patch: with
-        // three modules added on 2026-09-23 the real menu reached a seventh row, 464dp against
-        // the reference device's 443, while this test went on counting six.
         val patch = Patch().apply { add(Types.Osc, Offset.Zero) }
-        val everything = menuItems(patch, null)
-        assertTrue("the longest menu there is", MenuItem.NewPatch in everything)
-        val normal = menuLayout(everything, Offset(1200f, 540f), d, screen)
-        val large = menuLayout(everything, Offset(1200f, 540f), d, screen, textScale = 1.5f)
+        val library = List(40) { "Saved $it" }
+        val normal = addMenuLayout(patch, Category.SYNTHS, library, 0, Offset(1200f, 540f), d, screen)
+        val large = addMenuLayout(patch, Category.SYNTHS, library, 0, Offset(1200f, 540f), d, screen, 1.5f)
 
-        val tile = { l: MenuLayout -> l.tiles.first().first }
-        assertEquals(tile(normal).width * 1.5f, tile(large).width, 0.5f)
+        val tile = { l: MenuLayout -> l.tiles.first { it.second is MenuItem.Add }.first }
+        // Within a percent: a tile's width is the chips' row less gaps that do not grow.
+        assertEquals(tile(normal).width * 1.5f, tile(large).width, 0.01f * tile(large).width)
         assertEquals(tile(normal).height * 1.5f, tile(large).height, 0.5f)
 
         listOf(Offset(0f, 0f), Offset(screen.width, screen.height), Offset(1200f, 540f)).forEach { anchor ->
-            val r = menuLayout(everything, anchor, d, screen, textScale = 1.5f).rect
-            assertTrue("fits across at $anchor", r.left >= 0f && r.right <= screen.width)
-            assertTrue("fits down at $anchor", r.top >= 0f && r.bottom <= screen.height)
+            Category.entries.forEach { category ->
+                val r = addMenuLayout(patch, category, library, 0, anchor, d, screen, 1.5f).rect
+                assertTrue("$category fits across at $anchor", r.left >= 0f && r.right <= screen.width)
+                assertTrue("$category fits down at $anchor", r.top >= 0f && r.bottom <= screen.height)
+            }
         }
         // A smaller text size does not shrink the tiles below what a finger needs.
-        assertEquals(tile(normal).width, tile(menuLayout(everything, Offset.Zero, d, screen, 0.85f)).width, 0.5f)
+        assertEquals(
+            tile(normal).width,
+            tile(addMenuLayout(patch, Category.SYNTHS, library, 0, Offset.Zero, d, screen, 0.85f)).width, 0.5f,
+        )
+    }
+
+    /**
+     * What makes the chips a filter rather than a second menu: they are where they were whatever
+     * is showing, so the finger that chose one can choose the next without looking. Boxes is
+     * taller than the rest by its library, and the menu is placed for it every time.
+     */
+    @Test
+    fun `the chips never move, whichever category shows and however long the library is`() {
+        val patch = Patch().apply { add(Types.Osc, Offset.Zero) }
+        listOf(Offset(1200f, 540f), Offset(1200f, 1070f), Offset(10f, 10f)).forEach { anchor ->
+            listOf(1f, 1.5f).forEach { scale ->
+                val chips = { category: Category, saved: List<String> ->
+                    addMenuLayout(patch, category, saved, 0, anchor, d, screen, scale)
+                        .tiles.filter { it.second is MenuItem.Show }
+                }
+                val first = chips(Category.SYNTHS, emptyList())
+                assertEquals(Category.entries.map { MenuItem.Show(it) }, first.map { it.second })
+                Category.entries.forEach { category ->
+                    listOf(emptyList(), List(3) { "s$it" }, List(40) { "s$it" }).forEach { saved ->
+                        assertEquals("$category at $anchor, $scale", first, chips(category, saved))
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `every category of modules is one row, under chips on one row`() {
+        val patch = Patch()
+        Category.entries.filter { it != Category.BOXES }.forEach { category ->
+            val layout = addMenuLayout(patch, category, emptyList(), 0, Offset(1200f, 540f), d, screen)
+            assertEquals(
+                "$category: the chips and one row of tiles", 2,
+                layout.tiles.map { it.first.top }.distinct().size,
+            )
+        }
+    }
+
+    @Test
+    fun `the library scrolls by rows, and shows only the rows it has scrolled to`() {
+        val patch = Patch()
+        val saved = List(23) { "Saved %02d".format(it) }
+        val top = addMenuLayout(patch, Category.BOXES, saved, 0, Offset(1200f, 540f), d, screen)
+        val shown = top.tiles.count { it.second is MenuItem.Load }
+        assertEquals("whole rows of five", 0, shown % 5)
+        assertEquals("the rest is what it can scroll", (23 + 4) / 5 - shown / 5, top.maxScroll)
+
+        val end = addMenuLayout(patch, Category.BOXES, saved, 99, Offset(1200f, 540f), d, screen)
+        assertEquals("clamped to the end", top.maxScroll, end.scroll)
+        assertTrue(MenuItem.Load("Saved 22") in end.tiles.map { it.second })
+        assertTrue(MenuItem.Load("Saved 00") !in end.tiles.map { it.second })
+        end.tiles.filter { it.second is MenuItem.Load }.forEach {
+            assertTrue("inside the list", end.list!!.contains(it.first.center))
+        }
     }
 
     @Test

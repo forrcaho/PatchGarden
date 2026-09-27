@@ -16,7 +16,8 @@ enum class SlotKind(val id: Int) {
 
 /**
  * Node type ids, mirroring the enum in nodes.h. The numbering is part of the JNI
- * contract, so append rather than reorder.
+ * contract, so append rather than reorder. Which one a module is, is said in its own
+ * declaration ([ModuleType.engine]) rather than mapped from its name here.
  */
 enum class NodeType(val id: Int) {
     Unknown(0),
@@ -56,34 +57,7 @@ enum class NodeType(val id: Int) {
     PolySum(23),
     Noise(24),
     Delay(25),
-    Reverb(26);
-
-    companion object {
-        fun of(type: ModuleType): NodeType = when (type.name) {
-            "Osc" -> Osc
-            "Filter" -> Filter
-            "Env" -> Env
-            "Steps" -> Steps
-            "Out" -> Out
-            "In" -> In
-            "Mix" -> Mix
-            "LFO" -> Lfo
-            "Drone" -> Drone
-            "Pluck" -> Pluck
-            "FM" -> Fm
-            "SF" -> Sf
-            "Seq" -> Seq
-            "Chance" -> Chance
-            "Chord" -> Chord
-            "Arp" -> Arp
-            "Euclid" -> Euclid
-            "Amp" -> Amp
-            "Noise" -> Noise
-            "Delay" -> Delay
-            "Reverb" -> Reverb
-            else -> Unknown
-        }
-    }
+    Reverb(26),
 }
 
 /**

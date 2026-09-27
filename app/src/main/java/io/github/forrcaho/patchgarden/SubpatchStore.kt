@@ -2,6 +2,7 @@ package io.github.forrcaho.patchgarden
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.geometry.Offset
 import java.io.File
 
@@ -49,6 +50,13 @@ fun Patch.subpatchToJson(subpatch: PatchModule, name: String? = subpatch.name): 
  * and the ones out of In its inputs, which is exactly what [Patch.subpatch] does with any
  * selection -- and it is done to a *copy* read back from this patch's own file.
  *
+ * **The file keeps what is around the box as well**: the cables from it to Out and from In to
+ * it, the rails' knobs, the scales, the tempo and the patch's name. Loaded as a subpatch none of
+ * that is read -- [loadSubpatch] adopts the one box and what is inside it -- but opened as a
+ * patch ([openSaved]) it is the difference between the patch that was saved and a box wired
+ * to nothing, silent, in the wrong tuning. The first version wrote the box alone, through
+ * [subpatchToJson], and a saved patch could only ever come back as a subpatch.
+ *
  * The first version subpatched the live patch, serialized, and unpacked again inside one
  * snapshot, on the reasoning that every step was silent to the engine. The engine agreed.
  * The file did not: unpacking re-adds the boundary's cables at the end of the list, so a
@@ -59,10 +67,55 @@ fun Patch.subpatchToJson(subpatch: PatchModule, name: String? = subpatch.name): 
  */
 fun Patch.patchToSubpatchJson(name: String): String? {
     val copy = patchFromJson(toJson()) ?: return null
+    // Read back without the scale library, which would turn every tuning into the default;
+    // the entries themselves are what the file needs, and they are already here.
+    copy.scales = scales
     val ids = copy.modules.filter { !it.isPinned && it.parent == TOP }.map { it.id }.toSet()
     if (ids.isEmpty()) return null
     val subpatch = copy.makeSubpatch(ids) ?: return null
-    return copy.subpatchToJson(subpatch, name)
+    subpatch.name = name
+    copy.name = name
+    return copy.toJson()
+}
+
+/**
+ * Whether this patch is in the library as it stands: saved under its own name, and not
+ * changed since. What Open asks before it replaces the patch.
+ *
+ * Asked of the library rather than remembered, so there is no second record to fall out of
+ * step with the first: undoing back to what was saved makes it saved again, and deleting the
+ * file makes it not. An empty patch has nothing to lose and counts as saved.
+ */
+fun Patch.isSavedIn(library: SubpatchLibrary?): Boolean {
+    val now = patchToSubpatchJson(title) ?: return true
+    return library?.read(title) == now
+}
+
+/**
+ * The saved patch in [text] in place of this one, as one edit -- so one undo puts this one back.
+ * Returns whether it did.
+ *
+ * A whole patch is saved as one plain subpatch wired to the rails, and opening one unpacks it,
+ * which is exactly the inverse. Anything else in the library -- a poly voice, a subpatch saved
+ * from inside a patch -- is opened as a patch holding that one box, since unpacking a poly
+ * subpatch would make its one voice of everything into the whole patch. A file saved before
+ * the whole patch was written around the box opens unwired: its cables to Out were never in it.
+ */
+fun Patch.openSaved(text: String, name: String, scales: ScaleLibrary = ScaleLibrary.of(null)): Boolean {
+    val source = patchFromJson(text, scales) ?: return false
+    val loose = source.modules.filter { !it.isPinned && it.parent == TOP }
+    val box = loose.singleOrNull()?.takeIf { it.type.box } ?: run {
+        Log.w(TAG, "not a saved subpatch: ${loose.size} modules at the top level")
+        return false
+    }
+    if (box.type == Types.Subpatch) source.unpack(box)
+    if (source.name == null) source.name = box.name ?: name
+    Snapshot.withMutableSnapshot {
+        replaceWith(source)
+        scope = TOP
+        modules.forEach { it.expanded = false }
+    }
+    return true
 }
 
 /**
@@ -109,6 +162,18 @@ class SubpatchLibrary(val directory: File?) {
     } catch (e: Exception) {
         Log.w(TAG, "could not read subpatch $name", e)
         null
+    }
+
+    /**
+     * Takes [name] out of the library, and says whether it went. Deleted rather than moved
+     * aside: it is asked for by a tile on a menu of its own, never by a press, and the library
+     * is not the patch -- nothing here is undone.
+     */
+    fun delete(name: String): Boolean = try {
+        fileFor(name)?.takeIf { it.isFile }?.delete() == true
+    } catch (e: Exception) {
+        Log.w(TAG, "could not delete subpatch $name", e)
+        false
     }
 
     /** Writes [json] under [name], replacing what is there. Returns whether it landed. */

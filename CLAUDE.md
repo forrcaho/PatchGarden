@@ -108,7 +108,7 @@ being edited out from under it.
 | `GraphSync.kt` | the diff over `engineGraph()`, `NodeType` mirror, `GraphCommands` seam |
 | `PatchStore.kt` | JSON persistence, hand-rolled on `org.json` |
 | `SoundFontStore.kt` | the user's `.sf2` banks in `soundfonts`, loaded on demand |
-| `SubpatchStore.kt` | the subpatch library: a saved subpatch is a patch file holding one subpatch |
+| `SubpatchStore.kt` | the subpatch library: a saved subpatch is a patch file holding one subpatch; Open |
 | `History.kt` | undo as a stack of serialized patches, plus `Patch.replaceWith` |
 | `Scale.kt` | the tuning model: degrees in octaves, with a period |
 | `ScalaFile.kt` | `.scl` parsing — untrusted input, every bad shape returns null |
@@ -361,7 +361,8 @@ It is loops that claim.
 app a tap on a reading opens the keypad, a tap on a chip toggles it, and a drag adjusts what
 the first move decided; the long press is the fourth. One harmless action happens directly (a
 crumb renames, a pinned rail opens its panel); anything more is a menu, and a destructive
-action is always a tile -- which is why a subpatch's jack gets a menu of one item. An envelope
+action is always a tile -- which is why a subpatch's jack gets a menu of one item, and so does a
+saved subpatch held down in the add menu's Boxes. An envelope
 node's removal was the bare long press, the one exception, until the release needed somewhere
 to go; it is a menu now, like a module's. Check a new gesture against these four before
 inventing a fifth.
@@ -488,6 +489,26 @@ in the receiving patch, which is the same routine that duplicates a subpatch, so
 loaded twice is two subpatches sharing nothing. Saving the whole patch subpatches a *copy* read
 back from the patch's own file -- never the live patch, since unpacking re-adds the
 boundary's cables at the end of the list and the reordered file became a phantom undo step.
+**A whole-patch file keeps what is around the box too** -- its cables to the rails, the rails'
+knobs, the scales, the tempo and the name -- which loading a subpatch never reads and **Open**
+needs: `openSaved` unpacks the one plain box through `replaceWith`, so opening is one undo
+step, and keeps a poly voice boxed. Saving the patch names it, and "is this patch saved?" is
+asked of the library (`isSavedIn`: the file under its name is what saving would write now)
+rather than kept as a flag, which is why opening then re-saving has to be byte-identical and
+`SubpatchLibraryTest` says so. Open asks to save first only when that answer is no.
+
+**The add menu is chips over tiles, and the chips never move.** Seven categories across the
+top -- Synths, Notes, Note fx, Effects, Mod, Boxes, Patch -- and the one showing's tiles below,
+five to a row, so every category of modules is one row and a module is two taps from a long
+press. Forrest chose the chips over a menu of categories with a Back. `addMenuLayout` places
+the menu for its tallest category, Boxes with its library, whichever is showing, so a chip
+never slides out from under the finger that is about to pick the next one; the library is
+tiles like any module's and scrolls in whole rows. The menu opens on the category chosen last,
+never Patch. **A category is what its modules send**, which is what their colors say, and
+`CatalogTest` pins it against the ports rather than as a list. A module is one declaration:
+its `ModuleType` carries its engine id (`engine`) and its `category`, `Types.modules` is the one
+list it is added to, and the palette, the name map and what the engine builds all derive from
+those -- a reflective test fails a type declared and never registered.
 
 **Anything sized to hold a label reads `Frame.fontScale`.** Labels are sp, boxes are dp, and
 the reference device runs at font scale 1.5; a menu tile sized for 12sp text overflowed

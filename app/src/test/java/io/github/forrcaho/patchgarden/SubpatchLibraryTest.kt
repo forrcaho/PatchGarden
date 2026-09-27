@@ -207,4 +207,141 @@ class SubpatchLibraryTest {
         assertTrue(library.write("///", "{}"))
         assertEquals(listOf("___"), library.names())
     }
+
+    @Test
+    fun `a saved subpatch can be deleted, and only once`() {
+        val library = SubpatchLibrary(folder.newFolder("deleting"))
+        val (_, json) = saved()
+        library.write("Filt Osc", json)
+        library.write("Bass", json)
+        assertTrue(library.delete("Filt Osc"))
+        assertEquals(listOf("Bass"), library.names())
+        assertFalse("gone is gone", library.delete("Filt Osc"))
+        assertFalse("and a name that was never there is not an error", library.delete("Nothing"))
+    }
+
+    // ------------------------------------------------------------------ opening a saved patch
+
+    /**
+     * A tuning that is not the default, from a folder as the app's are: a scale a file names
+     * and the library cannot find comes back as the default, so a test in the default tuning
+     * could not tell a saved scale from a lost one.
+     */
+    private val tunings: ScaleLibrary by lazy {
+        val dir = folder.newFolder("scales")
+        java.io.File(dir, "Pentatonic.scl").writeText("! Pentatonic.scl\nPentatonic\n 5\n 200.0\n 400.0\n 700.0\n 900.0\n 2/1\n")
+        // And the default, as the app's folder always has: without it the library's first
+        // scale is its default, and a lost Pentatonic would come back as Pentatonic.
+        java.io.File(dir, "12-TET.scl").writeText(
+            "! 12-TET.scl\n12-TET\n 12\n" + (1..11).joinToString("") { " ${it * 100}.0\n" } + " 2/1\n",
+        )
+        ScaleLibrary.of(dir).also { check(it.default.name == Scale.Chromatic.name) }
+    }
+
+    /** The fixture, off its defaults in everything a patch has besides its modules. */
+    private fun whole(): SubpatchFixture = SubpatchFixture().apply {
+        patch.tempo = 90f
+        patch.beatsPerBar = 3
+        patch.scales = listOf(ScaleEntry(tunings.byName("Pentatonic")!!, bars = 2, rootCents = 200f))
+        patch.module(OUT_ID)!!.setParam(0, 0.5f)
+        patch.name = "Groove"
+    }
+
+    /**
+     * What Open is for: the patch that was saved, back -- sounding, since its cables to Out
+     * are what make it sound, and in its own tempo and tuning. The first whole-patch file held
+     * the box alone, and this would have come back silent and in C.
+     */
+    @Test
+    fun `a saved patch opens as the patch it was, wired to Out, in its tempo and tuning`() {
+        val f = whole()
+        val json = f.patch.patchToSubpatchJson("Groove")!!
+
+        val into = Patch().apply { add(Types.Pluck, Offset.Zero) }
+        assertTrue(into.openSaved(json, "Groove", tunings))
+
+        assertEquals("Groove", into.name)
+        assertEquals(90f, into.tempo)
+        assertEquals(3, into.beatsPerBar)
+        assertEquals("Pentatonic", into.scales.single().scale.name)
+        assertEquals(200f, into.scales.single().rootCents)
+        assertEquals(2, into.scales.single().bars)
+        assertEquals(0.5f, into.module(OUT_ID)!!.params[0])
+        assertTrue("what was here is gone", into.modules.none { it.type == Types.Pluck })
+        assertTrue("and no box is left around what was saved", into.modules.none { it.type.box })
+        assertEquals(
+            "it sounds as it did: the engine would be sent the same cables",
+            f.patch.engineConnections().toSet(),
+            into.engineConnections().toSet(),
+        )
+        assertEquals(TOP, into.scope)
+    }
+
+    /**
+     * Open asks the library rather than keeping a flag, so this is the whole of what "saved"
+     * means: the file under the patch's name is what saving would write now.
+     */
+    @Test
+    fun `a patch is saved until it changes, and saved again when it changes back`() {
+        val library = SubpatchLibrary(folder.newFolder("saved"))
+        assertTrue("an empty patch has nothing to lose", Patch().isSavedIn(library))
+
+        val f = whole()
+        assertFalse("never saved", f.patch.isSavedIn(library))
+        library.write("Groove", f.patch.patchToSubpatchJson("Groove")!!)
+        assertTrue(f.patch.isSavedIn(library))
+
+        f.osc.setParam(0, 2f)
+        assertFalse("a knob moved", f.patch.isSavedIn(library))
+        f.osc.setParam(0, Types.Osc.params[0].default)
+        assertTrue("and moved back", f.patch.isSavedIn(library))
+
+        f.patch.name = "Other"
+        assertFalse("under another name there is nothing saved", f.patch.isSavedIn(library))
+        assertFalse("and none at all", f.patch.isSavedIn(null))
+    }
+
+    /**
+     * Opened and saved are the same patch. Without it, opening a patch and then opening another
+     * would ask to save the first -- which nobody changed. It holds only because subpatching
+     * the opened patch again makes the box, its ports and its cables exactly as they were made
+     * the first time; this is the test that says so, with a box inside the patch as well.
+     */
+    @Test
+    fun `a patch just opened is saved as it stands`() {
+        val library = SubpatchLibrary(folder.newFolder("round"))
+        val f = whole()
+        f.patch.makeSubpatch(setOf(f.lfo.id, f.env.id))!!.name = "Mods"
+        library.write("Groove", f.patch.patchToSubpatchJson("Groove")!!)
+
+        val into = Patch()
+        assertTrue(into.openSaved(library.read("Groove")!!, "Groove", tunings))
+        assertTrue(into.isSavedIn(library))
+        assertEquals("the box inside is still a box", "Mods", into.modules.single { it.type.box }.name)
+    }
+
+    /** A poly voice is a box, not a patch: unpacking it would make one voice of everything. */
+    @Test
+    fun `a saved poly voice opens as a patch holding the voice`() {
+        val voice = Patch()
+        val osc = voice.add(Types.Osc, Offset.Zero)!!
+        val poly = voice.makeSubpatch(setOf(osc.id), Types.Poly)!!
+        poly.name = "Bell"
+        val json = voice.subpatchToJson(poly)!!
+
+        val into = Patch()
+        assertTrue(into.openSaved(json, "Bell"))
+        val box = into.modules.single { it.parent == TOP && !it.isPinned }
+        assertEquals(Types.Poly, box.type)
+        assertEquals("Bell", into.name)
+    }
+
+    @Test
+    fun `a file that is not one saved subpatch opens nothing and changes nothing`() {
+        val into = whole().patch
+        val before = into.toJson()
+        assertFalse(into.openSaved("{not json", "Broken"))
+        assertFalse(into.openSaved(Patch().apply { add(Types.Osc, Offset.Zero) }.toJson(), "Loose"))
+        assertEquals(before, into.toJson())
+    }
 }

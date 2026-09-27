@@ -9,7 +9,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -21,6 +24,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -51,9 +55,30 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [36], qualifiers = "w986dp-h443dp-land-390dpi")
 class GestureTest {
     @get:Rule val compose = createComposeRule()
+    @get:Rule val folder = TemporaryFolder()
+
+    /** A library of [n] saved subpatches, "Saved 01" on, each an Osc in a box. */
+    private fun libraryOf(n: Int): SubpatchLibrary {
+        val library = SubpatchLibrary(folder.newFolder())
+        val source = Patch()
+        val box = source.makeSubpatch(setOf(source.add(Types.Osc, Offset.Zero)!!.id))!!
+        (1..n).map { "Saved %02d".format(it) }.forEach { library.write(it, source.subpatchToJson(box, it)!!) }
+        return library
+    }
+
+    /** Waits for text on one of the overlays, which read the library off the main thread. */
+    private fun awaitText(text: String, substring: Boolean = false) = compose.waitUntil(5_000) {
+        compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun press(text: String) {
+        awaitText(text)
+        compose.onAllNodesWithText(text).onFirst().performClick()
+        compose.waitForIdle()
+    }
 
     /** A PatchCanvas filling the screen, with a camera the test can aim through. */
-    private inner class Host(val patch: Patch = Patch()) {
+    private inner class Host(val patch: Patch = Patch(), val library: SubpatchLibrary? = null) {
         var canUndo by mutableStateOf(false)
         var undone = 0
         var outputSwitched = 0
@@ -66,6 +91,7 @@ class GestureTest {
                     patch, Modifier.fillMaxSize(),
                     canUndo = canUndo, onUndo = { undone++ },
                     onToggleOutput = { outputSwitched++ },
+                    library = library,
                     camera = camera,
                 )
             }
@@ -111,14 +137,32 @@ class GestureTest {
         }
 
         /** The menu a long press at [anchor] opened, laid out as the canvas lays it out. */
-        fun menu(anchor: Offset, targetId: Long?, node: Int = -1) = menuLayout(
-            menuItems(patch, targetId, node = node), anchor, d, frame.canvas, frame.fontScale,
+        fun menu(anchor: Offset, targetId: Long?, node: Int = -1, saved: String? = null) = menuLayout(
+            menuItems(patch, targetId, node = node, saved = saved), anchor, d, frame.canvas, frame.fontScale,
         )
 
-        fun choose(anchor: Offset, targetId: Long?, item: MenuItem, node: Int = -1) {
-            val tile = menu(anchor, targetId, node).tiles.firstOrNull { it.second == item }
+        fun choose(anchor: Offset, targetId: Long?, item: MenuItem, node: Int = -1, saved: String? = null) {
+            val tile = menu(anchor, targetId, node, saved).tiles.firstOrNull { it.second == item }
             assertNotNull("$item is not on that menu", tile)
             tap(tile!!.first.center)
+        }
+
+        /** The add menu a long press at [anchor] opened, showing [category]. */
+        fun addMenu(anchor: Offset, category: Category, scroll: Int = 0) = addMenuLayout(
+            patch, category, library?.names().orEmpty(), scroll, anchor, d, frame.canvas, frame.fontScale,
+        )
+
+        /** Where [item] is on the add menu at [anchor] while [category] shows. */
+        fun tile(anchor: Offset, category: Category, item: MenuItem, scroll: Int = 0): Offset {
+            val tile = addMenu(anchor, category, scroll).tiles.firstOrNull { it.second == item }
+            assertNotNull("$item is not under $category", tile)
+            return tile!!.first.center
+        }
+
+        /** [category]'s chip, then [item]: the two taps a module is from a long press. */
+        fun pick(anchor: Offset, category: Category, item: MenuItem) {
+            tap(tile(anchor, category, MenuItem.Show(category)))
+            tap(tile(anchor, category, item))
         }
 
         /** Presses a key on the number keypad, which is ordinary composables with labels. */
@@ -196,10 +240,48 @@ class GestureTest {
         val host = Host()
         val anchor = host.at(Offset(400f, 200f))
         host.hold(anchor)
-        host.choose(anchor, null, MenuItem.Add(Types.Osc))
+        // Synths, the first time: a tile is one tap from the long press.
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Add(Types.Osc)))
 
         val osc = host.patch.modules.single { it.type == Types.Osc }
         assertTrue("centered on the press", osc.bounds.contains(host.camera.toWorld(anchor)))
+    }
+
+    /**
+     * Forrest's choice, 2026-09-26: chips across the top that swap the tiles in place, rather
+     * than a menu of categories and a second menu with a Back. So a chip must answer, the tiles
+     * under it must be that category's, and the menu must open next time where it was left.
+     */
+    @Test
+    fun `a chip shows its category in place, and the menu opens on it next time`() {
+        val host = Host()
+        val anchor = host.at(Offset(400f, 200f))
+        host.hold(anchor)
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Show(Category.EFFECTS)))
+        host.tap(host.tile(anchor, Category.EFFECTS, MenuItem.Add(Types.Filter)))
+        assertEquals(1, host.patch.modules.count { it.type == Types.Filter })
+
+        val again = host.at(Offset(700f, 250f))
+        host.hold(again)
+        host.tap(host.tile(again, Category.EFFECTS, MenuItem.Add(Types.Delay)))
+        assertEquals("Effects was still showing: one tap", 1, host.patch.modules.count { it.type == Types.Delay })
+    }
+
+    /** Patch is never where the menu opens: a long press and a stray tap must not clear everything. */
+    @Test
+    fun `the add menu never reopens on Patch`() {
+        val host = Host()
+        host.patch.add(Types.Osc, Offset(40f, 40f))!!
+        compose.waitForIdle()
+        val anchor = host.at(Offset(500f, 250f))
+        host.hold(anchor)
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Show(Category.PATCH)))
+        host.tap(host.frame.canvas.let { Offset(it.width - 20f, it.height - 20f) }) // away
+
+        host.hold(anchor)
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Add(Types.Pluck)))
+        assertEquals("Synths, where Patch was left", 1, host.patch.modules.count { it.type == Types.Pluck })
+        assertEquals("and nothing was cleared", 1, host.patch.modules.count { it.type == Types.Osc })
     }
 
     /**
@@ -217,10 +299,15 @@ class GestureTest {
 
         val anchor = host.at(Offset(600f, 300f))
         host.hold(anchor)
-        val tiles = host.menu(anchor, null).tiles
         val screen = androidx.compose.ui.geometry.Rect(Offset.Zero, host.frame.canvas)
-        assertTrue(tiles.all { screen.contains(it.first.topLeft) && screen.contains(it.first.bottomRight - Offset(1f, 1f)) })
-        host.choose(anchor, null, MenuItem.NewPatch)
+        Category.entries.forEach { category ->
+            val tiles = host.addMenu(anchor, category).tiles
+            assertTrue(
+                "$category fits",
+                tiles.all { screen.contains(it.first.topLeft) && screen.contains(it.first.bottomRight - Offset(1f, 1f)) },
+            )
+        }
+        host.pick(anchor, Category.PATCH, MenuItem.NewPatch)
         assertTrue("New patch cleared it", host.patch.free.isEmpty())
     }
 
@@ -282,7 +369,7 @@ class GestureTest {
 
         val anchor = host.at(Offset(600f, 300f))
         host.hold(anchor)
-        host.choose(anchor, null, MenuItem.StartSubpatch(Types.Subpatch))
+        host.pick(anchor, Category.BOXES, MenuItem.StartSubpatch(Types.Subpatch))
         host.tap(host.body(osc))
         host.tap(host.body(filter))
         host.tap(host.frame.selectionButton(done = true).center)
@@ -318,6 +405,122 @@ class GestureTest {
         listOf("2", "5", "0", KEY_OK).forEach(host::key)
         assertEquals(250f, filter.params[0], 0.001f)
         assertTrue("the panel it was typed into is still open", filter.expanded)
+    }
+
+    // ------------------------------------------------------------------ the library
+
+    @Test
+    fun `Boxes lists the library, a drag scrolls it without panning, and a tap loads one`() {
+        val host = Host(library = libraryOf(20))
+        val anchor = host.at(Offset(400f, 150f))
+        host.hold(anchor)
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Show(Category.BOXES)))
+
+        val menu = host.addMenu(anchor, Category.BOXES)
+        val list = menu.list!!
+        assertTrue("more is saved than shows", menu.maxScroll > 0)
+        assertTrue("so the last is below the fold", menu.tiles.none { it.second == MenuItem.Load("Saved 20") })
+
+        val pan = host.camera.pan
+        val from = Offset(list.center.x, list.bottom - 4f)
+        host.drag(from, from - Offset(0f, menu.listPitch * menu.maxScroll + menu.listPitch / 4f))
+        assertEquals("the canvas behind did not move", pan, host.camera.pan)
+
+        host.tap(host.tile(anchor, Category.BOXES, MenuItem.Load("Saved 20"), scroll = menu.maxScroll))
+        compose.waitUntil(5_000) { host.patch.modules.any { it.type.box && it.name == "Saved 20" } }
+    }
+
+    /**
+     * A long press is what is done *to* a thing, and never destroys on its own: it opens a menu
+     * of one tile. Away from that menu is back to the library rather than out of everything,
+     * because deleting one saved subpatch is usually looking through several.
+     */
+    @Test
+    fun `a long press on a saved subpatch offers Delete, and away hands the library back`() {
+        val library = libraryOf(3)
+        val host = Host(library = library)
+        val anchor = host.at(Offset(400f, 150f))
+        host.hold(anchor)
+        host.tap(host.tile(anchor, Category.SYNTHS, MenuItem.Show(Category.BOXES)))
+
+        val first = host.tile(anchor, Category.BOXES, MenuItem.Load("Saved 01"))
+        host.hold(first)
+        assertEquals("the press alone deletes nothing", 3, library.names().size)
+        assertEquals("nor loads anything", 0, host.patch.free.size)
+        host.tap(Offset(host.frame.canvas.width - 20f, host.frame.canvas.height - 20f))
+        host.tap(host.tile(anchor, Category.BOXES, MenuItem.Add(Types.Subpatch)))
+        assertEquals("the library was back: a box tile answered", 1, host.patch.free.count { it.type == Types.Subpatch })
+
+        // Somewhere else: the box just added is where the menu was.
+        val again = host.at(Offset(700f, 300f))
+        host.hold(again)
+        val held = host.tile(again, Category.BOXES, MenuItem.Load("Saved 01"))
+        host.hold(held)
+        host.choose(held, null, MenuItem.DeleteSaved("Saved 01"), saved = "Saved 01")
+        compose.waitUntil(5_000) { library.names() == listOf("Saved 02", "Saved 03") }
+    }
+
+    // ------------------------------------------------------------------ opening a saved patch
+
+    private fun libraryWithGroove(): SubpatchLibrary {
+        val library = SubpatchLibrary(folder.newFolder())
+        val groove = SubpatchFixture().patch.apply {
+            tempo = 90f
+            name = "Groove"
+        }
+        library.write("Groove", groove.patchToSubpatchJson("Groove")!!)
+        return library
+    }
+
+    private fun Host.open() {
+        val anchor = at(Offset(500f, 250f))
+        hold(anchor)
+        pick(anchor, Category.PATCH, MenuItem.Open)
+    }
+
+    @Test
+    fun `a patch with nothing to lose opens another without asking`() {
+        val host = Host(library = libraryWithGroove())
+        host.open()
+        awaitText("Open a saved patch")
+        assertTrue(compose.onAllNodesWithText("not saved", substring = true).fetchSemanticsNodes().isEmpty())
+        press("Groove")
+        compose.waitUntil(5_000) { host.patch.name == "Groove" }
+        assertEquals(90f, host.patch.tempo)
+        assertTrue("it sounds: something reaches Out", host.patch.connections.any { it.to.moduleId == OUT_ID })
+    }
+
+    /** Forrest's rule: Open replaces the patch, but one that is not saved is offered the save first. */
+    @Test
+    fun `Open asks first when the patch is not saved, and Don't save goes on`() {
+        val host = Host(library = libraryWithGroove())
+        host.patch.add(Types.Pluck, Offset(40f, 40f))!!
+        compose.waitForIdle()
+        host.open()
+        awaitText("has changes that are not saved", substring = true)
+        press("Don\u2019t save")
+        press("Groove")
+        compose.waitUntil(5_000) { host.patch.name == "Groove" }
+        assertTrue("what was here is gone", host.patch.modules.none { it.type == Types.Pluck })
+    }
+
+    @Test
+    fun `Save on the way saves the patch under its name, then carries on to the library`() {
+        val library = libraryWithGroove()
+        val host = Host(library = library)
+        host.patch.add(Types.Pluck, Offset(40f, 40f))!!
+        host.patch.name = "Mine"
+        compose.waitForIdle()
+        host.open()
+        press("Save\u2026")
+        compose.onNode(hasSetTextAction()).performImeAction()
+        compose.waitUntil(5_000) { library.exists("Mine") }
+        press("Groove")
+        compose.waitUntil(5_000) { host.patch.name == "Groove" }
+
+        val mine = Patch()
+        assertTrue(mine.openSaved(library.read("Mine")!!, "Mine"))
+        assertEquals("what was saved on the way is what was there", 1, mine.modules.count { it.type == Types.Pluck })
     }
 
     // ------------------------------------------------------------------ the envelope editor
