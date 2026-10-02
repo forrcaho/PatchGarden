@@ -427,6 +427,14 @@ void Graph::applyCommands() {
                 nodes_[slot].node = cmd.node;
                 nodes_[slot].inputs.fill(InputRef{});
                 nodes_[slot].params.fill(ParamRef{});
+                // A driven knob is a gain or a level, and starts at unity until the interface
+                // says otherwise -- which it does in the same batch as the add, so this only
+                // decides what a graph driven by hand hears, as the tests are. At the struct's
+                // zero, every synth a test added without sending its level would be silent.
+                for (int32_t p = 0; p < cmd.node->inputCount(); ++p) {
+                    const int32_t driven = cmd.node->drivenParam(p);
+                    if (driven >= 0 && driven < kMaxParams) nodes_[slot].params[driven].base = 1.0f;
+                }
                 if (cmd.nodeType == NodeType::Out) outIndex_ = slot;
                 if (cmd.nodeType == NodeType::In) inIndex_ = slot;
                 dirty_ = true;
@@ -677,9 +685,10 @@ void Graph::applyModulation(Record &record, int32_t slot, int32_t frames) {
 }
 
 void Graph::sweep(const ParamRef &param, int32_t index, int32_t port, int32_t frames,
-                  float *into) const {
+                  float knobFrom, float *into) const {
     if (index < 0 || !nodes_[index].used) {
-        std::fill(into, into + frames, param.base);
+        const float step = (param.base - knobFrom) / static_cast<float>(frames);
+        for (int32_t i = 0; i < frames; ++i) into[i] = knobFrom + step * static_cast<float>(i + 1);
         return;
     }
     // A range always arrives with the node from the interface, which sends a driven knob's
@@ -701,15 +710,18 @@ void Graph::sweep(const ParamRef &param, int32_t index, int32_t port, int32_t fr
 const float *Graph::drivenInput(Record &record, int32_t slot, int32_t port, int32_t paramIndex,
                                 int32_t frames) {
     InputRef &ref = record.inputs[port];
-    const ParamRef &param = record.params[paramIndex];
+    ParamRef &param = record.params[paramIndex];
+    const float knobFrom = param.handedYet ? param.handed : param.base;
+    param.handed = param.base;
+    param.handedYet = true;
     float *into = ramp_[port].data();
-    sweep(param, ref.sourceIndex, ref.sourcePort, frames, into);
+    sweep(param, ref.sourceIndex, ref.sourcePort, frames, knobFrom, into);
     if (ref.rampRemaining > 0) {
         // From the knob into the sweep on a patch, back on an unpatch, and from one sweep to
         // the other on a replacement -- the same smoothstep as every other cable, over values
         // of the parameter rather than of the signal.
         float *from = drivenFrom_.data();
-        sweep(param, ref.fromIndex, ref.fromPort, frames, from);
+        sweep(param, ref.fromIndex, ref.fromPort, frames, knobFrom, from);
         for (int32_t i = 0; i < frames; ++i) {
             const float linear = ref.rampRemaining > 0
                     ? 1.0f - static_cast<float>(ref.rampRemaining) /
@@ -761,6 +773,7 @@ void Graph::process(int32_t frames) {
 
         const int32_t ins = node->inputCount();
         const uint32_t noteMask = node->noteInputs();
+        uint32_t envelopes = 0;
         for (int32_t p = 0; p < ins; ++p) {
             if ((noteMask & (1u << static_cast<uint32_t>(p))) != 0) {
                 // No ramp, and nothing to ramp between: the events are gathered from
@@ -773,6 +786,13 @@ void Graph::process(int32_t frames) {
             const int32_t driven = node->drivenParam(p);
             if (driven >= 0 && driven < kMaxParams) {
                 node->setInput(p, drivenInput(record, order_[i], p, driven, frames));
+                // As the source stands after its own process() this block, or the last one's
+                // on a back edge. Either way it is at most a block late about an envelope
+                // finishing, by which time the level it drove has already arrived.
+                if (ref.sourceIndex >= 0 && nodes_[ref.sourceIndex].used &&
+                    nodes_[ref.sourceIndex].node->envelopeRunning(ref.sourcePort)) {
+                    envelopes |= 1u << static_cast<uint32_t>(p);
+                }
                 continue;
             }
             const float *idle = silence_.data();
@@ -806,6 +826,7 @@ void Graph::process(int32_t frames) {
                 ref.fromIndex = -1;
             }
         }
+        node->setEnvelopes(envelopes);
         node->process(frames);
 
         // Publish where a sequencer has got to. One relaxed store each, for the only

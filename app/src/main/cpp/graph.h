@@ -291,6 +291,14 @@ private:
         bool exponential = false;
         /** Whether a range ever arrived. A modulator patched before one does changes nothing. */
         bool ranged = false;
+        /**
+         * A driven knob as it was last handed to its node, so a knob moved while nothing is
+         * patched ramps across one block rather than stepping -- a typed level is a jump of
+         * any size, and a gain is the one parameter where a step is heard as a click. Unset
+         * until the first block, which starts on the knob.
+         */
+        float handed = 0.0f;
+        bool handedYet = false;
     };
 
     struct Record {
@@ -347,8 +355,12 @@ private:
      */
     const float *drivenInput(Record &record, int32_t slot, int32_t port, int32_t paramIndex,
                              int32_t frames);
-    /** [param] as swept by output [port] of node [index] -- or its knob, where that is nothing. */
-    void sweep(const ParamRef &param, int32_t index, int32_t port, int32_t frames, float *into) const;
+    /**
+     * [param] as swept by output [port] of node [index] -- or its knob, where that is nothing,
+     * ramped from [knobFrom] across the block.
+     */
+    void sweep(const ParamRef &param, int32_t index, int32_t port, int32_t frames, float knobFrom,
+               float *into) const;
     /** Gathers a note input's sources into one buffer, in offset order, tagged by slot. */
     const NoteBuffer &mergeNotes(const Record &record, int32_t port);
     /** Frees nodes whose fade-out has run. Audio thread, end of each block. */

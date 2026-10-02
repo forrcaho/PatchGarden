@@ -1046,26 +1046,22 @@ class TransportSyncTest {
     }
 
     /**
-     * Mirrors kIntervals and the interval code in nodes.h, read out of the header. A mismatch is
-     * a tile that plays another length than it says -- or, for "free", a Delay that is synced.
+     * Mirrors the interval code in nodes.h, read out of the header. A mismatch is a tile that
+     * plays another length than it says -- or, for "free", a Delay that is synced.
      */
     @Test
-    fun `the interval table and code are the engine's, entry for entry`() {
+    fun `the interval code is the engine's`() {
         val header = java.io.File("src/main/cpp/nodes.h").readText()
-        val table = header.substringAfter("constexpr Interval kIntervals[] = {").substringBefore("};")
-        val engine = Regex("""\{\s*(\d+),\s*(\d+)\s*\}""").findAll(table)
-            .map { Interval(it.groupValues[1].toInt(), it.groupValues[2].toInt()) }.toList()
-        assertEquals(engine, INTERVALS)
         fun constant(name: String) =
             Regex("""constexpr int32_t $name = (\d+);""").find(header)!!.groupValues[1].toInt()
         assertEquals(constant("kDefaultInterval"), DEFAULT_INTERVAL)
         assertEquals(constant("kFreeInterval"), FREE_INTERVAL)
         assertEquals(constant("kIntervalCode"), INTERVAL_CODE)
         assertEquals(constant("kMaxBeats"), MAX_BEATS)
-        assertTrue("the code starts past the old table", INTERVAL_CODE >= INTERVALS.size)
-        assertTrue("and free is no length", INTERVALS[FREE_INTERVAL].free)
+        assertTrue("free is below the codes", FREE_INTERVAL < INTERVAL_CODE)
+        assertTrue("and is no length", intervalOf(FREE_INTERVAL.toFloat()).free)
 
-        // Every clocked module's knob reaches the whole table, from the header.
+        // Every clocked module's knob reaches the last code, from the header.
         Types.byName.values.filter { it.intervalParam >= 0 }.forEach { type ->
             val interval = type.params[type.intervalParam]
             assertEquals(type.name, (INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1).toFloat(), interval.max)
@@ -1232,7 +1228,7 @@ class ModulationSyncTest {
     }
 
     /**
-     * An Amp's range is sent with the node whether or not a bracket ever moved, and an undo
+     * A Gain's range is sent with the node whether or not a bracket ever moved, and an undo
      * that takes a moved one away sends the default back.
      *
      * No command removes a range -- harmless for an exposed knob, whose range does nothing
@@ -1241,9 +1237,9 @@ class ModulationSyncTest {
      * keeps the two sides agreeing.
      */
     @Test
-    fun `an Amp's range is always sent, and an undone bracket sends the default back`() {
+    fun `a Gain's range is always sent, and an undone bracket sends the default back`() {
         val patch = Patch()
-        val amp = patch.add(Types.Amp, Offset.Zero)!!
+        val amp = patch.add(Types.Gain, Offset.Zero)!!
         amp.setParam(0, 0.8f)
         sync.sync(patch)
         assertTrue(

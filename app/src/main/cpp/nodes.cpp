@@ -993,13 +993,18 @@ int32_t PolyInNode::choose() const {
     // restarts whatever is inside it mid-note, so it is the last resort rather than the
     // first, and by the time every instance is held the next note was going to cost
     // something regardless.
-    for (int32_t k = 0; k < voices_; ++k) {
-        if (!instances_[k].held && instances_[k].note.id == 0) return k;
-    }
+    //
+    // Among the released, the one let go *earliest*, which an instance never used counts as
+    // -- since an Env on a synth's level makes a release audible, a released instance is
+    // usually still ringing, and the quietest of them is the one furthest into its release.
+    // Every instance is a copy of one voice with one envelope, so that is simply the
+    // earliest Off; nothing inside has to say how loud it is. It was the earliest *On*, which
+    // took a pad held ten seconds and let go a moment ago over a short note that had all but
+    // faded.
     int32_t chosen = -1;
     for (int32_t k = 0; k < voices_; ++k) {
         if (instances_[k].held) continue;
-        if (chosen < 0 || instances_[k].age < instances_[chosen].age) chosen = k;
+        if (chosen < 0 || instances_[k].released < instances_[chosen].released) chosen = k;
     }
     if (chosen >= 0) return chosen;
     for (int32_t k = 0; k < voices_; ++k) {
@@ -1055,6 +1060,7 @@ void PolyInNode::process(int32_t frames) {
         off.offset = 0;
         notesOut(k).push(off);
         instances_[k].held = false;
+        instances_[k].released = age_++;
     }
     cut_ = 0;
 
@@ -1080,7 +1086,10 @@ void PolyInNode::process(int32_t frames) {
         const int32_t k = holding(event.id, event.source);
         if (k < 0) continue;
         notesOut(k).push(event);
-        if (event.kind == NoteKind::Off) instances_[k].held = false;
+        if (event.kind == NoteKind::Off) {
+            instances_[k].held = false;
+            instances_[k].released = age_++;
+        }
         // A Change moves the note, so what heldNotes hands over moves with it.
         if (event.kind == NoteKind::Change) instances_[k].note = event;
     }
@@ -1095,9 +1104,9 @@ void PolySumNode::process(int32_t frames) {
     }
 }
 
-// ---------------------------------------------------------------- Amp
+// ---------------------------------------------------------------- Gain
 
-void AmpNode::process(int32_t frames) {
+void GainNode::process(int32_t frames) {
     const float *in = input(0);
     const float *gain = input(1);  // the gain knob, per sample: see drivenParam
     float *o = out(0);
@@ -1210,6 +1219,9 @@ float NoiseNode::white() {
 
 void NoiseNode::process(int32_t frames) {
     float *o = out(0);
+    // The level, per sample: the knob, or whatever its jack sweeps. Unity for a node driven
+    // by hand, as the tests do.
+    const float *level = input(0);
     for (int32_t i = 0; i < frames; ++i) {
         const float w = white();
         // Kellet's coefficients are for 44.1kHz; at 48 the corners move up a tenth of an
@@ -1234,6 +1246,7 @@ void NoiseNode::process(int32_t frames) {
             case 2: o[i] = brown_ * 3.5f; break;
             default: o[i] = w * 0.35f; break;
         }
+        if (level != nullptr) o[i] *= level[i];
     }
 }
 
@@ -1349,7 +1362,7 @@ Node *makeNode(NodeType type) {
         case NodeType::Env: return new EnvNode();
         case NodeType::Steps: return new StepsNode();
         case NodeType::Mix: return new MixNode();
-        case NodeType::Amp: return new AmpNode();
+        case NodeType::Gain: return new GainNode();
         case NodeType::Noise: return new NoiseNode();
         case NodeType::Delay: return new DelayNode();
         case NodeType::Reverb: return new ReverbNode();

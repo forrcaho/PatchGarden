@@ -9,35 +9,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Amp's `mod` port is its gain's own jack: one way in, where there were two.
+ * Gain's `mod` port is its gain's own jack: one way in, where there were two.
  *
  * Until format 15 the port multiplied the knob and the knob could be exposed as well, so the
  * same envelope patched into both was applied twice -- `in * env * (0.6 + 0.8 * env)`, found
  * in the phone's own patch. Now the gain is a driven knob ([Param.drivenBy]): plain while the
  * port is empty, bracketed while it is patched, and never exposable.
  */
-class AmpTest {
+class GainTest {
 
     private class Rig {
         val patch = Patch()
         val env = patch.add(Types.Env, Offset.Zero)!!
-        val amp = patch.add(Types.Amp, Offset(200f, 0f))!!
+        val amp = patch.add(Types.Gain, Offset(200f, 0f))!!
         val mod = PortRef(amp.id, PortDirection.INPUT, 1)
         fun patchIt() = assertTrue(patch.connect(PortRef(env.id, PortDirection.OUTPUT, 0), mod))
     }
 
     @Test
-    fun `an Amp's gain cannot be exposed, because its port already is its jack`() {
+    fun `a Gain's gain cannot be exposed, because its port already is its jack`() {
         val rig = Rig()
         assertTrue(rig.amp.isDriven(0))
         assertFalse(rig.amp.canExpose(0))
         assertFalse("refused, not quietly made", rig.patch.expose(rig.amp, 0, ModRange(0f, 1f)))
         assertTrue(rig.amp.exposed.isEmpty())
-        assertEquals("and no band of jacks grows under it", PatchModule.heightFor(Types.Amp), rig.amp.height)
+        assertEquals("and no band of jacks grows under it", PatchModule.heightFor(Types.Gain), rig.amp.height)
     }
 
     @Test
-    fun `an Amp's gain is bracketed only while its port is patched`() {
+    fun `a Gain's gain is bracketed only while its port is patched`() {
         val rig = Rig()
         rig.amp.setParam(0, 0.8f)
         assertNull("with nothing in mod, the knob is the gain", rig.patch.rangeOf(rig.amp, 0))
@@ -71,7 +71,7 @@ class AmpTest {
     }
 
     @Test
-    fun `an Amp's brackets survive the file, and a cable into its gain as a jack does not`() {
+    fun `a Gain's brackets survive the file, and a cable into its gain as a jack does not`() {
         val rig = Rig()
         rig.patchIt()
         rig.patch.setRange(rig.amp, 0, ModRange(0.25f, 0.75f))
@@ -97,7 +97,7 @@ class AmpTest {
 
     /** What every bracket, reading and knob hit test is handed, so it must match the drawing. */
     @Test
-    fun `an Amp's knob is the hand's until its port is patched`() {
+    fun `a Gain's knob is the hand's until its port is patched`() {
         val rig = Rig()
         val frame = Frame(
             canvas = androidx.compose.ui.geometry.Size(2404f, 1080f), density = 2.4375f,
@@ -107,7 +107,7 @@ class AmpTest {
         val panel = panelRect(frame)
         val rows = rig.patch.panelRows(rig.amp)
         val brackets = { row: ParamRow -> rig.patch.rangeOf(row.owner, row.index) }
-        val on = panelRowAt(panel, d, Types.Amp, rows.size, 0).center
+        val on = panelRowAt(panel, d, Types.Gain, rows.size, 0).center
 
         assertEquals(ParamRow(rig.amp, 0), panelKnobAt(panel, d, rig.amp, rows, brackets, on))
         assertNull(panelBracketAt(panel, d, rig.amp, rows, brackets, on))

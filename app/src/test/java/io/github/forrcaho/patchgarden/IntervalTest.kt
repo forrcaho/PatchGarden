@@ -2,10 +2,8 @@ package io.github.forrcaho.patchgarden
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,21 +27,24 @@ class IntervalTest {
             (1..MAX_BEATS).flatMap { b -> (1..MAX_BEATS).map { Interval(b, it).code } }.toSet().size)
         // The same number node_test hands the engine as two beats in three: the formula is
         // written twice, once a side, and this is what holds the two to each other.
-        assertEquals(82, Interval(2, 3).code)
-        assertEquals(Interval(3, 2), intervalOf(97f))
-        assertTrue("and free is still free", intervalOf(FREE_INTERVAL.toFloat()).free)
-        assertEquals(FREE_INTERVAL, INTERVALS[FREE_INTERVAL].code)
+        assertEquals(19, Interval(2, 3).code)
+        assertEquals(Interval(3, 2), intervalOf(34f))
+        assertTrue("and free is free", intervalOf(FREE_INTERVAL.toFloat()).free)
+        assertEquals(FREE_INTERVAL, Interval.FREE.code)
     }
 
-    /** An older file names an index; each still reads as the length it named. */
+    /**
+     * Below the codes is free and nothing else: the table of note lengths an older file indexed
+     * went with format 19, so there is no value left that means "look it up".
+     */
     @Test
-    fun `an old index reads as the length it always was`() {
-        assertEquals(Interval(1, 2), intervalOf(3f))
-        assertEquals(Interval(2, 3), intervalOf(6f))
-        assertEquals(Interval(1, 5), intervalOf(10f))
-        assertEquals(Interval(16, 1), intervalOf(32f))
-        assertTrue("every one of them a length the rows can say",
-            INTERVALS.filter { !it.free }.all { it.num in 1..MAX_BEATS && it.den in 1..MAX_BEATS })
+    fun `free is the one value below the codes, and nothing reads past the last`() {
+        assertEquals(0, FREE_INTERVAL)
+        assertEquals(1, INTERVAL_CODE)
+        assertTrue(intervalOf(-3f).free)
+        assertEquals(Interval(1, 1), intervalOf(1f))
+        assertEquals("past the last code, the last", Interval(16, 16), intervalOf(9999f))
+        assertEquals("and NaN is a step a beat rather than no step", Interval(1, 1), intervalOf(Float.NaN))
     }
 
     @Test
@@ -56,7 +57,7 @@ class IntervalTest {
         assertEquals("2/3 beat", Interval(2, 3).label)
         assertEquals("more than one is plural", "3/2 beats", Interval(3, 2).label)
         assertEquals("16/15 beats", Interval(16, 15).label)
-        assertEquals("free", INTERVALS[FREE_INTERVAL].label)
+        assertEquals("free", Interval.FREE.label)
 
         assertEquals("1 beat ÷ 3 = 1/3 beat", Interval(1, 3).readout())
         assertEquals("the rows as chosen, the length reduced", "2 beats ÷ 4 = 1/2 beat", Interval(2, 4).readout())
@@ -69,7 +70,7 @@ class IntervalTest {
         assertEquals(Interval(3, 2), half.with(IntervalPick.Beats(3)))
         assertEquals(Interval(1, 5), half.with(IntervalPick.Divisions(5)))
         assertTrue(half.with(IntervalPick.Free).free)
-        val free = INTERVALS[FREE_INTERVAL]
+        val free = Interval.FREE
         assertEquals("from free, the other row starts at 1", Interval(4, 1), free.with(IntervalPick.Beats(4)))
         assertEquals(Interval(1, 3), free.with(IntervalPick.Divisions(3)))
     }
@@ -80,7 +81,7 @@ class IntervalTest {
         val patch = Patch()
         val lfo = patch.add(Types.Lfo, Offset.Zero)!!
         val rate = Types.Lfo.params.indexOfFirst { it.name == "rate" }
-        assertTrue("free by default, so an old LFO is the one it was", lfo.interval.free)
+        assertTrue("free by default", lfo.interval.free)
         assertTrue(lfo.isLive(rate))
         lfo.setParam(Types.Lfo.intervalParam, Interval(1, 1).code.toFloat())
         assertFalse("synced, the rate is faint", lfo.isLive(rate))
@@ -177,40 +178,10 @@ class IntervalTest {
             listOf(4 to false, 8 to false, 12 to false, 16 to true),
             beatLines(20, Interval(3, 4), 4).take(4).let { listOf(it[0], it[1], it[2], it[3]) },
         )
-        assertTrue(beatLines(16, INTERVALS[FREE_INTERVAL], 4).isEmpty())
+        assertTrue(beatLines(16, Interval.FREE, 4).isEmpty())
     }
 
     // ------------------------------------------------------------------ the file
-
-    /**
-     * 18 only added: a value under 64 is still read through the old table, so a 17 or a 16
-     * reads as it stands -- its intervals name the same lengths, and its LFOs name no interval,
-     * which is free, which is what they were.
-     */
-    @Test
-    fun `an older file reads as it was written`() {
-        listOf(16, 17).forEach { version ->
-            val patch = Patch()
-            val seq = patch.add(Types.Seq, Offset.Zero)!!
-            val delay = patch.add(Types.Delay, Offset(0f, 200f))!!
-            val lfo = patch.add(Types.Lfo, Offset(0f, 400f))!!
-            seq.setParam(Types.Seq.intervalParam, 8f) // the old table's 1/16T
-            delay.setParam(Types.Delay.intervalParam, FREE_INTERVAL.toFloat())
-            val root = JSONObject(patch.toJson()).put("version", version)
-            if (version == 16) {
-                val modules = root.getJSONArray("modules")
-                for (i in 0 until modules.length()) {
-                    val m = modules.getJSONObject(i)
-                    if (m.getString("type") == "LFO") m.getJSONObject("params").remove("interval")
-                }
-            }
-            val read = patchFromJson(root.toString())
-            assertNotNull("format $version", read)
-            assertEquals(Interval(1, 6), read!!.module(seq.id)!!.interval)
-            assertTrue(read.module(delay.id)!!.interval.free)
-            assertTrue("an LFO that names no interval is free", read.module(lfo.id)!!.interval.free)
-        }
-    }
 
     @Test
     fun `beats and divisions survive a save, unreduced`() {

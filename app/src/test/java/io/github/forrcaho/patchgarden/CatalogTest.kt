@@ -3,7 +3,6 @@ package io.github.forrcaho.patchgarden
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,25 +14,32 @@ import org.junit.Test
 class CatalogTest {
 
     /**
-     * 16 is additive over 15, so a 15 file opens as it stands -- and the one knob it cannot
-     * name comes back at the value that restates what the file already sounded like.
+     * Every sound source has a level with a jack of its own, from one definition, so an Env
+     * patches straight into the synth. The jack is the knob's ([Param.drivenBy]): a modulation
+     * input, never exposable as well. The knob's index is the engine's to read, so it is read
+     * out of each node's `kLevel` in the header -- a mismatch would sweep the wrong knob.
      */
     @Test
-    fun `a format 15 file still opens, with its Osc in tune`() {
-        val patch = Patch()
-        val osc = patch.add(Types.Osc, Offset.Zero)!!
-        osc.setParam(0, 3f) // a sine, so the file says something about the Osc
-        val current = patch.toJson()
-        assertTrue(current.contains("\"version\":18"))
-
-        // What a 15 build wrote: the same file, with no tune in it.
-        val older = current.replace("\"version\":18", "\"version\":15").replace(",\"tune\":0", "")
-        assertTrue("the edit took: $older", !older.contains("tune"))
-        val back = patchFromJson(older)
-        assertNotNull("15 is still read", back)
-        val read = back!!.modules.first { it.type == Types.Osc }
-        assertEquals("the waveform it did name", 3f, read.params[0])
-        assertEquals("and in tune, which is what it was", 0f, read.params[1])
+    fun `every sound source has a level, and the level has a jack`() {
+        val header = java.io.File("src/main/cpp/nodes.h").readText() +
+            java.io.File("src/main/cpp/soundfont.h").readText()
+        fun engineLevel(node: String): Int {
+            val body = header.substringAfter("class $node ")
+            return Regex("""static constexpr int32_t kLevel = (\d+);""").find(body)!!.groupValues[1].toInt()
+        }
+        mapOf(
+            Types.Osc to "OscNode", Types.Pluck to "PluckNode", Types.Fm to "FmNode",
+            Types.Sf to "SfNode", Types.Noise to "NoiseNode",
+        ).forEach { (type, node) ->
+            val level = type.params.indexOfFirst { it.name == "level" }
+            assertTrue("${type.name} has a level", level >= 0)
+            assertEquals("${type.name}: the engine's level", engineLevel(node), level)
+            val port = type.params[level].drivenBy
+            assertTrue("${type.name}: driven by a port", port >= 0)
+            assertEquals("${type.name}: a modulation input", SignalKind.MODULATION, type.inputs[port].kind)
+            val module = Patch().add(type, Offset.Zero)!!
+            assertTrue("${type.name}: and so not exposable", !module.canExpose(level))
+        }
     }
 
     @Test
@@ -63,7 +69,7 @@ class CatalogTest {
     fun `Noise is a module, and its colors are named`() {
         assertAModule(Types.Noise, NodeType.Noise)
         assertEquals(listOf("white", "pink", "brown"), NOISE_TYPES)
-        assertTrue("a source: nothing goes in", Types.Noise.inputs.isEmpty())
+        assertEquals("a source: nothing goes in but its level", listOf(Port("level", SignalKind.MODULATION)), Types.Noise.inputs)
         assertEquals(listOf(SignalKind.AUDIO), Types.Noise.outputs.map { it.kind })
     }
 
@@ -102,7 +108,7 @@ class CatalogTest {
         val slot = rows.indexOfFirst { it.index == time }
         val on = panelRowAt(panel, d, Types.Delay, rows.size, slot).center
         assertEquals(ParamRow(delay, time), panelKnobAt(panel, d, delay, rows, brackets, on))
-        delay.setParam(Types.Delay.intervalParam, 3f) // back to half a beat
+        delay.setParam(Types.Delay.intervalParam, Interval(1, 2).code.toFloat()) // back to half a beat
         assertEquals("synced, a finger on it takes nothing", null, panelKnobAt(panel, d, delay, rows, brackets, on))
     }
 
@@ -164,7 +170,13 @@ class CatalogTest {
         fun takes(type: ModuleType) = type.inputs.map { it.kind }.toSet()
         Types.offered(Category.SYNTHS).forEach {
             assertEquals("${it.name} sounds", setOf(SignalKind.AUDIO), sends(it))
-            assertTrue("${it.name} is sounded by notes, or by nothing", takes(it) - SignalKind.NOTE == emptySet<SignalKind>())
+            assertTrue("${it.name} is sounded by notes, or by nothing", takes(it) - SignalKind.NOTE - SignalKind.MODULATION == emptySet<SignalKind>())
+            // And the one modulation it takes is its level's own jack, not a way in for sound.
+            it.inputs.forEachIndexed { port, input ->
+                if (input.kind == SignalKind.MODULATION) {
+                    assertTrue("${it.name}'s ${input.name} drives its level", it.params.any { p -> p.name == "level" && p.drivenBy == port })
+                }
+            }
         }
         Types.offered(Category.NOTES).forEach {
             assertEquals("${it.name} sends notes", setOf(SignalKind.NOTE), sends(it))

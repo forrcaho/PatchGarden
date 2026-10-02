@@ -246,6 +246,11 @@ void SfNode::process(int32_t frames) {
     }
     render(o + done, frames - done);
 
+    // Per sample from the graph, which ramps a moved knob itself (see Graph::drivenInput).
+    if (const float *level = input(1)) {
+        for (int32_t i = 0; i < frames; ++i) o[i] *= level[i];
+        return;
+    }
     const float from = applied_;
     for (int32_t i = 0; i < frames; ++i) {
         const float gain = from + (level_ - from) * static_cast<float>(i + 1) / static_cast<float>(frames);

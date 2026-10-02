@@ -46,8 +46,8 @@ enum class NodeType(val id: Int) {
     Chord(18),
     Arp(19),
     Euclid(20),
-    /** The VCA, back. Id 7 stays retired: that module took a control voltage. */
-    Amp(21),
+    /** The VCA, back, and called Amp until 2026-10-02. Id 7 stays retired: that module took a control voltage. */
+    Gain(21),
     /**
      * A poly subpatch's two edges: the note input shared out one per instance, and the
      * instance outputs summed back into one. Neither is a module -- nothing offers them in

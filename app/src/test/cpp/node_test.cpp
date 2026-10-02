@@ -30,7 +30,7 @@ constexpr int32_t kRate = 48000;
  * were timed against it when it was the default, and state it now that the default is a step
  * a beat.
  */
-constexpr float kEighth = 65.0f;
+constexpr float kEighth = 2.0f;
 
 std::array<float, kBlockSize> constantBuffer(float value) {
     std::array<float, kBlockSize> buffer{};
@@ -690,7 +690,7 @@ void aMixChannelIsAGainThatCanBeShut() {
 }
 
 /**
- * The Amp multiplies its audio by what arrives on `mod`, which is its gain knob per sample.
+ * A Gain multiplies its audio by what arrives on `mod`, which is its gain knob per sample.
  *
  * The node's half is only the multiply: turning the knob and the modulator into that gain --
  * the knob while nothing is patched, the modulator swept between the brackets once something
@@ -698,12 +698,12 @@ void aMixChannelIsAGainThatCanBeShut() {
  * declares itself the gain's, since that declaration is what the graph acts on.
  */
 void anAmpMultipliesByTheGainItIsHanded() {
-    std::printf("an amp multiplies by the gain it is handed\n");
+    std::printf("a gain multiplies by the gain it is handed\n");
     const auto signal = constantBuffer(1.0f);
     const auto half = constantBuffer(0.5f);
     const auto shut = constantBuffer(0.0f);
 
-    AmpNode amp;
+    GainNode amp;
     amp.prepare(kRate);
     amp.setInput(0, signal.data());
 
@@ -946,7 +946,7 @@ void aTripletOnTheSwitchBeatTakesTheNewScale() {
     steps.setParam(2, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 16.0f);
-    steps.setParam(2, 7.0f); // 1/8 triplet
+    steps.setParam(2, 3.0f); // a third of a beat
     steps.setSlot(stepSlot(11, 2, true));
     steps.setSlot(stepSlot(12, 2, true));
 
@@ -1005,13 +1005,10 @@ void theIntervalIsChosenByParameter() {
     check(steps.interval().num == 1 && steps.interval().den == 2, "one beat in two is an eighth");
     // Literals, and the same ones IntervalTest writes: the formula lives once on each side of
     // the boundary, and these numbers are what hold the two to each other.
-    steps.setParam(2, 82.0f);
-    check(steps.interval().num == 2 && steps.interval().den == 3, "82 is two beats in three, a quarter triplet");
-    steps.setParam(2, 97.0f);
-    check(steps.interval().num == 3 && steps.interval().den == 2, "97 is three beats in two, a dotted quarter");
-
-    steps.setParam(2, 4.0f);
-    check(steps.interval().num == 1 && steps.interval().den == 4, "an old file's index 4 is still a sixteenth");
+    steps.setParam(2, 19.0f);
+    check(steps.interval().num == 2 && steps.interval().den == 3, "19 is two beats in three");
+    steps.setParam(2, 34.0f);
+    check(steps.interval().num == 3 && steps.interval().den == 2, "34 is three beats in two");
 
     steps.setParam(2, 9999.0f);
     check(steps.interval().num == kMaxBeats && steps.interval().den == kMaxBeats,
@@ -1407,6 +1404,41 @@ void polySend(PolyInNode &poly, const NoteBuffer &events) {
 /** Which instances said something this block, and what kind. */
 int32_t polyCount(const PolyInNode &poly, int32_t instance) {
     return poly.noteOutput(instance)->count;
+}
+
+/**
+ * Among the released, the instance let go earliest is the one taken -- not the one struck
+ * earliest. With an Env on a synth's level a released instance is still ringing, and since
+ * every instance is a copy of one voice, the one let go earliest is the one furthest into its
+ * release. Struck earliest took a pad held through three short notes and let go a moment ago.
+ */
+void aPolySubpatchTakesTheInstanceLetGoEarliest() {
+    std::printf("a poly subpatch takes the instance let go earliest\n");
+    PolyInNode poly;
+    poly.prepare(kRate);
+    poly.setParam(0, 4.0f);
+
+    NoteBuffer pad;
+    pad.push(noteOn(1, 0));
+    polySend(poly, pad); // instance 0, held throughout
+    for (uint32_t id = 2; id <= 4; ++id) {
+        NoteBuffer on;
+        on.push(noteOn(id, 4));
+        polySend(poly, on); // instances 1 to 3 in turn
+        NoteBuffer off;
+        off.push(noteOff(id));
+        polySend(poly, off);
+    }
+    NoteBuffer up;
+    up.push(noteOff(1));
+    polySend(poly, up); // the pad, struck first and let go last
+
+    NoteBuffer next;
+    next.push(noteOn(5, 7));
+    polySend(poly, next);
+    check(polyCount(poly, 1) == 1 && poly.noteOutput(1)->events[0].id == 5,
+          "the short note let go first is the one taken");
+    check(polyCount(poly, 0) == 0, "not the pad, which is still the loudest");
 }
 
 /**
@@ -1873,6 +1905,38 @@ float magnitudeAt(const std::vector<float> &samples, float hz) {
         s1 = s0;
     }
     return static_cast<float>(std::sqrt(s1 * s1 + s2 * s2 - coefficient * s1 * s2) / n);
+}
+
+/**
+ * A note taking an FM that is still sounding leaves its phases running.
+ *
+ * Restarting them is right for a voice that was silent and a step for one that was not, and
+ * MonoSynth decided which by asking whether the voice was *held*. PolyIn's steal sends the Off
+ * before the On, so an instance it took was never held at that moment and restarted mid-cycle
+ * -- and with an Env on the level, every released instance is still sounding.
+ */
+void aNoteTakingASoundingFmKeepsItsPhase() {
+    std::printf("a note taking a sounding fm keeps its phase\n");
+    FmNode fm;
+    fm.prepare(kRate);
+    fm.setParam(1, 0.0f); // no index: a sine, whose largest step is easy to state
+    play(fm, noteOn(1, 0));
+    // Until the last sample is well away from a zero crossing, where a restart would show.
+    float last = 0.0f;
+    for (int b = 0; b < 100 && std::fabs(last) < 0.5f; ++b) last = voiceIdle(fm, 1).back();
+    check(std::fabs(last) >= 0.5f, "a sample worth stepping from, " + std::to_string(last));
+
+    NoteBuffer steal;
+    steal.push(noteOff(1));
+    steal.push(noteOn(2, 0));
+    fm.setNoteInput(0, &steal);
+    fm.setTiming(0.0, false, nullptr);
+    const auto block = run(fm, 1);
+    fm.setNoteInput(0, &kNoNotes);
+    float largest = std::fabs(block[0] - last);
+    for (std::size_t i = 1; i < block.size(); ++i) largest = std::max(largest, std::fabs(block[i] - block[i - 1]));
+    // A sine at middle C moves at most 2 pi f / rate a sample, 0.034.
+    check(largest < 0.05f, "no step where the second note took it, largest " + std::to_string(largest));
 }
 
 /** An FM holding middle C. Its three knobs are all it has now; see FmNode. */
@@ -2589,7 +2653,7 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
     lfo.prepare(kRate);
     lfo.setParam(0, 7.3f); // a free rate, which synced must not matter
     lfo.setParam(1, 0.0f); // saw
-    lfo.setParam(2, 2.0f); // a quarter: one cycle a beat
+    lfo.setParam(2, 1.0f); // one beat divided into one: one cycle a beat
 
     for (double beat : {0.0, 0.25, 3.5, 1000.75}) {
         lfo.setTiming(perFrame, true, nullptr, perFrame, beat);
@@ -2602,13 +2666,13 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
     }
 
     // Five to a beat, which no note length is: five cycles in every beat.
-    lfo.setParam(2, 10.0f);
+    lfo.setParam(2, 5.0f);
     lfo.setTiming(perFrame, true, nullptr, perFrame, 0.1);
     lfo.process(kBlockSize);
     check(std::fabs(lfo.output(0)[0] - 0.5f) < 1e-4f, "a tenth of a beat is half a fifth of one");
 
     // Every four beats, for a slow sweep: a quarter of the way through at beat one.
-    lfo.setParam(2, 0.0f);
+    lfo.setParam(2, 49.0f); // four beats divided into one
     lfo.setTiming(perFrame, true, nullptr, perFrame, 1.0);
     lfo.process(kBlockSize);
     check(std::fabs(lfo.output(0)[0] - 0.25f) < 1e-4f, "a whole note's LFO is a quarter through at beat one");
@@ -2629,28 +2693,22 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
 }
 
 /**
- * The table the parameters index. Every old entry kept its place, "free" among them, and
- * everything past it is new: a patch saved before the table grew reads as it was saved.
+ * The interval knob says beats and divisions outright, from 1, with free at 0 below them. It
+ * indexed a table of note lengths until format 19 dropped it.
  */
-void theIntervalTableOnlyEverGrew() {
-    std::printf("the interval table only ever grew\n");
-    const Interval before[] = {{4, 1}, {2, 1}, {1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 3}, {1, 3}, {1, 6}};
-    for (int i = 0; i < 9; ++i) {
-        check(kIntervals[i].num == before[i].num && kIntervals[i].den == before[i].den,
-              "entry " + std::to_string(i) + " is where it was");
+void theIntervalCodeSaysBeatsAndDivisions() {
+    std::printf("the interval code says beats and divisions\n");
+    for (int beats = 1; beats <= kMaxBeats; ++beats) {
+        for (int divisions = 1; divisions <= kMaxBeats; ++divisions) {
+            const float code = static_cast<float>(kIntervalCode + (beats - 1) * kMaxBeats + (divisions - 1));
+            const Interval read = intervalOf(code);
+            check(read.num == beats && read.den == divisions,
+                  std::to_string(beats) + " beats in " + std::to_string(divisions) + " reads back");
+        }
     }
-    check(kIntervals[kFreeInterval].none() && kFreeInterval == 9 && DelayNode::kFree == 9,
-          "and 9 is still free, as every free Delay saved says");
-    for (int n = 1; n <= 16; ++n) {
-        int found = 0;
-        for (const Interval &it : kIntervals) found += (it.num == 1 && it.den == n) ? 1 : 0;
-        check(found == 1, std::to_string(n) + " to a beat is there, once");
-    }
-    for (int k = 2; k <= 16; ++k) {
-        int found = 0;
-        for (const Interval &it : kIntervals) found += (it.num == k && it.den == 1) ? 1 : 0;
-        check(found == 1, "a step of " + std::to_string(k) + " beats is there, once");
-    }
+    check(intervalOf(static_cast<float>(kFreeInterval)).none() && kFreeInterval == 0 &&
+          DelayNode::kFree == 0, "and 0 is free");
+    check(intervalOf(-5.0f).none(), "as is anything below it");
     // A sequencer set to free never ticks, rather than reading a length that is not one.
     StepsNode steps;
     steps.setParam(2, kEighth);
@@ -2977,7 +3035,7 @@ void clearingASlotShortensTheEnvelope() {
  * A sustain on the last segment stops there rather than hanging open.
  *
  * There is nothing after it to release into, so the alternative is an envelope that holds a
- * level forever once any note has touched it -- which on an Amp is a voice that never goes
+ * level forever once any note has touched it -- which on a Gain is a voice that never goes
  * quiet.
  */
 void aSustainOnTheLastSegmentStops() {
@@ -3001,7 +3059,7 @@ void aSustainOnTheLastSegmentStops() {
  *
  * Dragging a sustain node is something anyone does with a note held down, and an editor
  * that is deaf exactly then is an editor you cannot tune by ear. It glides rather than
- * steps because this is a level feeding an Amp.
+ * steps because this is a level feeding a gain.
  */
 void aParkedEnvelopeFollowsItsLevel() {
     std::printf("a parked envelope follows its level\n");
@@ -3178,7 +3236,7 @@ void aSyncedDelayIsANoteLongAtTheTempo() {
     std::printf("a synced delay is a note long at the tempo\n");
     DelayNode delay;
     delay.prepare(kRate);
-    delay.setParam(0, 3.0f); // an eighth
+    delay.setParam(0, 2.0f); // half a beat
     delay.setParam(2, 0.0f);
     delay.setParam(3, 1.0f);
     delay.setTiming(0.0, false, nullptr, 90.0 / 60.0 / kRate); // stopped, at 90bpm
@@ -3188,7 +3246,7 @@ void aSyncedDelayIsANoteLongAtTheTempo() {
 
     DelayNode triplet;
     triplet.prepare(kRate);
-    triplet.setParam(0, 7.0f); // an eighth triplet: a third of a beat
+    triplet.setParam(0, 3.0f); // a third of a beat
     triplet.setParam(2, 0.0f);
     triplet.setParam(3, 1.0f);
     triplet.setTiming(120.0 / 60.0 / kRate, true, nullptr, 120.0 / 60.0 / kRate);
@@ -3562,6 +3620,7 @@ int main() {
     aPolySubpatchMatchesAnOffAgainstItsOwnSource();
     aPolySubpatchEndsAndDeliversHeldNotes();
     aPolySubpatchSumsItsInstances();
+    aPolySubpatchTakesTheInstanceLetGoEarliest();
     stepsTakeTheirStepFromTheCount();
     stepsPlayTheirOwnPattern();
     aClosedGateIsARestNotASkip();
@@ -3591,6 +3650,7 @@ int main() {
     fmWithNoIndexIsASine();
     fmIndexAndRatioPlaceTheSidebands();
     fmBrightnessFallsFasterThanLoudness();
+    aNoteTakingASoundingFmKeepsItsPhase();
     theMadeBankLoadsWithItsPreset();
     anSfPlaysItsNoteInTune();
     anSfGlidesAndLetsGo();
@@ -3611,7 +3671,7 @@ int main() {
     euclidSpreadsItsPulses();
     anLfoStaysInsideItsRangeAtItsRate();
     aSyncedLfoIsInPhaseWithTheBeat();
-    theIntervalTableOnlyEverGrew();
+    theIntervalCodeSaysBeatsAndDivisions();
     aDroneHoldsItsNoteWithTheTransportStopped();
     aDroneSoundsSeveralCellsAtOnce();
     aDroneNoteTakesTheBeatOfTheLastTick();

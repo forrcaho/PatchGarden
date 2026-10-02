@@ -68,15 +68,19 @@ public:
  * font and was never heard. Changing font re-strikes the chord the same way.
  *
  * Knobs, mirroring PatchCanvas.kt: preset (bank * 128 + program, chosen from the panel's
- * header) and level.
+ * header) and level, which its second port drives as every sound source's does. Unlike a
+ * MonoSynth's, an envelope there holds no note open: a SoundFont's notes have releases of
+ * their own, and this one's are TinySoundFont's to sound.
  */
 class SfNode : public Node {
 public:
     ~SfNode() override;
 
-    int32_t inputCount() const override { return 1; }  // notes
+    static constexpr int32_t kLevel = 1;
+    int32_t inputCount() const override { return 2; }  // notes, level
     int32_t outputCount() const override { return 1; }
     uint32_t noteInputs() const override { return 1u << 0; }
+    int32_t drivenParam(int32_t port) const override { return port == 1 ? kLevel : -1; }
     void prepare(int32_t sampleRate) override;
     void setParam(int32_t index, float value) override;
     Resource *swapResource(Resource *incoming) override;
@@ -109,6 +113,7 @@ private:
 
     SoundFontSynth *synth_ = nullptr;
     int32_t preset_ = 0;
+    /** The knob, for a node driven by hand; a graph hands the level over per sample instead. */
     float level_ = 1.0f;
     /** The level last applied, ramped from across a block so a moved knob never steps. */
     float applied_ = 1.0f;

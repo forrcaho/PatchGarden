@@ -115,7 +115,7 @@ class DotSeqTest {
         seq.addDot(Dot(0, 0, 4))
         seq.addDot(Dot(31, -3, 1, 0.25f))
         val json = patch.toJson()
-        assertTrue(json.contains("\"version\":18"))
+        assertTrue(json.contains("\"version\":19"))
         assertEquals(seq.dots.toList(), patchFromJson(json)!!.modules.first { it.type == Types.Seq }.dots.toList())
 
         val wild = json.replace("[31,-3,1,0.25]", "[99,-3,500,7]")
@@ -136,7 +136,9 @@ class DotSeqTest {
      * additive habit creeping back in.
      *
      * Asserted for every version this build used to accept, so raising FORMAT_VERSION
-     * without thinking about the ladder fails here.
+     * without thinking about the ladder fails here. 15 to 18 joined it with 19, which reads
+     * nothing older because compatibility is dropped wherever that is an option while the app
+     * is in development (CLAUDE.md).
      */
     @Test
     fun `a file from before segments is refused, not converted`() {
@@ -144,8 +146,8 @@ class DotSeqTest {
         seq.addDot(Dot(2, 5, 6, 0.3f))
         val current = patch.toJson()
         assertNotNull("the current version still opens", patchFromJson(current))
-        listOf(10, 11, 12, 13, 14).forEach { version ->
-            val older = current.replace("\"version\":18", "\"version\":$version")
+        (10..18).forEach { version ->
+            val older = current.replace("\"version\":19", "\"version\":$version")
             assertNull("format $version must be refused", patchFromJson(older))
         }
     }
@@ -242,16 +244,5 @@ class DotSeqTest {
         val back = patchFromJson(patch.toJson())!!
         assertEquals("and it comes back", patch.modules.count { it.type == Types.Steps }, back.modules.count { it.type == Types.Steps })
         assertEquals("with its sequence", patch.modules.first { it.type == Types.Steps }.steps.toList(), back.modules.first { it.type == Types.Steps }.steps.toList())
-    }
-
-    @Test
-    fun `a file from the night Seq was called DotSeq opens as Seq`() {
-        val (patch, seq) = seq()
-        seq.addDot(Dot(0, 3, 2))
-        val old = patch.toJson().replace("\"type\":\"Seq\"", "\"type\":\"DotSeq\"")
-        assertTrue("the edit found it", old.contains("DotSeq"))
-        val back = patchFromJson(old)!!.modules.first { it.type == Types.Seq }
-        assertEquals(listOf(Dot(0, 3, 2)), back.dots.toList())
-        assertTrue("and saves under its new name", patchFromJson(old)!!.toJson().contains("\"type\":\"Seq\""))
     }
 }

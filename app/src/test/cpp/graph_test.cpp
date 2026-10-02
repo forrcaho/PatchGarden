@@ -70,8 +70,8 @@ bool nearSilent(const float *buffer, int32_t frames) {
  *
  * Nothing drones by itself any more. The monophonic oscillator these tests used as a
  * source was retired when every synth became polyphonic, and a tone is now a note that is
- * being held -- which is a good part of why Drone exists. The envelope is flattened so the
- * tone is steady within a block rather than still decaying while it is measured.
+ * being held -- which is a good part of why Drone exists. An Osc has no envelope to flatten
+ * any more, so a held note is a steady tone.
  *
  * The oscillator is added first so that it, rather than its drone, takes the lowest free
  * slot: one test is about what happens to a freed slot, and wants the audible node in it.
@@ -81,9 +81,6 @@ void addTone(Graph &graph, int64_t id) {
     graph.postAdd(id, NodeType::Osc);
     graph.postAdd(id + 1000, NodeType::Drone);
     graph.postSetStep(id + 1000, 0, 0, true);
-    graph.postSetParam(id, 1, 0.0005f); // attack
-    graph.postSetParam(id, 2, 0.0005f); // decay
-    graph.postSetParam(id, 3, 1.0f);    // sustain, so the note holds at full level
     graph.postConnect(id + 1000, 0, id, 0);
 }
 
@@ -671,9 +668,6 @@ void aDroneFollowsTheScaleThroughTheGraph() {
     graph.postAdd(2, NodeType::Out);
     graph.postAdd(3, NodeType::Drone);
     graph.postSetParam(1, 0, 3.0f);    // sine, so a zero crossing is a cycle
-    graph.postSetParam(1, 1, 0.0005f); // and a flat envelope
-    graph.postSetParam(1, 2, 0.0005f);
-    graph.postSetParam(1, 3, 1.0f);
     graph.postSetStep(3, 10, 10, true);
     graph.postConnect(3, 0, 1, 0);
     graph.postConnect(1, 0, 2, 0);
@@ -756,9 +750,6 @@ void aNoteStartingAsItsCableConnectsStartsOnce() {
         graph.postAdd(2, NodeType::Out);
         graph.postAdd(3, NodeType::Drone);
         graph.postSetParam(1, 0, 3.0f); // sine
-        graph.postSetParam(1, 1, 0.0005f);
-        graph.postSetParam(1, 2, 0.0005f);
-        graph.postSetParam(1, 3, 1.0f);
         graph.postSetParam(2, 0, 0.2f); // quiet, so Out's limiter stays out of the comparison
         graph.postConnect(1, 0, 2, 0);
     };
@@ -883,7 +874,7 @@ void aRemovedSourceEndsTheNotesItStarted() {
     graph.postConnect(2, 0, 3, 0);
     // Whole notes at 60bpm: four seconds a step, so the note under test is still held
     // rather than having ended on its own while the test was looking away.
-    graph.postSetParam(1, 2, 0.0f);
+    graph.postSetParam(1, 2, 49.0f); // four beats divided into one
     graph.postSetTempo(60.0f);
     graph.applyCommands();
     graph.setTransportRunning(true);
@@ -955,12 +946,8 @@ struct ModPatch {
         graph.postAdd(3, NodeType::Out);
         graph.postAdd(4, NodeType::Env);
         graph.postSetStep(5, 0, 0, true); // one note, held for the whole test
-        // A sine, so a step in level is not hidden by the wave's own edges, and a flat
-        // envelope on it so the tone is steady rather than still decaying while measured.
+        // A sine, so a step in level is not hidden by the wave's own edges.
         graph.postSetParam(1, 0, 3.0f);
-        graph.postSetParam(1, 1, 0.001f);
-        graph.postSetParam(1, 2, 0.001f);
-        graph.postSetParam(1, 3, 1.0f);
         // The modulator is one segment that rises at once and then parks, so what it is
         // worth is a level and not a moment in a shape. Slots 1 and 2 are cleared because
         // a fresh Env arrives with the A/D/S/R default in it.
@@ -991,7 +978,7 @@ struct ModPatch {
 };
 
 /**
- * A sine through an Amp to the output, with a held envelope ready to patch into its `mod`.
+ * A sine through a Gain to the output, with a held envelope ready to patch into its `mod`.
  *
  * The envelope is ModPatch's: one segment that rises at once and parks, so what it is worth
  * is a level rather than a moment in a shape. Levels are kept below 0.4 through Out, whose
@@ -1003,7 +990,7 @@ struct AmpRig {
         graph.setSampleRate(48000);
         graph.postAdd(5, NodeType::Drone);
         graph.postAdd(1, NodeType::Osc);
-        graph.postAdd(2, NodeType::Amp);
+        graph.postAdd(2, NodeType::Gain);
         graph.postAdd(3, NodeType::Out);
         graph.postAdd(4, NodeType::Env);
         graph.postSetStep(5, 0, 0, true); // one note, held for the whole test
@@ -1039,18 +1026,18 @@ struct AmpRig {
 };
 
 /**
- * With nothing in `mod`, an Amp's knob is its gain -- and nothing else is, because the port
+ * With nothing in `mod`, a Gain's knob is its gain -- and nothing else is, because the port
  * is not a second gain any more.
  *
  * Until format 15 the port read as 1.0 when idle and multiplied the knob, which was right on
  * its own and wrong beside an exposed gain: the same envelope patched into both was applied
  * twice. What arrives on the port now is the gain itself, the knob while it is idle.
  */
-void anAmpsKnobIsItsGainWithNothingPatched() {
-    std::printf("an amp's knob is its gain with nothing patched\n");
+void aGainsKnobIsItsGainWithNothingPatched() {
+    std::printf("a gain's knob is its gain with nothing patched\n");
     AmpRig rig;
     const float at02 = rig.loudness();
-    check(at02 > 0.05f, "an amp with nothing patched passes its audio");
+    check(at02 > 0.05f, "a gain with nothing patched passes its audio");
     rig.knob(0.1f);
     render(rig.graph, 4);
     const float at01 = rig.loudness();
@@ -1065,8 +1052,8 @@ void anAmpsKnobIsItsGainWithNothingPatched() {
  * the high one at 1. The low bracket is a floor and not silence -- a tremolo that never
  * closes is two brackets, where the port on its own could only ever sweep from nothing.
  */
-void aPatchedAmpSweepsItsGainBetweenItsBrackets() {
-    std::printf("a patched amp sweeps its gain between its brackets\n");
+void aPatchedGainSweepsItsGainBetweenItsBrackets() {
+    std::printf("a patched gain sweeps its gain between its brackets\n");
     AmpRig rig;
     rig.graph.postSetModRange(2, 0, 0.1f, 0.3f, false);
     rig.graph.applyCommands();
@@ -1094,8 +1081,8 @@ void aPatchedAmpSweepsItsGainBetweenItsBrackets() {
  * this was before it had brackets. The interface always sends one, so this is the graph's
  * own fallback agreeing with PatchModule.drivenRange rather than a case the app reaches.
  */
-void anAmpWithNoRangeSweepsFromNothingToItsKnob() {
-    std::printf("an amp with no range sweeps from nothing to its knob\n");
+void aGainWithNoRangeSweepsFromNothingToItsKnob() {
+    std::printf("a gain with no range sweeps from nothing to its knob\n");
     AmpRig rig;
     rig.knob(0.4f);
     rig.patch();
@@ -1108,10 +1095,10 @@ void anAmpWithNoRangeSweepsFromNothingToItsKnob() {
 /**
  * Patching fades from the knob into the sweep, and unpatching fades back to it -- the graph's
  * ordinary 30ms crossfade, over the gain rather than over the signal. Without it, patching a
- * closed envelope into an open Amp drops a full sine to nothing in one sample.
+ * closed envelope into an open Gain drops a full sine to nothing in one sample.
  */
-void patchingAndUnpatchingAnAmpFade() {
-    std::printf("patching and unpatching an amp fade\n");
+void patchingAndUnpatchingAGainFade() {
+    std::printf("patching and unpatching a gain fade\n");
     AmpRig rig;
     rig.level(0.0f); // parked shut, so the patch takes the gain from the knob to nothing
     const float steady = maxStep(render(rig.graph, 64));
@@ -1150,7 +1137,7 @@ void aSyncedLfoFollowsTheTransportsBeat() {
     graph.postAdd(2, NodeType::Lfo);
     graph.postAdd(3, NodeType::Mix);
     graph.postSetParam(2, 1, 0.0f); // saw, whose value is its phase
-    graph.postSetParam(2, 2, 2.0f); // one beat: a cycle a beat
+    graph.postSetParam(2, 2, 1.0f); // one beat: a cycle a beat
     graph.postSetModRange(3, 0, 0.0f, 1.0f, false);
     graph.postConnectMod(2, 0, 3, 0);
     graph.postSetTempo(120.0f);
@@ -1197,7 +1184,7 @@ void aSyncedDelayKeepsTheGraphsTempoWhileStopped() {
     graph.postConnect(1, 0, 2, 0);
     graph.postConnect(2, 0, 3, 0);
     graph.postSetParam(1, 0, 1.0f);  // the input at unity
-    graph.postSetParam(2, 0, 3.0f);  // half a beat
+    graph.postSetParam(2, 0, 2.0f);  // half a beat
     graph.postSetParam(2, 2, 0.0f);  // one echo
     graph.postSetParam(2, 3, 1.0f);  // and only the echo
     graph.postSetParam(3, 0, 0.25f); // well under the limiter
@@ -1258,8 +1245,8 @@ void twoSequencersMergeIntoOnePolySubpatch() {
     graph.postConnect(1, 0, kEdge, 0);
     graph.postConnect(2, 0, kEdge, 0); // the same input: a note input merges rather than replaces
     graph.postSetParam(2, 1, 700.0f);  // a fifth up, so the two are not the same note
-    graph.postSetParam(1, 2, 3.0f);    // both at an eighth, the index an older file names it by
-    graph.postSetParam(2, 2, 3.0f);
+    graph.postSetParam(1, 2, 2.0f);    // both at half a beat
+    graph.postSetParam(2, 2, 2.0f);
     graph.postSetTempo(300.0f);        // and fast, so both keep starting notes throughout
     graph.applyCommands();
     graph.setTransportRunning(true);
@@ -1302,8 +1289,8 @@ void anIdIsOnlyUniqueToItsOwnSource() {
     polyRig(graph, 2);
     graph.postConnect(1, 0, kEdge, 0);
     graph.postConnect(2, 0, kEdge, 0);
-    graph.postSetParam(1, 2, 1.0f); // half notes: one long note held across many short ones
-    graph.postSetParam(2, 2, 5.0f); // 1/32, starting and ending inside it over and over
+    graph.postSetParam(1, 2, 17.0f); // two beats: one long note held across many short ones
+    graph.postSetParam(2, 2, 8.0f);  // an eighth of a beat, starting and ending inside it over and over
     graph.postSetParam(2, 1, 700.0f);
     graph.postSetTempo(240.0f);
     graph.applyCommands();
@@ -1332,7 +1319,7 @@ void anIdIsOnlyUniqueToItsOwnSource() {
  * *works*: that two notes down one cable end up on two different copies, sounding at the
  * same time, and that both reach the output through the sum.
  *
- * Each copy is an Osc with no envelope and an Amp, so each instance is a voice the way one
+ * Each copy is an Osc with no envelope and a Gain, so each instance is a voice the way one
  * would actually be built; the Amps are left wide open, a knob of 1 with nothing in `mod`.
  */
 void aFlattenedPolySubpatchSoundsTwoNotesAtOnce() {
@@ -1357,7 +1344,7 @@ void aFlattenedPolySubpatchSoundsTwoNotesAtOnce() {
     graph.postConnect(kDrone, 0, kEdge, 0);
     for (int k = 0; k < 2; ++k) {
         graph.postAdd(osc[k], NodeType::Osc);
-        graph.postAdd(amp[k], NodeType::Amp);
+        graph.postAdd(amp[k], NodeType::Gain);
         graph.postConnect(kEdge, k, osc[k], 0);
         graph.postConnect(osc[k], 0, amp[k], 0);
         graph.postConnect(amp[k], 0, kSum, k);
@@ -1497,9 +1484,6 @@ void aModulatorIsEvaluatedBeforeTheKnobItTurns() {
     // A steady sine to be gated, held by a drone since nothing drones by itself.
     graph.postSetStep(6, 0, 0, true);
     graph.postSetParam(1, 0, 3.0f);
-    graph.postSetParam(1, 1, 0.001f);
-    graph.postSetParam(1, 2, 0.001f);
-    graph.postSetParam(1, 3, 1.0f);
     graph.postConnect(6, 0, 1, 0);
     graph.postConnect(1, 0, 2, 0);
     graph.postConnect(2, 0, 3, 0);
@@ -1508,7 +1492,7 @@ void aModulatorIsEvaluatedBeforeTheKnobItTurns() {
     // and with it the gain -- is shut until that second step lands.
     graph.postSetStep(4, 0, 0, false);
     graph.postSetStep(4, 1, 0, true);
-    graph.postSetParam(4, 2, 65.0f); // one beat in two: an eighth, as the knob writes it
+    graph.postSetParam(4, 2, 2.0f); // one beat in two, as the knob writes it
     graph.postSetParam(5, 0, 0.001f); // an instant attack, so the note is heard at once
     graph.postConnect(4, 0, 5, 0);
     graph.postSetParam(2, 0, 0.0f);
@@ -1604,6 +1588,111 @@ void theGraphReportsWhereAModulatedParameterHasGot() {
     check(std::isnan(m.graph.paramOf(2, 0)), "nor does one that has been deleted");
 }
 
+// ---------------------------------------------------------------- a synth's level
+
+namespace {
+
+/**
+ * A held sine on an Osc whose level port gets [level] -- 0 nothing, 1 an Env with a half-second
+ * release, 2 an LFO -- let go, and its mean level from [from] to [to] blocks after the off: about
+ * 0.16 for the sine at full, and what Out's DC blocker leaves behind once it has stopped.
+ */
+float levelAfterTheOff(int level, int from, int to) {
+    Graph graph;
+    graph.setSampleRate(48000);
+    graph.postAdd(1, NodeType::Osc);
+    graph.postAdd(2, NodeType::Out);
+    graph.postAdd(3, NodeType::Drone);
+    graph.postSetParam(1, 0, 3.0f); // a sine
+    graph.postSetParam(2, 0, 0.25f);
+    graph.postSetStep(3, 0, 0, true);
+    graph.postConnect(3, 0, 1, 0);
+    graph.postConnect(1, 0, 2, 0);
+    if (level == 1) {
+        graph.postAdd(4, NodeType::Env);
+        // At once to full, held there, and down to nothing over half a second, straight.
+        graph.postSetSegment(4, 0, 0.001f, 1.0f, 0.0f, true);
+        graph.postSetSegment(4, 1, 0.5f, 0.0f, 0.0f, false);
+        graph.postSetSegment(4, 2, 0.0f, 0.0f, 0.0f, false);
+        graph.postConnect(3, 0, 4, 0);
+        graph.postConnect(4, 0, 1, 1);
+    } else if (level == 2) {
+        graph.postAdd(4, NodeType::Lfo);
+        graph.postSetParam(4, 0, 2.0f); // 2Hz, a tremolo
+        graph.postConnect(4, 0, 1, 1);
+    }
+    graph.applyCommands();
+    render(graph, 200); // held, and past every fade in
+    graph.postSetStep(3, 0, 0, false);
+    graph.applyCommands();
+    render(graph, from);
+    const auto window = render(graph, to - from);
+    return energy(window.data(), static_cast<int32_t>(window.size())) / static_cast<float>(window.size());
+}
+
+} // namespace
+
+/**
+ * An Env on a synth's level is heard all the way through its release, and nothing else
+ * patched there holds a note open.
+ *
+ * The release was silent on every synth from the day the envelopes came out of them: a synth
+ * closed its own 5ms gate at the note's off, so an Env still falling behind it had nothing
+ * left to shape. Now the note stays open while the envelope runs -- and only an envelope,
+ * since an LFO never finishes and a tremolo would have held every note forever.
+ */
+void anEnvelopeOnASynthsLevelIsHeardThroughItsRelease() {
+    std::printf("an envelope on a synth's level is heard through its release\n");
+    // 1500 blocks a second.
+    const float bare = levelAfterTheOff(0, 75, 150);
+    check(bare < 0.001f, "with nothing on the level the note stops at its off, " + std::to_string(bare));
+
+    const float early = levelAfterTheOff(1, 150, 225);
+    const float late = levelAfterTheOff(1, 450, 525);
+    check(early > 0.05f, "with an Env, a tenth of a second after the off it is still sounding, " +
+                              std::to_string(early));
+    check(late > 0.2f * early && late < 0.7f * early,
+          "and falling with the envelope, " + std::to_string(late) + " against " + std::to_string(early));
+    const float after = levelAfterTheOff(1, 900, 1500);
+    check(after < 0.001f, "and silent once the envelope has finished, " + std::to_string(after));
+
+    // A 2Hz tremolo over a third of a second after the off: through some of its peak, whatever
+    // its phase. A note an LFO held open would be heard there.
+    const float lfo = levelAfterTheOff(2, 75, 575);
+    check(lfo < 0.001f, "an LFO on the level holds nothing open, " + std::to_string(lfo));
+}
+
+/**
+ * A typed level is a jump of any size, and with nothing patched the graph hands a node its
+ * knob -- so it ramps the knob across the block rather than stepping it. SF had a ramp of its
+ * own for this until its level became a driven knob like everyone else's.
+ */
+void aDrivenKnobMovedWithNothingPatchedRampsAcrossABlock() {
+    std::printf("a driven knob moved with nothing patched ramps across a block\n");
+    Graph graph;
+    graph.setSampleRate(48000);
+    addTone(graph, 1);
+    graph.postAdd(2, NodeType::Out);
+    graph.postSetParam(1, 0, 3.0f); // a sine
+    graph.postSetParam(2, 0, 0.25f);
+    graph.postConnect(1, 0, 2, 0);
+    graph.applyCommands();
+    render(graph, 200);
+    // Until the last sample is well away from a zero crossing, so a step would show.
+    float before = 0.0f;
+    for (int b = 0; b < 100 && std::fabs(before) < 0.15f; ++b) before = render(graph, 1).back();
+    check(std::fabs(before) >= 0.15f, "a sample worth stepping from, " + std::to_string(before));
+
+    graph.postSetParam(1, OscNode::kLevel, 0.0f);
+    graph.applyCommands();
+    const auto block = render(graph, 1);
+    check(std::fabs(block.front()) > 0.5f * std::fabs(before),
+          "the block after starts near where the last ended, " + std::to_string(block.front()) +
+          " after " + std::to_string(before));
+    check(std::fabs(block.back()) < 0.02f, "and ends on the new knob, " + std::to_string(block.back()));
+    check(nearSilent(render(graph, 1).data(), kBlockSize), "where it stays");
+}
+
 int main() {
     signalReachesTheOutputWithinOneBlock();
     patchingDoesNotStep();
@@ -1634,10 +1723,10 @@ int main() {
     aRemovedSourceEndsTheNotesItStarted();
     twoSequencersMergeIntoOnePolySubpatch();
     anIdIsOnlyUniqueToItsOwnSource();
-    anAmpsKnobIsItsGainWithNothingPatched();
-    aPatchedAmpSweepsItsGainBetweenItsBrackets();
-    anAmpWithNoRangeSweepsFromNothingToItsKnob();
-    patchingAndUnpatchingAnAmpFade();
+    aGainsKnobIsItsGainWithNothingPatched();
+    aPatchedGainSweepsItsGainBetweenItsBrackets();
+    aGainWithNoRangeSweepsFromNothingToItsKnob();
+    patchingAndUnpatchingAGainFade();
     aSyncedDelayKeepsTheGraphsTempoWhileStopped();
     aSyncedLfoFollowsTheTransportsBeat();
     aFlattenedPolySubpatchSoundsTwoNotesAtOnce();
@@ -1650,6 +1739,8 @@ int main() {
     aModulatorPastFullStopsAtTheEndOfTheRange();
     aNoteOutputCannotModulate();
     theGraphReportsWhereAModulatedParameterHasGot();
+    anEnvelopeOnASynthsLevelIsHeardThroughItsRelease();
+    aDrivenKnobMovedWithNothingPatchedRampsAcrossABlock();
 
     std::printf("\n%d checks, %d failed\n", checks, failures);
     std::fflush(stdout);

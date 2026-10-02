@@ -280,7 +280,7 @@ class PolyTest {
         assertEquals("Voice", voice.name)
         assertEquals(
             "an oscillator, an envelope and the amp it opens",
-            setOf(Types.Osc, Types.Env, Types.Amp),
+            setOf(Types.Osc, Types.Env, Types.Gain),
             patch.modules.filter { it.parent == voice.id && !it.isPinned }.map { it.type }.toSet(),
         )
         assertEquals(

@@ -71,17 +71,14 @@ import java.io.File
  * entry in it is exactly some beats divided into some divisions. Nothing is converted; the
  * old values are simply still understood. The bump is for the older build, which would clamp
  * any value past its table to sixteen beats a step.
+ * 19: every synth and Noise has a level with its own jack, Amp is Gain, and the interval
+ * knob's codes start at 1 with free at 0, the table under them gone. **19 reads nothing but
+ * 19**, and not because nothing could have been restated: until development settles,
+ * compatibility is dropped wherever dropping it is an option (Forrest, 2026-10-02; see
+ * CLAUDE.md). Keeping 15 to 18 readable would have meant an "Amp" alias, a level port
+ * appended where it could be read past, and the interval table kept for values nobody writes.
  */
-private const val FORMAT_VERSION = 18
-
-/**
- * The older formats this build reads as they stand. See [upgrade].
- *
- * Each entry is a change that needs no conversion, only a default that restates what the
- * file already sounded like. Anything that would have to be *converted* is not on this list
- * and never will be.
- */
-private val READABLE = setOf(15, 16, 17, FORMAT_VERSION)
+private const val FORMAT_VERSION = 19
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {
@@ -535,7 +532,7 @@ private fun upgrade(root: JSONObject): JSONObject? {
     // inside it. A 9 stores a dot's length in whole steps where this build reads quarter
     // steps, so every note would come back a quarter of its length -- a sequence that still
     // loads, still plays and is not the music that was written.
-    if (version !in READABLE) {
+    if (version != FORMAT_VERSION) {
         Log.w(TAG, "unsupported patch version $version")
         return null
     }

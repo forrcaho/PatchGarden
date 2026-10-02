@@ -257,7 +257,7 @@ data class Param(
      * A driven knob's jack is built in: with nothing in the port the knob is the value, and
      * with something patched the row grows brackets like an exposed knob's and the port's
      * signal sweeps between them -- every sample, where an exposed knob moves once a block.
-     * It cannot also be exposed, since that would be a second jack on the same number: Amp's
+     * It cannot also be exposed, since that would be a second jack on the same number: Gain's
      * gain had both for a while, and the same envelope patched into each was applied twice.
      * The engine's side is Node::drivenParam.
      */
@@ -675,14 +675,18 @@ object Types {
      * LfoNode. Its output is modulation, which is now a kind in its own right.
      */
     /**
-     * White, pink or brown noise: a source with no input, for a voice to shape -- the breath in
+     * White, pink or brown noise: a source with no notes, for a voice to shape -- the breath in
      * a flute patch, the snare in a drum voice, a wind behind everything. Audio out, so it is
-     * colored as a sound source; loudness is an Amp's job, as it is for an Osc.
+     * colored as a sound source. Its one input is its level's jack, as on every synth: an Env
+     * there is a burst of noise with nothing between.
      */
     val Noise = ModuleType(
-        "Noise", emptyList(), listOf(Port("out", A)),
+        "Noise", listOf(Port("level", M)), listOf(Port("out", A)),
         Color(0xFF5C6440),
-        params = listOf(Param("type", 0f, (NOISE_TYPES.size - 1).toFloat(), 0f, "", STEP, Choice.NOISE)),
+        params = listOf(
+            Param("type", 0f, (NOISE_TYPES.size - 1).toFloat(), 0f, "", STEP, Choice.NOISE),
+            levelParam(port = 0),
+        ),
         engine = NodeType.Noise, category = Category.SYNTHS,
     )
     /**
@@ -858,7 +862,7 @@ object Types {
      * Monophonic, which is the point of the poly subpatch rather than a limitation beside
      * it. It held eight voices and its own envelope, and that is exactly the design this
      * redesign replaced: nothing inside it could be reached per note. A voice is a patch
-     * now -- this, an Env, an Amp -- inside a Poly the engine stamps out per note. Leaving
+     * now -- this and an Env on its level -- inside a Poly the engine stamps out per note. Leaving
      * eight voices in here as well would be two allocators with the inner one never
      * choosing anything.
      *
@@ -866,9 +870,9 @@ object Types {
      * again now that there are no slots inside this for the word to also mean.
      */
     val Osc = ModuleType(
-        "Osc", listOf(Port("notes", N)), listOf(Port("out", A)),
+        "Osc", listOf(Port("notes", N), Port("level", M)), listOf(Port("out", A)),
         Color(0xFF6090C3),
-        // Two knobs, where there were five. The envelope went to Env, which inside a poly
+        // Three knobs, where there were five. The envelope went to Env, which inside a poly
         // subpatch is one per note and can be patched anywhere -- an envelope built into a
         // synth was one envelope for every voice it had and reached nothing else, which is
         // the whole thing this redesign is about. What is left in OscNode is a 5ms gate
@@ -877,9 +881,13 @@ object Types {
         // The tune came later, and is what an Osc could not do at all without it: vibrato.
         // Exposed and patched from an LFO it is one, in cents like every tuning control here,
         // ticked at the scale's degrees like the transposes so a fixed interval is findable.
+        //
+        // The level is every synth's (see levelParam), and an Env patched to it is heard all
+        // the way through its release.
         params = listOf(
             Param("wave", 0f, 3f, 0f, "", STEP, Choice.WAVE),
             Param("tune", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true),
+            levelParam(port = 1),
         ),
         engine = NodeType.Osc, category = Category.SYNTHS,
     )
@@ -891,7 +899,7 @@ object Types {
      * patchable sets a delay's length from a note. Order mirrors PluckNode::setParam.
      */
     val Pluck = ModuleType(
-        "Pluck", listOf(Port("notes", N)), listOf(Port("out", A)),
+        "Pluck", listOf(Port("notes", N), Port("level", M)), listOf(Port("out", A)),
         Color(0xFF5CCCE0),
         params = listOf(
             // How long it rings: from a thud to, past 0.95, a string that never stops.
@@ -901,8 +909,10 @@ object Types {
             // Below a quarter the bridge buzzes like a sitar's, above it the string
             // stiffens towards a bell, and in between it is a plain string.
             Param("stiff", 0f, 1f, 0.3f, "", LIN),
-            // After the note ends: short is a finger muting it, long lets it ring on.
+            // After the note ends: short is a finger muting it, long lets it ring on. With an
+            // Env on the level, after that envelope has run.
             Param("R", 0.01f, 10f, 1f, "s", EXP),
+            levelParam(port = 1),
         ),
         engine = NodeType.Pluck, category = Category.SYNTHS,
     )
@@ -920,7 +930,7 @@ object Types {
      * mirrors FmNode::setParam.
      */
     val Fm = ModuleType(
-        "FM", listOf(Port("notes", N)), listOf(Port("out", A)),
+        "FM", listOf(Port("notes", N), Port("level", M)), listOf(Port("out", A)),
         Color(0xFF986C5C),
         params = listOf(
             // Whole numbers are harmonic and the rest clang; the keypad types them exactly.
@@ -928,6 +938,7 @@ object Types {
             Param("index", 0f, 10f, 2f, "", LIN, short = "idx"),
             // How fast the brightness dies away on its own, under the envelope's loudness.
             Param("fall", 0.01f, 20f, 1f, "s", EXP),
+            levelParam(port = 1),
         ),
         engine = NodeType.Fm, category = Category.SYNTHS,
     )
@@ -940,7 +951,7 @@ object Types {
      * module's [PatchModule.font]. Order mirrors SfNode::setParam.
      */
     val Sf = ModuleType(
-        "SF", listOf(Port("notes", N)), listOf(Port("out", A)),
+        "SF", listOf(Port("notes", N), Port("level", M)), listOf(Port("out", A)),
         Color(0xFF00849C),
         // Drawn as a stack: the only module that sounds several notes by itself. See
         // ModuleType.stacked.
@@ -950,18 +961,23 @@ object Types {
                 "preset", 0f, (129 * 128 - 1).toFloat(), 0f,
                 curve = STEP, choice = Choice.PRESET, header = true,
             ),
-            Param("level", 0f, 2f, 1f, "", LIN, short = "lvl"),
+            // Its jack holds no note open, unlike the other synths': a SoundFont's notes have
+            // releases of their own. See SfNode.
+            levelParam(port = 1),
         ),
         engine = NodeType.Sf, category = Category.SYNTHS,
     )
     /**
-     * A gain something else turns: audio in, modulation in, audio out.
+     * A gain something else turns: audio in, modulation in, audio out. Amp until 2026-10-02,
+     * when every synth grew a level of its own and "Amp" was left sounding like the tube kind.
      *
      * The VCA, back. It retired with CV on the argument that a Mix channel is `in * level`
      * and a level with a modulation jack is the same module -- true, and no longer the
      * point. With the envelopes out of the synths, the pair you reach for inside a poly
      * subpatch is Env and the thing Env opens, and that should be one cable rather than
-     * opening a Mix, exposing a knob, setting its brackets and then patching.
+     * opening a Mix, exposing a knob, setting its brackets and then patching. Since every synth
+     * has a level with a jack, that cable usually goes to the synth, and this is for after
+     * it -- an Env on a filter's output, a tremolo on a bus.
      *
      * Its `mod` port is the gain's own jack ([Param.drivenBy]): with nothing in it the knob
      * is the gain, and with something patched the gain row grows brackets and the signal
@@ -970,11 +986,11 @@ object Types {
      * sample where a parameter is applied once a block, and a 5ms attack through a 1500Hz
      * control rate is a staircase.
      */
-    val Amp = ModuleType(
-        "Amp", listOf(Port("in", A), Port("mod", M)), listOf(Port("out", A)),
+    val Gain = ModuleType(
+        "Gain", listOf(Port("in", A), Port("mod", M)), listOf(Port("out", A)),
         Color(0xFFA890A8),
         params = listOf(Param("gain", 0f, 2f, 1f, "", LIN, drivenBy = 1)),
-        engine = NodeType.Amp, category = Category.EFFECTS,
+        engine = NodeType.Gain, category = Category.EFFECTS,
     )
     val Mix = ModuleType(
         "Mix",
@@ -1024,14 +1040,14 @@ object Types {
      *
      * One of everything in there, and the engine is given [voices] copies of the lot. Notes
      * arriving at its note input are shared out one per instance -- idle first, then the
-     * oldest released, then stealing; every other input is broadcast to all of them, and
+     * one let go earliest, then stealing; every other input is broadcast to all of them, and
      * their outputs are summed back into one.
      *
      * This is the answer to the thing that started the redesign, and the only place in the
      * app that chooses between voices. Polyphony used to live inside each synth, so an Osc's
      * eight voices shared one envelope and nothing could be patched per note -- an Env on
-     * FM's modulation index was not expressible. Now a voice *is* a patch: an Osc, an Env,
-     * an Amp and whatever else, one of each, stamped out per note. The synths are
+     * FM's modulation index was not expressible. Now a voice *is* a patch: an Osc, an Env on
+     * its level and whatever else, one of each, stamped out per note. The synths are
      * monophonic to match, or there would be two allocators with the inner one never
      * choosing anything.
      *
@@ -1082,8 +1098,9 @@ object Types {
      * builds are all in its own declaration, and everything below is derived from them.
      *
      * Steps is here and offered nowhere: Seq took its place in the add menu on 2026-09-19, and
-     * a patch that has one still loads and plays it -- retiring it outright would have meant
-     * refusing every patch and saved subpatch made with it.
+     * it was kept so the patches made with it still loaded. Format 19 refuses every one of
+     * those, so nothing a person has can contain one now; what still does is the tests'
+     * fixture patch and the engine tests built on it, and retiring it is a change of its own.
      *
      * There is no Mult, despite the roadmap once listing one. A mult exists in hardware because
      * a physical jack takes one plug; here an output already fans out to as many inputs as you
@@ -1094,7 +1111,7 @@ object Types {
         Osc, Pluck, Fm, Sf, Noise,
         Seq, Drone, Euclid,
         Arp, Chord, Chance,
-        Filter, Delay, Reverb, Amp, Mix,
+        Filter, Delay, Reverb, Gain, Mix,
         Env, Lfo,
         Steps, Out, In,
     )
@@ -1109,10 +1126,7 @@ object Types {
     val boxes: Map<String, ModuleType> = listOf(Subpatch, Poly).associateBy { it.name }
 
     /** Every type a file can name that sounds. */
-    val byName: Map<String, ModuleType> =
-        modules.associateBy { it.name } +
-            // The name Seq had for its first night. Not a conversion: the same module, renamed.
-            mapOf("DotSeq" to Seq)
+    val byName: Map<String, ModuleType> = modules.associateBy { it.name }
 }
 
 /**
@@ -1438,7 +1452,7 @@ class PatchModule(
 
     /**
      * What a driven knob sweeps when its port is patched: the brackets it was given, or from
-     * silence up to the knob -- `in * mod * gain`, which is what an Amp did before it had
+     * silence up to the knob -- `in * mod * gain`, which is what a Gain did before it had
      * brackets. Stored only once a bracket moves.
      */
     fun drivenRange(index: Int): ModRange =
@@ -1448,7 +1462,7 @@ class PatchModule(
     internal val interval: Interval
         get() {
             val index = type.intervalParam
-            if (index < 0) return INTERVALS[FREE_INTERVAL]
+            if (index < 0) return Interval.FREE
             return intervalOf(params.getOrElse(index) { type.params[index].default })
         }
 
@@ -3145,7 +3159,7 @@ class Patch {
      * What the [ ] chip beside [row] on [box]'s Controls panel shows.
      *
      * Disabled where the jack is spoken for inside: a knob can only be patched from one
-     * place, so a filter an LFO inside the box already sweeps, or an Amp whose gain an Env
+     * place, so a filter an LFO inside the box already sweeps, or a synth whose level an Env
      * inside already drives -- which is every poly voice -- cannot also take a cable from
      * outside, and a chip that quietly swapped one for the other would be an edit that looks
      * like a toggle.
@@ -8882,48 +8896,39 @@ internal data class Interval(val num: Int, val den: Int) {
 
     /** How the interval knob writes it; see [INTERVAL_CODE]. */
     val code: Int get() = if (free) FREE_INTERVAL else INTERVAL_CODE + (num - 1) * MAX_BEATS + (den - 1)
+
+    companion object {
+        /** No length: a Delay's or an LFO's own knob keeps the time. */
+        val FREE = Interval(0, 1)
+    }
 }
 
 /**
- * What the interval knob meant while it was an index: read, never written, so a patch saved by
- * an older build reads as it was saved. Mirrors kIntervals in nodes.h entry for entry, which
- * GraphSyncTest reads out of the header. 9 is [FREE_INTERVAL], which is still how "free" is
- * written.
- */
-internal val INTERVALS = listOf(
-    Interval(4, 1), Interval(2, 1), Interval(1, 1), Interval(1, 2), Interval(1, 4), Interval(1, 8),
-    Interval(2, 3), Interval(1, 3), Interval(1, 6),
-    Interval(0, 1),
-    Interval(1, 5), Interval(1, 7), Interval(1, 9), Interval(1, 10), Interval(1, 11), Interval(1, 12),
-    Interval(1, 13), Interval(1, 14), Interval(1, 15), Interval(1, 16),
-    Interval(3, 1), Interval(5, 1), Interval(6, 1), Interval(7, 1), Interval(8, 1), Interval(9, 1),
-    Interval(10, 1), Interval(11, 1), Interval(12, 1), Interval(13, 1), Interval(14, 1),
-    Interval(15, 1), Interval(16, 1),
-)
-
-/**
  * How the interval knob writes a step: INTERVAL_CODE + (beats - 1) * MAX_BEATS + (divisions - 1),
- * beats and divisions each 1 to [MAX_BEATS]. Self-describing, above the old table so the two
- * cannot be confused. Mirrors kIntervalCode and kMaxBeats.
+ * beats and divisions each 1 to [MAX_BEATS], and [FREE_INTERVAL] below them. Mirrors
+ * kIntervalCode and kMaxBeats.
+ *
+ * It was an index into a table of note lengths until format 18, which moved the codes up to 64
+ * so every value under it could still be read through that table. 19 reads nothing older, so
+ * the table went and the codes start at 1.
  */
-internal const val INTERVAL_CODE = 64
+internal const val INTERVAL_CODE = 1
 internal const val MAX_BEATS = 16
+private const val LAST_INTERVAL = INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1
 
 /** Mirrors kDefaultInterval: one beat divided into one, a step a beat. */
 internal const val DEFAULT_INTERVAL = INTERVAL_CODE
 
 /** Mirrors kFreeInterval: no division, a time of the module's own. */
-internal const val FREE_INTERVAL = 9
+internal const val FREE_INTERVAL = 0
 
 /** The step an interval knob's value stands for. Mirrors intervalOf in nodes.h. */
 internal fun intervalOf(value: Float): Interval {
-    if (!(value > 0f)) return INTERVALS[0]
-    val v = value.coerceAtMost((INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1).toFloat()).roundToInt()
-    if (v >= INTERVAL_CODE) {
-        val code = v - INTERVAL_CODE
-        return Interval(code / MAX_BEATS + 1, code % MAX_BEATS + 1)
-    }
-    return INTERVALS.getOrNull(v) ?: Interval(1, 1)
+    if (value.isNaN()) return Interval(1, 1)
+    val v = value.coerceIn(0f, LAST_INTERVAL.toFloat()).roundToInt()
+    if (v < INTERVAL_CODE) return Interval.FREE
+    val code = v - INTERVAL_CODE
+    return Interval(code / MAX_BEATS + 1, code % MAX_BEATS + 1)
 }
 
 /**
@@ -8934,8 +8939,19 @@ internal fun intervalOf(value: Float): Interval {
  * see [ModuleType.canBeFree].
  */
 internal fun intervalParam(default: Int = DEFAULT_INTERVAL) = Param(
-    "interval", 0f, (INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1).toFloat(), default.toFloat(),
+    "interval", 0f, LAST_INTERVAL.toFloat(), default.toFloat(),
     curve = ParamCurve.STEPPED, choice = Choice.DIVISION, header = true,
+)
+
+/**
+ * A sound source's level, one definition for every one of them: Osc, Pluck, FM, SF and Noise.
+ * A knob with its own jack ([Param.drivenBy] is [port]), so an Env patches straight into the
+ * synth rather than into a Gain after it -- and on a monophonic synth that is what lets the
+ * envelope's release be heard: the note stays open until the envelope has finished. 0 to 2,
+ * as Gain's gain and the old SF level were, so a full-scale envelope reaches the knob.
+ */
+internal fun levelParam(port: Int) = Param(
+    "level", 0f, 2f, 1f, "", ParamCurve.LINEAR, short = "lvl", drivenBy = port,
 )
 
 /**
@@ -8960,7 +8976,7 @@ internal sealed interface IntervalPick {
 internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
     is IntervalPick.Beats -> Interval(pick.n, if (free) 1 else den)
     is IntervalPick.Divisions -> Interval(if (free) 1 else num, pick.n)
-    IntervalPick.Free -> INTERVALS[FREE_INTERVAL]
+    IntervalPick.Free -> Interval.FREE
 }
 
 /** The line over the chooser saying what the two rows make: "2 beats ÷ 4 = 1/2 beat". */

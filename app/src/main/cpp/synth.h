@@ -98,7 +98,7 @@ private:
  * Every synth here is monophonic, which is the point of the poly subpatch rather than a
  * limitation beside it. Polyphony used to live inside each synth -- eight voices, one
  * envelope shared between them, nothing per note reachable from outside -- and that is the
- * thing the redesign replaced. A voice is a patch now: an Osc, an Env, an Amp and whatever
+ * thing the redesign replaced. A voice is a patch now: an Osc, an Env on its level and whatever
  * else, inside a Poly the engine stamps out per note. Leaving eight voices in here as well
  * would be two allocators stacked on one another, the inner one never choosing anything,
  * and the whole design surface it was meant to retire still present.
@@ -119,14 +119,27 @@ private:
  * out, or a plucked string has rung out -- and it is free from then on. Which of those it is
  * is the voice's business, because only it knows what its silence looks like.
  *
+ * **Every synth has a level, and the level has a jack** (port 1, driving the knob the
+ * subclass names -- see Node::drivenParam). With nothing patched it is a knob. With an Env
+ * patched it is how the note is shaped, and then the note *outlives its Off*: the gate stays
+ * open for as long as that envelope runs, so its release is heard rather than cut off by a
+ * gate closing underneath it. That was the whole cost of taking the envelopes out of the
+ * synths -- an Env's release was silent unless what it opened was a gain after the synth --
+ * and this is the Bespoke answer to it without putting an ADSR back. With anything else
+ * patched, or nothing, a note still stops at its Off.
+ *
  * A template rather than a virtual call, since render() runs once per sample.
  */
 template <typename Voice>
 class MonoSynth : public Node {
 public:
-    int32_t inputCount() const override { return 1; }  // notes
+    /** [level] is the knob the level port drives, which is the subclass's to place. */
+    explicit MonoSynth(int32_t level) : level_(level) {}
+
+    int32_t inputCount() const override { return 2; }  // notes, level
     int32_t outputCount() const override { return 1; }
     uint32_t noteInputs() const override { return 1u << 0; }
+    int32_t drivenParam(int32_t port) const override { return port == 1 ? level_ : -1; }
 
     void prepare(int32_t sampleRate) override {
         Node::prepare(sampleRate);
@@ -136,13 +149,19 @@ public:
 
     void notesCut(int32_t port, int32_t source) override {
         (void) port; // one note input, so there is nothing to tell apart
-        if (source_ == source) gate_ = false;
+        if (source_ == source && gate_) {
+            gate_ = false;
+            lingering_ = true;
+        }
     }
 
     void process(int32_t frames) override {
         float *o = out(0);
         const NoteBuffer &notes = notesIn(0);
         int32_t next = 0;
+        // A graph always hands one over. Unity for a node driven by hand, as the tests do.
+        const float *level = input(1);
+        const bool envelope = envelopeOn(1);
 
         for (int32_t i = 0; i < frames; ++i) {
             // Events land on their own sample, the way a tick does. Already in offset
@@ -170,18 +189,23 @@ public:
                 voice_.setFreq(kMiddleC * std::exp2(octaves_));
                 --glideLeft_;
             }
+            // Let go, but held open while an envelope on the level is still running. Latched
+            // shut the first time it is not, so an envelope struck again by something else
+            // cannot reopen a note that has already started to close.
+            if (lingering_ && !envelope) lingering_ = false;
             bool finished = false;
-            const float sample = voice_.render(gate_, finished);
+            const float sample = voice_.render(gate_ || lingering_, finished);
             if (finished) {
                 // Free rather than merely quiet, and said by the voice -- see above.
                 active_ = false;
                 gate_ = false;
+                lingering_ = false;
                 source_ = -1;
                 id_ = 0;
                 o[i] = 0.0f;
                 continue;
             }
-            o[i] = sample;
+            o[i] = level != nullptr ? sample * level[i] : sample;
         }
     }
 
@@ -194,11 +218,16 @@ protected:
 
 private:
     void start(const NoteEvent &event) {
-        // A note arriving over one still held takes the voice, which is what monophonic
+        // A note arriving over one still sounding takes the voice, which is what monophonic
         // means. [stolen] says so, and each voice decides what that costs it: an Osc keeps
         // its gate ramp open rather than dropping to silence and back, and an FM leaves its
         // phases running rather than restarting them mid-cycle.
-        const bool stolen = active_ && gate_;
+        //
+        // Sounding, not held: a voice in its release is as audible as a held one, and with
+        // an envelope on the level a release lasts as long as the envelope says. It was
+        // `active_ && gate_`, which missed that -- and missed PolyIn's steal too, which sends
+        // the Off before the On, so an FM taken by PolyIn restarted its phases mid-cycle.
+        const bool stolen = active_;
 
         // Resolved here, against the scale of the beat the note started on, which traveled
         // with it. It is not resolved again unless the source sends a Change: a sequencer's
@@ -208,6 +237,7 @@ private:
         id_ = event.id;
         source_ = event.source;
         gate_ = true;
+        lingering_ = false;
         active_ = true;
         voice_.strike(kMiddleC * std::exp2(octaves_),
                       std::min(std::max(event.velocity, 0.0f), 1.0f), stolen);
@@ -217,7 +247,10 @@ private:
         // Both, because ids belong to the source that chose them: two sequencers patched to
         // one synth are each counting from one. And only the note actually sounding, so an
         // Off arriving after its note was taken does not cut the note that took it.
-        if (gate_ && id_ == id && source_ == source) gate_ = false;
+        if (gate_ && id_ == id && source_ == source) {
+            gate_ = false;
+            lingering_ = true;
+        }
     }
 
     /** A held note told to move: it glides there rather than stepping. */
@@ -241,6 +274,14 @@ private:
     int32_t glideFrames_ = 1440;
 
     Voice voice_;
+    /** Which knob the level port drives. */
+    int32_t level_;
+    /**
+     * Let go, and kept open for as long as an envelope on the level runs. Set by every Off,
+     * and dropped at once where nothing of the kind is patched, which is what keeps a synth
+     * with a bare level stopping at its Off exactly as it always did.
+     */
+    bool lingering_ = false;
     /** Whose note it is: the id its On carried, and the input slot that sent it. */
     uint32_t id_ = 0;
     int32_t source_ = -1;

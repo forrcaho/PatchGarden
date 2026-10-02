@@ -247,7 +247,7 @@ class ControlsTest {
     fun `a driven knob's jack from outside is the port that drives it`() {
         val patch = Patch()
         val lfo = patch.add(Types.Lfo, Offset(0f, 300f))!!
-        val amp = patch.add(Types.Amp, Offset(200f, 0f))!!
+        val amp = patch.add(Types.Gain, Offset(200f, 0f))!!
         val env = patch.add(Types.Env, Offset(0f, 0f))!!
         val box = patch.makeSubpatch(setOf(amp.id, env.id))!!
         box.subpatchPorts!!.promoted += ParamRef(amp.id, 0)

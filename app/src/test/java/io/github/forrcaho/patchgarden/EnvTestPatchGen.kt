@@ -13,9 +13,9 @@ import java.io.File
  * Throwaway, like [EarTestPatchGen]: a generator, not a test of anything. It is a test only
  * because the model lives in the app module and that is the cheapest way to run against it.
  *
- * Seq -> Osc -> Amp -> Out, with the same Seq opening an Env on the Amp's modulation port,
+ * Seq -> Osc -> Gain -> Out, with the same Seq opening an Env on the Gain's modulation port,
  * so what you hear is the envelope's shape and nothing else -- an Osc is one knob and the
- * Amp has no character of its own. The dots are long and well separated, because the point
+ * Gain has no character of its own. The dots are long and well separated, because the point
  * is to hear a whole shape rather than a texture.
  */
 class EnvTestPatchGen {
@@ -31,7 +31,7 @@ class EnvTestPatchGen {
         val seq = patch.add(Types.Seq, Offset(60f, 60f))!!
         val osc = patch.add(Types.Osc, Offset(300f, 60f))!!
         val env = patch.add(Types.Env, Offset(300f, 220f))!!
-        val amp = patch.add(Types.Amp, Offset(520f, 60f))!!
+        val amp = patch.add(Types.Gain, Offset(520f, 60f))!!
 
         // Four notes, two steps apart, each a whole step long: room for a slow shape to be
         // heard through and a gap between them so the release is not covered by the next.
@@ -81,6 +81,51 @@ class EnvTestPatchGen {
     }
 
     /**
+     * An Env on an Osc's level, so its release is heard: short notes, two seconds apart, each
+     * ringing on for a second after it ends. With no Gain anywhere, which is the point -- before
+     * format 19 the Osc closed its own gate at the note's end and the release was silent.
+     */
+    @Test
+    fun `write the release listening patch`() {
+        val patch = Patch()
+        patch.name = "Release"
+
+        val seq = patch.add(Types.Seq, Offset(60f, 60f))!!
+        val osc = patch.add(Types.Osc, Offset(300f, 60f))!!
+        val env = patch.add(Types.Env, Offset(300f, 220f))!!
+
+        // A step a beat at 120bpm: four notes, each half a beat long and four beats apart.
+        seq.setParam(0, 16f)
+        listOf(0, 4, 8, 12).forEachIndexed { i, step ->
+            seq.addDot(Dot(step, listOf(0, 4, 7, 12)[i], DOT_SUBSTEPS / 2))
+        }
+        osc.setParam(0, 3f) // a sine
+
+        env.segments.clear()
+        env.segments.addAll(
+            listOf(
+                EnvSegment(0.01f, 1f, 0f),
+                EnvSegment(0.1f, 0.8f, 0.6f, sustain = true),
+                EnvSegment(1.0f, 0f, 0.6f), // the release this patch is for
+            ),
+        )
+
+        val level = Types.Osc.inputs.indexOfFirst { it.name == "level" }
+        patch.connect(out(seq, 0), into(osc, 0))
+        patch.connect(out(seq, 0), into(env, 0))
+        patch.connect(out(env, 0), into(osc, level))
+        patch.connect(out(osc, 0), PortRef(OUT_ID, PortDirection.INPUT, 0))
+        patch.connect(out(osc, 0), PortRef(OUT_ID, PortDirection.INPUT, 1))
+
+        val json = patch.toJson()
+        assertEquals("round trips", json, patchFromJson(json)!!.toJson())
+        val target = File("build/release.json")
+        target.parentFile?.mkdirs()
+        target.writeText(json)
+        println("wrote ${target.absolutePath}")
+    }
+
+    /**
      * The same envelope under a *held* note, which is the only way to measure its shape.
      *
      * A Seq's note ends, and when it does the Osc is freed and writes zeros -- the Phase 10
@@ -96,7 +141,7 @@ class EnvTestPatchGen {
         val drone = patch.add(Types.Drone, Offset(60f, 60f))!!
         val osc = patch.add(Types.Osc, Offset(300f, 60f))!!
         val env = patch.add(Types.Env, Offset(300f, 220f))!!
-        val amp = patch.add(Types.Amp, Offset(520f, 60f))!!
+        val amp = patch.add(Types.Gain, Offset(520f, 60f))!!
 
         // One cell on, so exactly one note is held for as long as the patch runs.
         drone.setStep(0, drone.steps[0].copy(on = true))

@@ -191,9 +191,11 @@ development is worth keeping. **16 and 17 are additive again**, so 17 reads 16 a
 `Osc` a tune knob and added three modules; 17 grew the interval table past its old end and gave
 `LFO` an interval, free when a file names none. **18 reads 17 as well**: the interval knob says
 beats and divisions outright from 18, and a value under 64 is still read through the old table.
-**A table a knob indexes grows by appending, never by reordering**, and when the knob stops
-indexing it the table stays as the way old values are read -- which is what kept 17 and 18
-additive rather than refusals. **A knob or
+While compatibility was kept, **a table a knob indexed grew by appending, never by reordering**,
+and when the knob stopped indexing it the table stayed as the way old values were read -- which
+is what kept 17 and 18 additive rather than refusals. **19 reads nothing but 19**, under the
+policy below: every synth gained a level jack, `Amp` became `Gain`, and the interval table went.
+**A knob or
 a port added to an existing module bumps the version too**, for that same reason: knobs are
 keyed by name and port indices are positional, so an 11 build would read a bandpass, ignore
 the two knobs it does not know, and autosave it as a lowpass. **Adding a module type bumps the version** even though
@@ -202,6 +204,13 @@ autosaves the patch without it -- the bump makes that build refuse the file inst
 makes that affordable is that `PatchStore.load` moves a refused file to
 `patch.rejected.json` before the empty patch opened in its place can be autosaved over it. **A refusal must
 never be a delete** -- check that still holds before adding another one.
+
+**Until development settles, drop compatibility wherever that is an option** (Forrest,
+2026-10-02). One other person has the APK and knows it changes. So a change is made the
+simplest way rather than bent to stay additive: rename a type outright, reorder a table,
+bump the version and read nothing older. No aliases or old-value readers get added. What
+still holds is the refusal itself: an old file is moved aside, never destroyed and never
+silently converted.
 
 **Undo restores through the model, in one snapshot.** A snapshot is the autosave JSON;
 restoring it parses back to a `Patch` and `replaceWith` copies it into the live one, so
@@ -291,8 +300,11 @@ notes it is sent in the meantime.
 **Every synth is monophonic, and there is one allocator.** A synth is a `Voice` inside
 `MonoSynth` (`synth.h`), which owns pitch resolution, Off-by-source-and-id, glides and
 `notesCut`; a new synth supplies only its sound. Polyphony is a poly subpatch around it,
-and `PolyIn` is the only thing that chooses between voices -- idle first, then the oldest
-released, then steal, which were `PolySynth`'s rules and were each paid for by a bug. It
+and `PolyIn` is the only thing that chooses between voices -- idle first, then the released
+one let go *earliest*, then steal, which were `PolySynth`'s rules and were each paid for by a
+bug. "Earliest" is by the Off, not the On: with an `Env` on a synth's level a released instance
+is still ringing, and since every instance is the same voice, the one let go first is the
+quietest -- where struck first took a pad that had just been let go. It
 adds one thing a synth does not need: a stolen instance is sent an Off first, since what is
 inside it is an ordinary `Env` holding an ordinary note and nothing else would ever end it.
 **The synths' own eight voices went deliberately**: leaving them would be two allocators
@@ -316,7 +328,8 @@ parameterised at all: its panel is a grid and `Types.Env.params` is empty.
 The note port `Filter` has now is not that jack coming back: the cutoff is modulated by
 exposing the parameter, like every other knob, and the note port says which pitch to follow.
 Node ids 1, 7 and 8 are retired and never reused; `Osc` is id 10, where `Voice` was. **A
-module can come back; its id cannot.** `Amp` is the VCA again, at id 21, because with the
+module can come back; its id cannot.** `Gain` is the VCA again, at id 21 (called `Amp` until
+format 19), because with the
 envelopes out of the synths the pair you reach for is `Env` and the thing `Env` opens, and
 that should be one cable rather than opening a `Mix`, exposing its level, setting brackets
 and then patching. Id 7 stays dead all the same: that module took a control voltage, and
@@ -447,7 +460,7 @@ copying dots and none knew about a second kind of grid. An undone envelope, a du
 and one loaded from the library each came back as the default, silently, and only for the
 module you had just been editing.
 
-**No synth has an envelope.** `Osc` has one knob and `FM` three; what is left of the ADSR
+**No synth has an envelope.** `Osc` has three knobs and `FM` four, a level among them; what is left of the ADSR
 is a 5ms gate ramp (`GateRamp` in `synth.h`) that keeps a note from starting or stopping
 with a step in it. **A note's velocity rides that ramp, and must**: a voice taken by a
 second note keeps its ramp open on purpose, so a velocity applied straight to the
@@ -460,7 +473,23 @@ impossible, and why this redesign happened. Shaping is an `Env` inside a poly su
 where there is one per note. `FM` lost Chowning's brightness-follows-loudness with it:
 expose `index`, patch an `Env`, and the two envelopes no longer have to be one envelope.
 
-**A knob has one way in.** `Amp`'s `mod` port multiplied its gain knob, and the knob could be
+**Every sound source has a level with its own jack, and an `Env` there is heard through its
+release.** `levelParam()` builds it for Osc, Pluck, FM, SF and Noise: a driven knob, 0 to 2, so
+an `Env` patches straight into the synth rather than into a `Gain` after it. A `MonoSynth` whose
+level a *running* `Env` drives keeps its gate open after the note's Off until that envelope has
+finished (`Node::envelopeRunning`, which the graph checks for every driven port each block), so
+its release is heard -- it was silent before, because the synth closed its own 5ms gate under
+the envelope. **Only an envelope holds a note open**, not "until the level reaches zero" as the
+plan had it: an LFO on the level never finishes, so a tremolo would have held every released
+note forever, where an envelope always ends, whatever level it ends at and whatever the brackets
+make of it. Nothing patched, or anything else, and a note stops at its Off as it always did.
+`SF` takes the jack and holds nothing open, since TinySoundFont sounds releases of its own. A
+taken voice counts as stolen whenever it is still *sounding* (`active_`), not only while held,
+or an `FM` taken in its release would restart its phases mid-cycle. A driven knob moved with
+nothing patched ramps across one block in the graph, since a typed level is a jump of any size,
+and a driven knob starts at unity in a graph nobody has sent it to.
+
+**A knob has one way in.** `Gain`'s `mod` port (it was `Amp` then) multiplied its gain knob, and the knob could be
 exposed as well, so the same envelope patched into both was applied twice -- found in the
 phone's own patch as `in * env * (0.6 + 0.8 * env)`. The port is the knob's jack now: a
 *driven* knob (`Param.drivenBy` in Kotlin, `Node::drivenParam` in C++) is plain while its port
@@ -469,7 +498,7 @@ is empty, grows brackets like an exposed knob's while it is patched, and cannot 
 nothing is patched and the modulator swept between the brackets once something is, faded by
 the ordinary crossfade -- because only the graph holds the knob, the range and the fade, and a
 node mapping its own input could not tell a modulator resting at 1.0 from nothing patched.
-That replaced `unityInputs()`, whose buffer of ones made an idle Amp open by making the knob
+That replaced `unityInputs()`, whose buffer of ones made an idle `Gain` open by making the knob
 and the port two gains multiplied together. An unmoved range is from nothing up to the knob,
 which is the VCA's `in * mod * gain`, and **GraphSync always sends a driven knob's effective
 range** -- stored or not -- since no command removes a range and an undone bracket would
@@ -640,11 +669,11 @@ its cycles start on the beat and cannot drift from the sequencers, where countin
 and denominator both chosen, 1 to 16 each -- Forrest's model, after a first version offered
 1/n of a beat and whole beats and had to keep 2/3 of a beat as a special case while leaving
 out 3/4. The knob writes `INTERVAL_CODE + (beats - 1) * 16 +
-(divisions - 1)`, self-describing, and `intervalOf` in Kotlin and in `nodes.h` reads it; **the
-formula is written once on each side**, and the literals 82 (2 ÷ 3) and 97 (3 ÷ 2) in
-`IntervalTest` and `node_test` are what hold the two to each other. Values under 64 are the old
-index into `INTERVALS` / `kIntervals`, read and never written, so every older file reads as it
-was saved. **9 is `FREE_INTERVAL` / `kFreeInterval`** and is still how "free" is written. One
+(divisions - 1)`, self-describing, with `INTERVAL_CODE` at 1, and `intervalOf` in Kotlin and in
+`nodes.h` reads it; **the formula is written once on each side**, and the literals 19 (2 ÷ 3)
+and 34 (3 ÷ 2) in `IntervalTest` and `node_test` are what hold the two to each other. **0 is
+`FREE_INTERVAL` / `kFreeInterval`**, the one value below the codes. It was an index into a table
+of note lengths until 18 moved the codes up to 64 to keep reading it, and 19 dropped it. One
 `intervalParam()` builds the knob for Steps, Seq, Arp, Euclid, Delay and LFO -- "one place to
 change for all modules" was Forrest's ask. **A module offers free only when one of its knobs is
 live only then** (`ModuleType.canBeFree`, from `Param.liveWhen`): a Delay's time, an LFO's rate.

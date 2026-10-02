@@ -45,8 +45,12 @@ enum class NodeType : int32_t {
     Chord = 18,
     Arp = 19,
     Euclid = 20,
-    /** The VCA, back: id 7 stays retired, because this is not the module that had it. */
-    Amp = 21,
+    /**
+     * The VCA, back: id 7 stays retired, because this is not the module that had it. Called
+     * Amp until every synth grew a level of its own, when "Amp" read as an amplifier stage --
+     * the tube kind -- and a gain was what it had always been.
+     */
+    Gain = 21,
     /** A poly subpatch's two edges. Neither is a module: see PolyInNode. */
     PolyIn = 22,
     PolySum = 23,
@@ -56,77 +60,35 @@ enum class NodeType : int32_t {
 };
 
 /**
- * What the interval knob meant before it said beats and divisions outright (see intervalOf):
- * an index into this table, which only ever grew. Read, never written -- a patch saved by an
- * older build still names these, and each one is exactly some number of beats divided into
- * some number of steps, so it reads as it was saved. Mirrored by INTERVALS in PatchCanvas.kt.
- *
- * Index 9 is kFreeInterval and is no length at all ({0, 1}, which none() says): a Delay or
- * an LFO keeping time of its own, in milliseconds or hertz. It is still how "free" is written.
- */
-constexpr Interval kIntervals[] = {
-        {4, 1},
-        {2, 1},
-        {1, 1},
-        {1, 2},
-        {1, 4},
-        {1, 8},
-        {2, 3},
-        {1, 3},
-        {1, 6},
-        {0, 1}, // free: no division
-        {1, 5},
-        {1, 7},
-        {1, 9},
-        {1, 10},
-        {1, 11},
-        {1, 12},
-        {1, 13},
-        {1, 14},
-        {1, 15},
-        {1, 16},
-        {3, 1},
-        {5, 1},
-        {6, 1},
-        {7, 1},
-        {8, 1},
-        {9, 1},
-        {10, 1},
-        {11, 1},
-        {12, 1},
-        {13, 1},
-        {14, 1},
-        {15, 1},
-        {16, 1},
-};
-constexpr int32_t kIntervalCount = static_cast<int32_t>(sizeof(kIntervals) / sizeof(kIntervals[0]));
-constexpr int32_t kFreeInterval = 9;
-
-/**
  * How the interval knob writes a step of [beats] beats divided into [divisions] steps, each
  * from 1 to kMaxBeats: kIntervalCode + (beats - 1) * kMaxBeats + (divisions - 1). Self-
- * describing, where an index had to be looked up in a table and could only name what the table
- * held -- and a fraction of a beat, a numerator and a denominator, is Forrest's model of what a
- * step is: 2 ÷ 3 is 2/3 of a beat and 3 ÷ 2 is 3/2 beats, neither a special case.
- * Above the old table so the two can never be confused. Mirrors INTERVAL_CODE.
+ * describing -- and a fraction of a beat, a numerator and a denominator, is Forrest's model of
+ * what a step is: 2 ÷ 3 is 2/3 of a beat and 3 ÷ 2 is 3/2 beats, neither a special case.
+ * Mirrors INTERVAL_CODE.
+ *
+ * It was an index into a table of note lengths before format 18, and from 18 the codes started
+ * at 64 so that every value under it could still be read through that table. Format 19 reads
+ * nothing older, so the table went and the codes start at 1.
  */
-constexpr int32_t kIntervalCode = 64;
+constexpr int32_t kIntervalCode = 1;
 constexpr int32_t kMaxBeats = 16;
 constexpr int32_t kLastIntervalValue = kIntervalCode + kMaxBeats * kMaxBeats - 1;
 /** One beat divided into one: a step a beat. Mirrors DEFAULT_INTERVAL. */
-constexpr int32_t kDefaultInterval = 64;
+constexpr int32_t kDefaultInterval = 1;
+/**
+ * No length at all ({0, 1}, which none() says): a Delay or an LFO keeping time of its own, in
+ * milliseconds or hertz. Mirrors FREE_INTERVAL.
+ */
+constexpr int32_t kFreeInterval = 0;
 
-/** The step an interval knob's value stands for; see kIntervalCode and kIntervals. */
+/** The step an interval knob's value stands for; see kIntervalCode. */
 inline Interval intervalOf(float value) {
-    if (!(value > 0.0f)) return kIntervals[0];
+    if (value != value) return {1, 1};  // NaN: a step a beat rather than no step at all
     const float last = static_cast<float>(kLastIntervalValue);
-    const auto v = static_cast<int32_t>((value < last ? value : last) + 0.5f);
-    if (v >= kIntervalCode) {
-        const int32_t code = v - kIntervalCode;
-        return {code / kMaxBeats + 1, code % kMaxBeats + 1};
-    }
-    if (v < kIntervalCount) return kIntervals[v];
-    return {1, 1}; // between the two, where nothing is written
+    const auto v = static_cast<int32_t>((value < 0.0f ? 0.0f : (value < last ? value : last)) + 0.5f);
+    if (v < kIntervalCode) return {0, 1};
+    const int32_t code = v - kIntervalCode;
+    return {code / kMaxBeats + 1, code % kMaxBeats + 1};
 }
 
 /**
@@ -139,11 +101,11 @@ inline Interval intervalOf(float value) {
  *
  * This is where the notes are shared out, and the only place anything here chooses between
  * voices -- every synth is monophonic. Its rules are the ones PolySynth used to keep, and
- * deliberately the same ones: a note takes an idle instance, then the oldest instance already released, and
- * only then steals one still holding -- and a stolen instance is sent an Off first, because
- * whatever is inside it is an ordinary Env holding an ordinary note and nothing else would
- * ever end it. An Off finds its instance by id *and* source, since ids belong to the source
- * that chose them.
+ * deliberately the same ones: a note takes an idle instance, then the released instance let
+ * go earliest (not struck earliest: see choose()), and only then steals one still holding --
+ * and a stolen instance is sent an Off first, because whatever is inside it is an ordinary
+ * Env holding an ordinary note and nothing else would ever end it. An Off finds its instance
+ * by id *and* source, since ids belong to the source that chose them.
  *
  * Eight outputs always, whatever the voices knob says, so a port index is valid the moment
  * the graph sees it: Graph's Connect bounds-checks against kMaxPorts, and knobs are sent
@@ -180,8 +142,13 @@ private:
          */
         NoteEvent note{};
         bool held = false;
-        /** When it was taken, for choosing which to steal. */
+        /** When it was taken, for choosing which held one to steal. */
         int64_t age = 0;
+        /**
+         * When it was let go, for choosing which released one to take: the earliest, which is
+         * the furthest into its release. Never used is earlier than anything.
+         */
+        int64_t released = -1;
     };
 
     int32_t choose() const;
@@ -310,6 +277,11 @@ public:
     void process(int32_t frames) override;
     void notesCut(int32_t port, int32_t source) override;
     void setSlot(const SlotValue &slot) override;
+    /** Until it reaches its end, or parked at a sustain: what holds a synth's note open. */
+    bool envelopeRunning(int32_t port) const override {
+        (void) port;
+        return running_ || holding_;
+    }
 
     /** Mirrored by MAX_SEGMENTS in PatchCanvas.kt. */
     static constexpr int32_t kMaxSegments = 8;
@@ -390,7 +362,7 @@ private:
      * Editing the level of the segment an envelope is *currently* holding at has to be
      * heard, or the editor is deaf exactly while a note is held down -- which is when
      * anyone would be dragging it. A glide rather than a jump because this is a level
-     * feeding an Amp, and a step in it is the same discontinuity the gate ramp exists to
+     * feeding a gain, and a step in it is the same discontinuity the gate ramp exists to
      * avoid; the rate is the ramp's own 5ms.
      */
     float holdGlide_ = 1.0f;
@@ -688,8 +660,10 @@ struct OscVoice {
  */
 class OscNode : public MonoSynth<OscVoice> {
 public:
-    // One note at a time, and two knobs: the waveform, and a tune in cents. Polyphony is a
-    // Poly subpatch around it -- see MonoSynth.
+    // One note at a time, and three knobs: the waveform, a tune in cents, and the level its
+    // second port drives. Polyphony is a Poly subpatch around it -- see MonoSynth.
+    static constexpr int32_t kLevel = 2;
+    OscNode() : MonoSynth(kLevel) {}
     void setParam(int32_t index, float value) override;
 };
 
@@ -745,12 +719,15 @@ struct PluckVoice {
  * is also exactly the kind of thing that is fiddly to get right from parts.
  *
  * A note off lets the string ring for R before it is silent, like a finger coming down on
- * it; a string that rings out while still held frees its voice anyway, so the module is not
- * deaf until something lets go. Order of knobs mirrors PatchCanvas.kt: decay, bright,
- * stiff, R.
+ * it -- or, with an Env on the level, for as long as that envelope runs, and then for R. A
+ * string that rings out while still held frees its voice anyway, so the module is not deaf
+ * until something lets go. Order of knobs mirrors PatchCanvas.kt: decay, bright, stiff, R,
+ * level.
  */
 class PluckNode : public MonoSynth<PluckVoice> {
 public:
+    static constexpr int32_t kLevel = 4;
+    PluckNode() : MonoSynth(kLevel) {}
     void prepare(int32_t sampleRate) override;
     void setParam(int32_t index, float value) override;
 
@@ -799,7 +776,7 @@ struct FmVoice {
 
 /**
  * Two-operator FM: notes in, sound out. Order of knobs mirrors PatchCanvas.kt: ratio,
- * index, fall.
+ * index, fall, level.
  *
  * The envelope went with Osc's, and with it Chowning's coupling of brightness to loudness
  * -- the index followed the amplitude envelope, so a note got brighter as it got louder.
@@ -815,6 +792,8 @@ struct FmVoice {
  */
 class FmNode : public MonoSynth<FmVoice> {
 public:
+    static constexpr int32_t kLevel = 3;
+    FmNode() : MonoSynth(kLevel) {}
     void prepare(int32_t sampleRate) override;
     void setParam(int32_t index, float value) override;
 
@@ -849,12 +828,17 @@ private:
  * All three colors run all the time and the knob only chooses which is heard, as Filter keeps
  * its second stage running at 12dB: a pink or brown generator restarted from zero on a switch
  * would begin with a slow drift up out of silence rather than the noise it is.
+ *
+ * Its one input is its level's jack, as every sound source's is: an Env there is a burst of
+ * noise with no Gain between. There is no note to outlive, so nothing lingers.
  */
 class NoiseNode : public Node {
 public:
+    static constexpr int32_t kLevel = 1;
     NoiseNode();
-    int32_t inputCount() const override { return 0; }
+    int32_t inputCount() const override { return 1; }  // level
     int32_t outputCount() const override { return 1; }
+    int32_t drivenParam(int32_t port) const override { return port == 0 ? kLevel : -1; }
     void process(int32_t frames) override;
     void setParam(int32_t index, float value) override;
 
@@ -887,7 +871,7 @@ private:
 class DelayNode : public Node {
 public:
     static constexpr int32_t kMaxSamples = 192000;
-    /** The division index that means "free". Mirrors FREE_INTERVAL. */
+    /** The interval value that means "free". Mirrors FREE_INTERVAL. */
     static constexpr int32_t kFree = kFreeInterval;
 
     DelayNode() { line_.Init(); }
@@ -968,7 +952,7 @@ private:
 };
 
 /**
- * A gain something else turns: audio in, modulation in, audio out.
+ * A gain something else turns: audio in, modulation in, audio out. Called Amp until 2026-10-02.
  *
  * The VCA, returning. It was retired with CV on the argument that a Mix channel is
  * `in * level` and a level with a modulation jack is the same module -- which was true,
@@ -984,7 +968,7 @@ private:
  * millisecond is an attack of a millisecond, where a parameter applied once per block, at
  * 1500Hz, would make a plucked envelope a staircase.
  */
-class AmpNode : public Node {
+class GainNode : public Node {
 public:
     int32_t inputCount() const override { return 2; }  // in, mod
     int32_t outputCount() const override { return 1; }

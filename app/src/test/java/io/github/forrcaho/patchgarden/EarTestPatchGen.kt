@@ -42,7 +42,7 @@ class EarTestPatchGen {
         // of a cycle down there.
         val seq1 = patch.add(Types.Seq, Offset(70f, 40f))!!
         val osc1 = patch.add(Types.Osc, Offset(235f, 40f))!!
-        val amp1 = patch.add(Types.Amp, Offset(400f, 40f))!!
+        val amp1 = patch.add(Types.Gain, Offset(400f, 40f))!!
         seq1.setParam(0, 8f)   // len
         seq1.setParam(2, 3f)   // half a beat
         for (step in 0 until 8) {
@@ -64,7 +64,7 @@ class EarTestPatchGen {
         val chord2 = patch.add(Types.Chord, Offset(235f, 40f))!!
         val osc2 = patch.add(Types.Osc, Offset(400f, 40f))!!
         val env2 = patch.add(Types.Env, Offset(400f, 180f))!!
-        val amp2 = patch.add(Types.Amp, Offset(565f, 40f))!!
+        val amp2 = patch.add(Types.Gain, Offset(565f, 40f))!!
         seq2.setParam(0, 16f)
         seq2.setParam(2, 3f)
         listOf(0, 5, 3, -2).forEachIndexed { i, degree ->
@@ -97,13 +97,13 @@ class EarTestPatchGen {
         // It was built the other way first -- short notes and a three-second release, so a
         // steal would land on a tail -- and the capture showed why that cannot work: a
         // synth closes its own 5ms gate at note off and MonoSynth frees the voice, so the
-        // Amp has nothing left to shape and an Env's R is silent on an Osc. Overlapping
+        // Gain has nothing left to shape and an Env's R is silent on an Osc. Overlapping
         // held notes are the only way to steal something audible.
         val seq3 = patch.add(Types.Seq, Offset(70f, 40f))!!
         val chord3 = patch.add(Types.Chord, Offset(235f, 40f))!!
         val osc3 = patch.add(Types.Osc, Offset(400f, 40f))!!
         val env3 = patch.add(Types.Env, Offset(400f, 180f))!!
-        val amp3 = patch.add(Types.Amp, Offset(565f, 40f))!!
+        val amp3 = patch.add(Types.Gain, Offset(565f, 40f))!!
         seq3.setParam(0, 8f)
         seq3.setParam(2, 3f)
         listOf(0, 7, 3, 10).forEachIndexed { i, degree ->
@@ -138,7 +138,7 @@ class EarTestPatchGen {
         val seq4 = patch.add(Types.Seq, Offset(70f, 40f))!!
         val osc4 = patch.add(Types.Osc, Offset(235f, 40f))!!
         val env4 = patch.add(Types.Env, Offset(235f, 180f))!!
-        val amp4 = patch.add(Types.Amp, Offset(400f, 40f))!!
+        val amp4 = patch.add(Types.Gain, Offset(400f, 40f))!!
         seq4.setParam(0, 8f)
         seq4.setParam(2, 3f)
         listOf(0, 2, 4, 7, 9, 7, 4, 2).forEachIndexed { step, degree ->

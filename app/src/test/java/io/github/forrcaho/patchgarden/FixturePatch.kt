@@ -4,7 +4,7 @@ import androidx.compose.ui.geometry.Offset
 
 /**
  * A complete small instrument, for the tests that want a real patch to work on: Steps sends
- * notes into a poly subpatch called Voice -- an Osc, an Env and the Amp it opens, stamped out
+ * notes into a poly subpatch called Voice -- an Osc, an Env and the Gain it opens, stamped out
  * four times by the engine -- whose sum goes through a Filter to both outputs.
  *
  * It was the patch a fresh install opened with until 2026-09-23, when the app started opening
@@ -17,7 +17,7 @@ internal fun fixturePatch(): Patch =
         val steps = add(Types.Steps, Offset(110f, 40f))!!
         val osc = add(Types.Osc, Offset(275f, 40f))!!
         val env = add(Types.Env, Offset(275f, 180f))!!
-        val amp = add(Types.Amp, Offset(440f, 40f))!!
+        val amp = add(Types.Gain, Offset(440f, 40f))!!
         val filter = add(Types.Filter, Offset(605f, 40f))!!
 
         fun out(m: PatchModule, i: Int) = PortRef(m.id, PortDirection.OUTPUT, i)

@@ -165,7 +165,7 @@ public:
      * Why the graph and not the node: the graph already holds the knob (ParamRef::base), the
      * range (low, high) and the fade, and a node that mapped its own input could not tell a
      * modulator resting at 1.0 from nothing patched. This replaced unityInputs(), whose buffer
-     * of ones was the same idea one step short -- it made an unpatched Amp open, but only by
+     * of ones was the same idea one step short -- it made an unpatched Amp (now Gain) open, but only by
      * making its knob and its port two gains multiplied together, and with the knob exposed as
      * well there were two jacks on one number.
      */
@@ -173,6 +173,27 @@ public:
         (void) port;
         return -1;
     }
+
+    /**
+     * Whether output [port] is an envelope that has not finished: running a segment, or
+     * parked at a sustain. False for everything that is not an Env.
+     *
+     * What lets a synth's release be heard. A synth whose level an envelope drives keeps
+     * sounding after its note ends for exactly as long as this stays true -- not until its
+     * level reaches zero, which is what the plan said and which an LFO on the level would
+     * never do: a tremolo would have made every note ring forever. An envelope always
+     * finishes, whatever level it ends at and whatever the brackets make of it.
+     */
+    virtual bool envelopeRunning(int32_t port) const {
+        (void) port;
+        return false;
+    }
+
+    /**
+     * Set by the graph before every block, one bit per driven port: whether an envelope that
+     * is still running drives it (see envelopeRunning). MonoSynth is the one reader.
+     */
+    void setEnvelopes(uint32_t ports) { envelopes_ = ports; }
 
     virtual void prepare(int32_t sampleRate) { sampleRate_ = sampleRate; }
 
@@ -326,6 +347,11 @@ protected:
     /** Clear it at the top of process() -- see NoteBuffer. */
     NoteBuffer &notesOut(int32_t port) { return noteOutputs_[port]; }
 
+    /** Whether a running envelope drives port [port] this block; see setEnvelopes. */
+    bool envelopeOn(int32_t port) const {
+        return (envelopes_ & (1u << static_cast<uint32_t>(port))) != 0;
+    }
+
     int32_t sampleRate_ = 48000;
     /** See setTiming. */
     double beatsPerFrame_ = 0.0;
@@ -342,4 +368,5 @@ private:
     std::array<std::array<float, kBlockSize>, kMaxPorts> outputs_{};
     std::array<const NoteBuffer *, kMaxPorts> noteInputs_{};
     std::array<NoteBuffer, kMaxPorts> noteOutputs_{};
+    uint32_t envelopes_ = 0;
 };

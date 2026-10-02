@@ -39,8 +39,8 @@ boundary:
   Polyphony is copying the voice, which is exactly what Eurorack is said to be stuck with.
   The difference that mattered was never copying; it was who copies. Here the engine
   copies: `PolyIn` hands each note to a copy and `PolySum` adds the copies back up.
-- **`PolyIn` is the seam, and the only allocator** -- idle first, then the oldest released,
-  then steal. A synth with voices of its own inside a poly subpatch would be two allocators
+- **`PolyIn` is the seam, and the only allocator** -- idle first, then the one let go
+  earliest, then steal. A synth with voices of its own inside a poly subpatch would be two allocators
   with the inner one never choosing anything.
 - **`SF` is the one exception.** Its voices are TinySoundFont's, and one note can layer
   several of them, so capping it to one would silence half of some instruments. It is the
@@ -67,9 +67,9 @@ knob out of one sends a playing patch nothing (Phases 7 and 10).
 **No synth has an envelope.** Shaping is an `Env` inside a poly subpatch, one per note. An
 `Env` shapes a note while it is held; a tail that outlives the note needs a module that
 keeps sounding, which is one reason delay and reverb are in Phase 11. *Revised by
-decision, 2026-09-25: every synth gets a level with its own jack, and a synth whose level an
-envelope holds keeps sounding until it reaches zero (Open work, 7). Still no envelope inside a
-synth -- the envelope stays a module you patch.*
+decision, 2026-09-25, and built 2026-10-02: every synth has a level with its own jack, and a
+synth whose level an envelope drives keeps sounding until that envelope has finished (Open
+work, 7). Still no envelope inside a synth -- the envelope stays a module you patch.*
 
 **A poly subpatch may not contain another.** Instances would multiply, and the id space
 that numbers them is one level deep on purpose. A plain subpatch nests as deep as you like,
@@ -383,7 +383,7 @@ that goes in its own section as it always has.
    computer -- and the page stays up until the save is done. It showed a percentage for one
    build; on the phone a save was over before the number could be read, so it says "Saving..."
    and nothing more.
-7. **A level on every synth, `Gain`, and the release.** Every sound source gets a `level` with
+7. ~~**A level on every synth, `Gain`, and the release.**~~ Every sound source gets a `level` with
    its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
    for `tune` too. An `Env` patches straight into the synth, and because the synth then knows
    an envelope has its level, it keeps sounding after note-off until that level reaches zero:
@@ -391,6 +391,47 @@ that goes in its own section as it always has.
    ADSR. With nothing patched, a note still stops at note-off. `Amp` is renamed **`Gain`** and
    stays, for after effects and anything else a VCA is for. Before 8, since both new sounds
    would build on it.
+
+   **Built 2026-10-02.** Checked by the tests; **not yet heard on the phone.**
+
+   *The level.* One `levelParam()` for Osc, Pluck, FM, SF and Noise: a knob from 0 to 2 driven
+   by a new modulation port, the way `Gain`'s gain is -- `notes` stays port 0 and `level` is
+   port 1, or Noise's only port. Patched, it grows brackets that run from nothing to the knob.
+   `tune` stays on `Osc` alone for now: moving it into the shared base would mean giving
+   Pluck, FM and SF a knob each, which is its own change.
+
+   *The release.* **Only an envelope holds a note open, not "until the level reaches zero".**
+   Taken literally, that would have let an LFO on the level hold every released note
+   forever, since a tremolo never stays at zero; and an envelope ending above zero, or one
+   whose brackets start above it, would have done the same. So the synth asks whether the
+   envelope is still *running* (`Node::envelopeRunning`, which the graph checks on every
+   driven port each block). It keeps its gate open after the Off while that is true, then
+   closes it over the usual 5ms. Nothing patched, or anything that is not an `Env`, and the
+   note stops at its Off as it did. A `Pluck` rings while the envelope runs and then for its
+   `R`. `SF` takes the jack and holds nothing open, since TinySoundFont sounds releases of
+   its own.
+
+   *What it changed underneath.* `PolyIn` takes the released instance **let go earliest**,
+   where it took the one struck earliest: with releases audible, a released instance is
+   usually still ringing, and since every instance is a copy of one voice, the one let go
+   first is the quietest -- where struck-first took a pad held through three short notes and
+   let go a moment ago. A voice counts as stolen whenever it is still *sounding*, not only
+   while held: `PolyIn`'s steal sends the Off before the On, so an `FM` it took restarted its
+   phases mid-cycle -- a step of 0.51 where a sine's own largest is 0.034, older than this and
+   made common by it. And a driven knob moved with nothing patched ramps across one block in
+   the graph, which is what SF's own level ramp used to do; a typed level is a jump of any
+   size.
+
+   *The file.* **Format 19 reads nothing but 19**, the first format under the policy Forrest
+   set the same day: until development settles, compatibility is dropped wherever that is an
+   option. So `Amp` became `Gain` in the file with no alias, `DotSeq` stopped being read as
+   `Seq`, and the interval knob's codes start at 1 with free at 0 -- the table that values
+   under 64 were read through is gone. Every older patch and saved subpatch is refused, moved
+   aside rather than deleted, as every refusal is.
+
+   Mutation-checked, five faults, all caught: no lingering at all, lingering on anything
+   patched (the LFO), `PolyIn` choosing by strike, a steal that is only a steal while held, and
+   a knob that steps.
 8. **The `fm` port on `Osc`, then the ladder filter.**
 
 **Decided alongside, to fit wherever they land:**
