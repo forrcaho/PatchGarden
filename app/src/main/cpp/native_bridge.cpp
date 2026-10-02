@@ -76,9 +76,6 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetRecording(JNIEnv *env, 
     if (chars != nullptr) env->ReleaseStringUTFChars(path, chars);
 }
 
-/** The save under way, if any, for the interface to poll. One at a time: the page waits for it. */
-static recording::Progress exportProgress;
-
 JNIEXPORT jlong JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeExportRecording(JNIEnv *env, jobject,
                                                                      jstring path,
@@ -87,16 +84,7 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeExportRecording(JNIEnv *en
     const char *chars = env->GetStringUTFChars(path, nullptr);
     const std::string from = chars != nullptr ? chars : "";
     if (chars != nullptr) env->ReleaseStringUTFChars(path, chars);
-    exportProgress.done.store(0, std::memory_order_relaxed);
-    exportProgress.total.store(0, std::memory_order_relaxed);
-    return recording::exportWav(from, fd, static_cast<recording::Depth>(depth), &exportProgress);
-}
-
-JNIEXPORT jfloat JNICALL
-Java_io_github_forrcaho_patchgarden_AudioEngine_nativeExportProgress(JNIEnv *, jobject) {
-    const auto total = exportProgress.total.load(std::memory_order_relaxed);
-    if (total <= 0) return 0.0f;
-    return static_cast<jfloat>(exportProgress.done.load(std::memory_order_relaxed)) / static_cast<jfloat>(total);
+    return recording::exportWav(from, fd, static_cast<recording::Depth>(depth));
 }
 
 JNIEXPORT jstring JNICALL

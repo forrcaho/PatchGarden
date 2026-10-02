@@ -380,7 +380,9 @@ that goes in its own section as it always has.
    converting tens of millions of samples one at a time through ByteBuffer views in a debug
    build. It is native now, beside the recorder that already owns the file's layout, writing
    into a descriptor the folder opens -- a ten-minute window in a fifth of a second on the
-   computer -- and the page shows a percentage and stays up until the save is done.
+   computer -- and the page stays up until the save is done. It showed a percentage for one
+   build; on the phone a save was over before the number could be read, so it says "Saving..."
+   and nothing more.
 7. **A level on every synth, `Gain`, and the release.** Every sound source gets a `level` with
    its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
    for `tune` too. An `Env` patches straight into the synth, and because the synth then knows

@@ -111,12 +111,6 @@ enum class Depth : int32_t {
     Float32 = 2,
 };
 
-/** How far a save has got, in frames, for the interface to poll. */
-struct Progress {
-    std::atomic<int64_t> done{0};
-    std::atomic<int64_t> total{0};
-};
-
 /**
  * Writes the window in the recorder file at [path] to [fd] as a WAV at [depth], and returns
  * the frames written: 0 when there was only silence, -1 when it could not be read or written.
@@ -127,7 +121,7 @@ struct Progress {
  * it, silences included, since a gap in the middle of something is part of it. Oldest first,
  * which is what lets the recorder go on writing meanwhile: see the margin, above.
  */
-int64_t exportWav(const std::string &path, int fd, Depth depth, Progress *progress = nullptr);
+int64_t exportWav(const std::string &path, int fd, Depth depth);
 
 } // namespace recording
 

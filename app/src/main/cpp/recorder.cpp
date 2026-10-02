@@ -261,7 +261,7 @@ struct Noise {
 
 } // namespace
 
-int64_t exportWav(const std::string &path, int fd, Depth depth, Progress *progress) {
+int64_t exportWav(const std::string &path, int fd, Depth depth) {
     const int in = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (in < 0) return -1;
     struct Closer {
@@ -294,10 +294,6 @@ int64_t exportWav(const std::string &path, int fd, Depth depth, Progress *progre
     if (first < 0) return 0;
 
     const int64_t count = h.total - first;
-    if (progress != nullptr) {
-        progress->done.store(0, std::memory_order_relaxed);
-        progress->total.store(count, std::memory_order_relaxed);
-    }
     const auto header = wavHeader(h.sampleRate, depth, count);
     if (!writeOut(fd, header.data(), header.size())) return -1;
 
@@ -337,7 +333,6 @@ int64_t exportWav(const std::string &path, int fd, Depth depth, Progress *progre
         }
         if (!writeOut(fd, out.data(), static_cast<std::size_t>(o - out.data()))) return -1;
         f += n;
-        if (progress != nullptr) progress->done.store(f - first, std::memory_order_relaxed);
     }
     return count;
 }

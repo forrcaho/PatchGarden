@@ -63,8 +63,6 @@ class AppControls(
     /** The window as it stands, read afresh: how much there is to save. */
     val recording: () -> RecordingHeader? = { null },
     val onSaveRecording: suspend (BitDepth) -> SavedRecording = { SavedRecording.Failed },
-    /** How far the save under way has got, from 0 to 1. */
-    val saveProgress: () -> Float = { 0f },
 )
 
 /** How a save of the recording went. */
@@ -247,13 +245,6 @@ internal fun SaveRecordingOverlay(app: AppControls, onSettings: () -> Unit, onDo
             value = withContext(Dispatchers.IO) { app.recording() }
         }
     }
-    // Polled while a save runs, which is seconds, so the button counts rather than sitting there.
-    val progress by produceState(0f, saving) {
-        while (saving) {
-            value = app.saveProgress()
-            delay(100)
-        }
-    }
     // Not closed while it saves, by the scrim or by Back: the page is the only thing that says
     // when a save is done, and for two builds a tap away while one ran left nothing that would.
     Page(onDone = { if (!saving) onDone() }, asks = saving) {
@@ -281,7 +272,7 @@ internal fun SaveRecordingOverlay(app: AppControls, onSettings: () -> Unit, onDo
                 Choices(BitDepth.entries.toList(), depth, { it.label }, Accent) { depth = it }
                 Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
-                        if (saving) "Saving… ${(progress * 100).toInt()}%" else "Save", Accent,
+                        if (saving) "Saving…" else "Save", Accent,
                         enabled = !saving && held != null && held.available > 0,
                     ) {
                         saving = true

@@ -269,7 +269,6 @@ class MainActivity : ComponentActivity() {
                     AudioEngine.setRecording(recordingFile.absolutePath, minutes * 60)
                 },
                 recording = { readRecordingHeader(recordingFile) },
-                saveProgress = { AudioEngine.exportProgress() },
                 onSaveRecording = { depth -> saveRecording(depth) },
             )
             // The first launch's offer and a move sit over the whole app, the canvas included.

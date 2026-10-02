@@ -176,13 +176,11 @@ std::string recorded(const char *name, int64_t capacityLessMargin, int64_t margi
 std::pair<int64_t, std::vector<unsigned char>> exported(const std::string &path, recording::Depth depth) {
     const std::string wav = path + ".wav";
     std::FILE *out = std::fopen(wav.c_str(), "wb");
-    recording::Progress progress;
-    const int64_t frames = recording::exportWav(path, fileno(out), depth, &progress);
+    const int64_t frames = recording::exportWav(path, fileno(out), depth);
     std::fclose(out);
     std::ifstream in(wav, std::ios::binary);
     std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::remove(wav.c_str());
-    if (frames > 0) check(progress.done.load() == frames && progress.total.load() == frames, "progress ends at the end");
     return {frames, bytes};
 }
 

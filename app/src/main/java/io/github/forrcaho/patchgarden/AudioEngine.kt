@@ -259,9 +259,6 @@ object AudioEngine {
     fun exportRecording(path: String, fd: Int, depth: BitDepth): Long =
         if (available) nativeExportRecording(path, fd, depth.code) else -1L
 
-    /** How far the save under way has got, from 0 to 1. */
-    fun exportProgress(): Float = if (available) nativeExportProgress() else 0f
-
     /** What the stream actually negotiated, as key=value pairs. */
     fun status(): String = if (available) nativeStatus() else "state=UNAVAILABLE"
 
@@ -309,7 +306,6 @@ object AudioEngine {
     private external fun nativeArmCapture(enabled: Boolean, path: String)
     private external fun nativeSetRecording(path: String, seconds: Int)
     private external fun nativeExportRecording(path: String, fd: Int, depth: Int): Long
-    private external fun nativeExportProgress(): Float
     private external fun nativeStartInput(): Boolean
     private external fun nativeStopInput()
     private external fun nativeInputStatus(): String
