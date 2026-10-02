@@ -94,3 +94,40 @@ private:
     std::atomic<int64_t> total_{0};
     std::atomic<int64_t> dropped_{0};
 };
+
+/**
+ * Saving a window: what the file holds, read back oldest first and written as a WAV.
+ *
+ * Here rather than in Kotlin, where it was first: converting tens of millions of samples one at
+ * a time took five minutes on the phone for an eight-minute window in a debug build, against a
+ * disk that writes 360MB a second. In C++ it is as fast as the storage, whatever the build.
+ */
+namespace recording {
+
+/** The bit depths a save is written at. Mirrors BitDepth.code in Recording.kt. */
+enum class Depth : int32_t {
+    Pcm16 = 0,
+    Pcm24 = 1,
+    Float32 = 2,
+};
+
+/** How far a save has got, in frames, for the interface to poll. */
+struct Progress {
+    std::atomic<int64_t> done{0};
+    std::atomic<int64_t> total{0};
+};
+
+/**
+ * Writes the window in the recorder file at [path] to [fd] as a WAV at [depth], and returns
+ * the frames written: 0 when there was only silence, -1 when it could not be read or written.
+ * [fd] is left open; it is the caller's.
+ *
+ * From the first sound rather than the window's first frame -- a window begins wherever it
+ * began, and minutes of the output switched off are nobody's recording -- and everything after
+ * it, silences included, since a gap in the middle of something is part of it. Oldest first,
+ * which is what lets the recorder go on writing meanwhile: see the margin, above.
+ */
+int64_t exportWav(const std::string &path, int fd, Depth depth, Progress *progress = nullptr);
+
+} // namespace recording
+

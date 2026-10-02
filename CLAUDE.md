@@ -537,10 +537,12 @@ counts a block that does not fit rather than waiting); a writer thread drains it
 circular file behind a 64-byte header, frames first and then the count, so a reader that sees
 N can read every frame below N. The file's capacity is the window **and a 30s margin**, and a
 save reads only the window, oldest first: the margin is what the writer has to get through
-before it can reach a frame being read. Kotlin reads the header and the frames itself --
-`setRecording` is the only call across -- and the bit depth is chosen at save. A window of
-the same shape carries on after a stop; any other starts over. The length is a setting and
-off deletes the file, which is hundreds of megabytes.
+before it can reach a frame being read. The bit depth is chosen at save, and **the save is
+native** (`recording::exportWav`, writing into a descriptor from the folder): it was Kotlin
+first, a sample at a time, and took five minutes for eight minutes of sound on the phone in a
+debug build against storage that writes 360MB a second. Kotlin reads only the header, to say
+how much there is. A window of the same shape carries on after a stop; any other starts over.
+The length is a setting and off deletes the file, which is hundreds of megabytes.
 
 **Anything sized to hold a label reads `Frame.fontScale`.** Labels are sp, boxes are dp, and
 the reference device runs at font scale 1.5; a menu tile sized for 12sp text overflowed

@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.util.Log
@@ -67,6 +68,12 @@ interface Folder {
     /** A new file called [name], or the one there emptied, to stream into. The caller closes it. */
     fun output(name: String, mime: String = "application/octet-stream"): OutputStream?
 
+    /**
+     * The same, as a descriptor native code can write into: a saved recording, which is written
+     * in C++ for speed. The caller closes it.
+     */
+    fun descriptor(name: String, mime: String = "application/octet-stream"): ParcelFileDescriptor?
+
     fun delete(name: String): Boolean
 
     fun exists(name: String): Boolean = name in list()
@@ -114,6 +121,18 @@ class DirFolder(val dir: File) : Folder {
     override fun output(name: String, mime: String): OutputStream? = try {
         dir.mkdirs()
         File(dir, name).outputStream()
+    } catch (e: Exception) {
+        Log.w(TAG, "could not open $name", e)
+        null
+    }
+
+    override fun descriptor(name: String, mime: String): ParcelFileDescriptor? = try {
+        dir.mkdirs()
+        ParcelFileDescriptor.open(
+            File(dir, name),
+            ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_CREATE or
+                ParcelFileDescriptor.MODE_TRUNCATE,
+        )
     } catch (e: Exception) {
         Log.w(TAG, "could not open $name", e)
         null
@@ -209,13 +228,23 @@ class TreeFolder(
         false
     }
 
-    override fun output(name: String, mime: String): OutputStream? = try {
-        val uri = find(name)?.let { uriOf(it) }
+    /** [name]'s document, made if it is not there. */
+    private fun documentFor(name: String, mime: String): Uri? =
+        find(name)?.let { uriOf(it) }
             ?: DocumentsContract.createDocument(
                 resolver, DocumentsContract.buildDocumentUriUsingTree(tree, documentId), mime, name,
             )
+
+    override fun output(name: String, mime: String): OutputStream? = try {
         // "wt": truncated, so a shorter file written over a longer one leaves nothing behind.
-        uri?.let { resolver.openOutputStream(it, "wt") }
+        documentFor(name, mime)?.let { resolver.openOutputStream(it, "wt") }
+    } catch (e: Exception) {
+        Log.w(TAG, "could not open $name", e)
+        null
+    }
+
+    override fun descriptor(name: String, mime: String): ParcelFileDescriptor? = try {
+        documentFor(name, mime)?.let { resolver.openFileDescriptor(it, "wt") }
     } catch (e: Exception) {
         Log.w(TAG, "could not open $name", e)
         null

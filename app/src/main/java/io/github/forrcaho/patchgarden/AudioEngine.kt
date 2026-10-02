@@ -250,6 +250,18 @@ object AudioEngine {
         if (available) nativeSetRecording(path, seconds)
     }
 
+    /**
+     * Writes the recording's window at [path] into the open file [fd] as a WAV at [depth], and
+     * returns the frames written: 0 for only silence, -1 for a failure. Blocks for as long as it
+     * takes -- seconds -- so it is called off the main thread. The window goes on recording
+     * meanwhile; see recorder.h. [fd] stays the caller's to close.
+     */
+    fun exportRecording(path: String, fd: Int, depth: BitDepth): Long =
+        if (available) nativeExportRecording(path, fd, depth.code) else -1L
+
+    /** How far the save under way has got, from 0 to 1. */
+    fun exportProgress(): Float = if (available) nativeExportProgress() else 0f
+
     /** What the stream actually negotiated, as key=value pairs. */
     fun status(): String = if (available) nativeStatus() else "state=UNAVAILABLE"
 
@@ -296,6 +308,8 @@ object AudioEngine {
     private external fun nativeStatus(): String
     private external fun nativeArmCapture(enabled: Boolean, path: String)
     private external fun nativeSetRecording(path: String, seconds: Int)
+    private external fun nativeExportRecording(path: String, fd: Int, depth: Int): Long
+    private external fun nativeExportProgress(): Float
     private external fun nativeStartInput(): Boolean
     private external fun nativeStopInput()
     private external fun nativeInputStatus(): String

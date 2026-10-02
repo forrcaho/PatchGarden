@@ -269,6 +269,7 @@ class MainActivity : ComponentActivity() {
                     AudioEngine.setRecording(recordingFile.absolutePath, minutes * 60)
                 },
                 recording = { readRecordingHeader(recordingFile) },
+                saveProgress = { AudioEngine.exportProgress() },
                 onSaveRecording = { depth -> saveRecording(depth) },
             )
             // The first launch's offer and a move sit over the whole app, the canvas included.
@@ -322,18 +323,28 @@ class MainActivity : ComponentActivity() {
      */
     private suspend fun saveRecording(depth: BitDepth): SavedRecording = withContext(Dispatchers.IO) {
         if (!home.chosen) return@withContext SavedRecording.NoFolder
-        val header = readRecordingHeader(recordingFile) ?: return@withContext SavedRecording.Silence
+        readRecordingHeader(recordingFile) ?: return@withContext SavedRecording.Silence
         val folder = home.folder(Folders.RECORDINGS) ?: return@withContext SavedRecording.Failed
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH.mm.ss", java.util.Locale.US).format(java.util.Date())
         val name = "${SubpatchLibrary.safeName(patch.title)} $stamp.wav"
+        val started = System.nanoTime()
         val frames = try {
-            folder.output(name, "audio/wav")?.buffered(1 shl 16)?.use { exportRecording(recordingFile, it, depth, header) }
+            folder.descriptor(name, "audio/wav")?.use {
+                AudioEngine.exportRecording(recordingFile.absolutePath, it.fd, depth)
+            }
         } catch (e: Exception) {
             android.util.Log.w("PatchRecording", "could not save $name", e)
             null
         }
+        android.util.Log.i(
+            "PatchRecording",
+            "$name: $frames frames at ${depth.label} in ${(System.nanoTime() - started) / 1_000_000}ms",
+        )
         when (frames) {
-            null -> SavedRecording.Failed
+            null, -1L -> {
+                folder.delete(name)
+                SavedRecording.Failed
+            }
             0L -> {
                 folder.delete(name)
                 SavedRecording.Silence

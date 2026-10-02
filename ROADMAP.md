@@ -372,6 +372,15 @@ that goes in its own section as it always has.
 
    Not done: the undo snapshots timestamped against the window, so a saved recording could carry
    the patch that made it -- still an idea.
+
+   **Saving was too slow, found on the phone 2026-10-02.** Forrest's two saves took two and
+   five minutes, with the button reading "Saving..." and nothing else until he tapped away --
+   which closed the page and left nothing to say the save had finished. Both files were
+   whole. Storage was not it (dd wrote 360MB/s to the same place); the Kotlin export was,
+   converting tens of millions of samples one at a time through ByteBuffer views in a debug
+   build. It is native now, beside the recorder that already owns the file's layout, writing
+   into a descriptor the folder opens -- a ten-minute window in a fifth of a second on the
+   computer -- and the page shows a percentage and stays up until the save is done.
 7. **A level on every synth, `Gain`, and the release.** Every sound source gets a `level` with
    its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
    for `tune` too. An `Env` patches straight into the synth, and because the synth then knows

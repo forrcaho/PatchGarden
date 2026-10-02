@@ -7,12 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.roundToInt
 
 /**
  * The PatchGarden folder, as far as it can be tested off a phone: moving between two homes,
@@ -94,17 +92,17 @@ class FilesTest {
 }
 
 /**
- * Saving the recording: the engine's window, read back oldest first and written as a WAV. The
- * window here is made the way recorder.cpp makes one -- header, then frames at their place in
- * the circle -- and recorder_test checks that the engine does make it that way.
+ * Saving the recording, as far as Kotlin still does it: reading the window's header, which says
+ * how much there is to save. The writing is native now, and recorder_test is where the window is
+ * read back across its wrap, from where the sound starts, at each bit depth.
  */
 class RecordingTest {
 
     @get:Rule
     val temp = TemporaryFolder()
 
-    /** A window of [capacity] frames, [window] of them readable, holding frames 0 until [total]. */
-    private fun windowFile(capacity: Long, window: Long, total: Long, sample: (Long) -> Float): File {
+    /** A window's header as recorder.cpp writes it. */
+    private fun windowFile(capacity: Long, window: Long, total: Long): File {
         val file = temp.newFile()
         RandomAccessFile(file, "rw").use { raf ->
             val header = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
@@ -112,90 +110,38 @@ class RecordingTest {
             header.putInt(1000).putInt(2).putLong(capacity).putLong(window).putLong(total)
             raf.write(header.array())
             raf.setLength(64 + capacity * 8)
-            val frame = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
-            for (f in 0 until total) {
-                frame.clear()
-                frame.putFloat(sample(f)).putFloat(-sample(f))
-                raf.seek(64 + (f % capacity) * 8)
-                raf.write(frame.array())
-            }
         }
         return file
     }
 
-    private fun wav(file: File, depth: BitDepth): Pair<Long, ByteBuffer> {
-        val header = readRecordingHeader(file)!!
-        val out = ByteArrayOutputStream()
-        val frames = exportRecording(file, out, depth, header)
-        return frames to ByteBuffer.wrap(out.toByteArray()).order(ByteOrder.LITTLE_ENDIAN)
-    }
-
     @Test
-    fun `the window reads back oldest first across the wrap, as float`() {
-        // 2500 frames through a circle of 1200, the last 1000 readable.
-        val file = windowFile(1200, 1000, 2500) { f -> f / 4096f }
-        val header = readRecordingHeader(file)!!
-        assertEquals(1000L, header.available)
+    fun `the header says how much a save can read`() {
+        val header = readRecordingHeader(windowFile(1200, 1000, 2500))!!
+        assertEquals(1000, header.sampleRate)
+        assertEquals("the window, once the file has wrapped", 1000L, header.available)
         assertEquals(1.0, header.seconds, 1e-9)
-
-        val (frames, b) = wav(file, BitDepth.FLOAT32)
-        assertEquals(1000L, frames)
-        assertEquals("RIFF", String(ByteArray(4).also { b.get(0, it) }))
-        assertEquals("IEEE float", 3, b.getShort(20).toInt())
-        assertEquals(2, b.getShort(22).toInt())
-        assertEquals(1000, b.getInt(24))
-        assertEquals(32, b.getShort(34).toInt())
-        assertEquals("fact", String(ByteArray(4).also { b.get(36, it) }))
-        assertEquals("data", String(ByteArray(4).also { b.get(48, it) }))
-        assertEquals(8000, b.getInt(52))
-        assertEquals("RIFF size", b.capacity() - 8, b.getInt(4))
-        for (i in 0 until 1000) {
-            val f = 1500 + i
-            assertEquals("frame $f left", f / 4096f, b.getFloat(56 + i * 8), 0f)
-            assertEquals("frame $f right", -f / 4096f, b.getFloat(60 + i * 8), 0f)
-        }
-    }
-
-    @Test
-    fun `it starts where the sound starts, and keeps a silence in the middle`() {
-        // Silent until 400, sound until 600, silent again until 800, sound after.
-        val file = windowFile(2000, 1000, 1000) { f -> if (f in 400 until 600 || f >= 800) 0.5f else 0f }
-        val (frames, b) = wav(file, BitDepth.PCM24)
-        assertEquals("from 400 to the end", 600L, frames)
-        assertEquals(1, b.getShort(20).toInt())
-        assertEquals(24, b.getShort(34).toInt())
-        assertEquals(600 * 6, b.getInt(40))
-        fun s24(at: Int) = (b.get(at).toInt() and 0xFF) or ((b.get(at + 1).toInt() and 0xFF) shl 8) or (b.get(at + 2).toInt() shl 16)
-        assertEquals((0.5f * 8388607f).roundToInt(), s24(44))
-        assertEquals((-0.5f * 8388607f).roundToInt(), s24(47))
-        assertEquals("the gap in the middle is kept", 0, s24(44 + 200 * 6))
-    }
-
-    @Test
-    fun `nothing but silence saves nothing`() {
-        val file = windowFile(2000, 1000, 1000) { 0f }
-        val (frames, _) = wav(file, BitDepth.PCM16)
-        assertEquals(0L, frames)
-    }
-
-    @Test
-    fun `sixteen bits is dithered by a step at most, and clipped rather than wrapped`() {
-        val file = windowFile(2000, 1000, 1000) { f -> if (f < 500) 0.25f else 1.5f }
-        val (frames, b) = wav(file, BitDepth.PCM16)
-        assertEquals(1000L, frames)
-        assertEquals(16, b.getShort(34).toInt())
-        val quarter = (0.25f * 32767f).roundToInt()
-        for (i in 0 until 500) assertTrue("within a step of a quarter", kotlin.math.abs(b.getShort(44 + i * 4) - quarter) <= 1)
-        for (i in 500 until 1000) {
-            assertTrue("over full scale is full scale", b.getShort(44 + i * 4) >= 32766)
-            assertTrue("and under it, under", b.getShort(46 + i * 4) <= -32766)
-        }
+        assertEquals("and all of it before then", 700L, readRecordingHeader(windowFile(1200, 1000, 700))!!.available)
     }
 
     @Test
     fun `a file that is not a window is not read as one`() {
         assertNull(readRecordingHeader(temp.newFile().also { it.writeText("hello") }))
         assertNull(readRecordingHeader(File(temp.root, "missing")))
+    }
+
+    /**
+     * BitDepth crosses to C++ as its code, and a mismatch would write a float file under a 16-bit
+     * name -- read out of recorder.h, like every other contract across the boundary.
+     */
+    @Test
+    fun `the bit depths mean what recorder h says they mean`() {
+        val header = File("src/main/cpp/recorder.h").readText()
+        val enum = header.substringAfter("enum class Depth").substringBefore("};")
+        mapOf("Pcm16" to BitDepth.PCM16, "Pcm24" to BitDepth.PCM24, "Float32" to BitDepth.FLOAT32).forEach { (cpp, kt) ->
+            val value = Regex("""$cpp\s*=\s*(\d+)""").find(enum)?.groupValues?.get(1)?.toInt()
+            assertEquals("$cpp in recorder.h", kt.code, value)
+        }
+        assertEquals(3, BitDepth.entries.size)
     }
 
     @Test

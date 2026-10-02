@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -149,6 +150,134 @@ void closedItTakesNothing() {
     std::remove(path.c_str());
 }
 
+// ------------------------------------------------------------------ saving a window
+
+/** A window made by the recorder itself: [total] frames, each frame's samples [sample] of it. */
+std::string recorded(const char *name, int64_t capacityLessMargin, int64_t margin, int64_t total,
+                     float (*sample)(int64_t)) {
+    const std::string path = tempPath(name);
+    Recorder r(4096);
+    r.open(path, 1000, capacityLessMargin, margin);
+    std::vector<float> block(64);
+    for (int64_t f = 0; f < total; f += 32) {
+        const int32_t n = static_cast<int32_t>(std::min<int64_t>(32, total - f));
+        for (int32_t i = 0; i < n; ++i) {
+            block[static_cast<std::size_t>(i) * 2] = sample(f + i);
+            block[static_cast<std::size_t>(i) * 2 + 1] = -sample(f + i);
+        }
+        r.write(block.data(), n);
+        if ((f / 32) % 4 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    r.close();
+    return path;
+}
+
+/** Exports [path] at [depth] into a file, and returns the frames and the file's bytes. */
+std::pair<int64_t, std::vector<unsigned char>> exported(const std::string &path, recording::Depth depth) {
+    const std::string wav = path + ".wav";
+    std::FILE *out = std::fopen(wav.c_str(), "wb");
+    recording::Progress progress;
+    const int64_t frames = recording::exportWav(path, fileno(out), depth, &progress);
+    std::fclose(out);
+    std::ifstream in(wav, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::remove(wav.c_str());
+    if (frames > 0) check(progress.done.load() == frames && progress.total.load() == frames, "progress ends at the end");
+    return {frames, bytes};
+}
+
+int32_t le32(const std::vector<unsigned char> &b, std::size_t at) {
+    return static_cast<int32_t>(b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (static_cast<uint32_t>(b[at + 3]) << 24));
+}
+int32_t le16(const std::vector<unsigned char> &b, std::size_t at) {
+    return static_cast<int16_t>(b[at] | (b[at + 1] << 8));
+}
+int32_t le24(const std::vector<unsigned char> &b, std::size_t at) {
+    const int32_t v = b[at] | (b[at + 1] << 8) | (b[at + 2] << 16);
+    return (v & 0x800000) != 0 ? v - 0x1000000 : v;
+}
+float leFloat(const std::vector<unsigned char> &b, std::size_t at) {
+    float f;
+    std::memcpy(&f, &b[at], 4);
+    return f;
+}
+
+void aSaveReadsTheWindowOldestFirstAcrossTheWrap() {
+    std::printf("a save reads the window oldest first, across the wrap, as float\n");
+    const auto path = recorded("save-float", 1000, 200, 2500, [](int64_t f) { return f / 4096.0f; });
+    const auto [frames, b] = exported(path, recording::Depth::Float32);
+    check(frames == 1000, "the window's thousand frames, got " + std::to_string(frames));
+    check(std::memcmp(b.data(), "RIFF", 4) == 0 && std::memcmp(b.data() + 8, "WAVE", 4) == 0, "a WAV");
+    check(le16(b, 20) == 3 && le16(b, 22) == 2 && le32(b, 24) == 1000 && le16(b, 34) == 32,
+          "IEEE float, stereo, at the window's rate");
+    check(std::memcmp(b.data() + 36, "fact", 4) == 0 && le32(b, 44) == 1000, "with the fact chunk float asks for");
+    check(std::memcmp(b.data() + 48, "data", 4) == 0 && le32(b, 52) == 8000, "and its data");
+    check(le32(b, 4) == static_cast<int32_t>(b.size()) - 8, "the RIFF size is the file's");
+    bool inOrder = true;
+    for (int i = 0; i < 1000 && inOrder; ++i) {
+        const float f = static_cast<float>(1500 + i);
+        inOrder = leFloat(b, 56 + i * 8) == f / 4096.0f && leFloat(b, 60 + i * 8) == -f / 4096.0f;
+        if (!inOrder) std::printf("  frame %d\n", 1500 + i);
+    }
+    check(inOrder, "frames 1500 to 2499, in order, exactly");
+    std::remove(path.c_str());
+}
+
+void aSaveStartsWhereTheSoundDoesAndKeepsAGap() {
+    std::printf("a save starts where the sound does, and keeps a silence in the middle\n");
+    const auto path = recorded("save-24", 2000, 0, 1000, [](int64_t f) {
+        return (f >= 400 && f < 600) || f >= 800 ? 0.5f : 0.0f;
+    });
+    const auto [frames, b] = exported(path, recording::Depth::Pcm24);
+    check(frames == 600, "from 400 to the end, got " + std::to_string(frames));
+    check(le16(b, 20) == 1 && le16(b, 34) == 24 && le32(b, 40) == 600 * 6, "24-bit PCM, sized for 600");
+    check(std::abs(le24(b, 44) - 4194304) <= 1 && std::abs(le24(b, 47) + 4194304) <= 1, "half scale, both ways");
+    check(le24(b, 44 + 200 * 6) == 0, "the gap in the middle is kept");
+    std::remove(path.c_str());
+}
+
+void silenceSavesNothingAndAFileThatIsNotAWindowSavesNothingEither() {
+    std::printf("silence saves nothing, and a file that is not a window is refused\n");
+    const auto path = recorded("save-silent", 2000, 0, 1000, [](int64_t) { return 0.0f; });
+    check(exported(path, recording::Depth::Pcm16).first == 0, "only silence: nothing");
+    std::remove(path.c_str());
+    const std::string junk = tempPath("save-junk");
+    std::ofstream(junk) << "hello";
+    check(exported(junk, recording::Depth::Pcm16).first == -1, "not a window: refused");
+    check(exported(tempPath("save-missing"), recording::Depth::Pcm16).first == -1, "no file: refused");
+    std::remove(junk.c_str());
+}
+
+void sixteenBitsIsDitheredByAStepAndClipped() {
+    std::printf("sixteen bits is dithered by a step at most, and clipped rather than wrapped\n");
+    const auto path = recorded("save-16", 2000, 0, 1000, [](int64_t f) { return f < 500 ? 0.25f : 1.5f; });
+    const auto [frames, b] = exported(path, recording::Depth::Pcm16);
+    check(frames == 1000 && le16(b, 34) == 16, "all of it, at 16 bits");
+    bool near = true;
+    bool clipped = true;
+    bool dithered = false;
+    for (int i = 0; i < 500; ++i) {
+        const int v = le16(b, 44 + i * 4);
+        near = near && std::abs(v - 8192) <= 1;
+        dithered = dithered || v != le16(b, 44);
+    }
+    for (int i = 500; i < 1000; ++i) {
+        clipped = clipped && le16(b, 44 + i * 4) >= 32766 && le16(b, 46 + i * 4) <= -32766;
+    }
+    check(near, "a quarter is within a step of a quarter");
+    check(dithered, "and not the same number every time: it is dithered");
+    check(clipped, "over full scale is full scale, both ways");
+
+    // And at 24, where three bytes of an unclipped 1.5 wrap to a large negative number.
+    const auto [frames24, b24] = exported(path, recording::Depth::Pcm24);
+    bool clipped24 = frames24 == 1000;
+    for (int i = 500; i < 1000 && clipped24; ++i) {
+        clipped24 = le24(b24, 44 + i * 6) == 8388607 && le24(b24, 47 + i * 6) == -8388607;
+    }
+    check(clipped24, "24 bits clips too");
+    std::remove(path.c_str());
+}
+
 } // namespace
 
 int main() {
@@ -156,5 +285,9 @@ int main() {
     reopeningCarriesOnAndAnotherShapeStartsOver();
     aFullRingDropsAndCountsRatherThanWaiting();
     closedItTakesNothing();
+    aSaveReadsTheWindowOldestFirstAcrossTheWrap();
+    aSaveStartsWhereTheSoundDoesAndKeepsAGap();
+    silenceSavesNothingAndAFileThatIsNotAWindowSavesNothingEither();
+    sixteenBitsIsDitheredByAStepAndClipped();
     return testing::report("recorder");
 }
