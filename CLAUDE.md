@@ -155,7 +155,11 @@ downward as it gains ports, and exposing a parameter adds a band of modulation p
 the side jacks. Each parameter has a fixed slot in that band rather than a packed one, because
 packing slides a port along whenever an earlier parameter is exposed. Dropping a port is the
 one movement left, since ports are positional and every later one takes the slot above. A
-module never gets wider, since its outputs are on its right edge.
+module never gets wider, since its outputs are on its right edge. **The open panel is the
+deliberate exception**: its jacks (`panelPort`) are spread by count and centered, and re-space
+when a box's Controls panel adds one. Forrest kept that on 2026-10-04 -- it happens in view,
+under the finger, with cables only as stubs -- over a fixed spacing that would either still
+move past three a side or crowd to 34dp.
 
 **Cycles are legal.** Whatever cannot be topologically ordered is appended, which costs
 exactly one block of delay on the back edge — because output buffers are never cleared

@@ -448,11 +448,15 @@ third and the fourth -- which is why they go in the order they are numbered.
     Reverb, placed level: every cable between them straight. A box input added from inside
     through the rail's slot, then the screen diffed against the one before it -- the new jack
     and the undo button changed, and nothing else by a pixel.
-  - *Left alone, and Forrest's call:* the **open panel's** jacks (`panelPort`) are spread down
-    its edge by their count and centered, so one added while the panel is open -- a box's
-    Controls panel and its `[ ]` -- re-spaces the others. The decision was drawn and made about
-    the canvas, and the panel is screen space with cables only as stubs, so it was not folded
-    in without asking.
+  - *Left alone, decided 2026-10-04:* the **open panel's** jacks (`panelPort`) stay spread
+    down its edge by their count and centered, so one added while the panel is open -- a box's
+    Controls panel and its `[ ]` -- re-spaces the others (31dp and 38dp, measured on the
+    emulator). Hanging them from the top would not have been enough alone, since the panel's
+    spacing also shrinks with the count (at most 76dp; 68dp for three a side in landscape).
+    Of the two fixed spacings drawn, 76dp still moves past three ports a side and one sized
+    for eight crowds them to 34dp. The movement is in screen space, under the finger that
+    caused it, and a cable there is a stub -- so Forrest kept the panel as it is, accepting
+    that a module's panel no longer lays out its jacks like the module.
 - **Decided alongside, to fit wherever they land:**
   - **Stereo stays at the end of the chain.** Cables stay mono; a new **Mixer** replaces `Mix`,
     with one to eight inputs, a level and a pan on each, and a left and right out. `Reverb`
