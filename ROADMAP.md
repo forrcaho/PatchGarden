@@ -418,8 +418,8 @@ third and the fourth -- which is why they go in the order they are numbered.
   2026-10-04:* the ladder is **another type in `Filter`**, not a module of its own -- the same
   cutoff, resonance, tracking and jacks, so changing type keeps every cable. Its design beyond
   that is still to do.
-- **Every module's jacks are laid out from the top.** *Decided 2026-10-04, not yet built, and
-  first in the order.* A
+- ~~**Every module's jacks are laid out from the top.**~~ **Done 2026-10-04**, the same day it
+  was decided; checked on the emulator, **not yet on the phone**. A
   box's jacks moved when it gained a port (Phase 12, 2), because each side was centered in a
   body as tall as its longer side. Adding to the longer side grew the body and slid the other
   side down 22dp; adding to the shorter side re-centered that side and slid its own jacks up.
@@ -435,9 +435,24 @@ third and the fourth -- which is why they go in the order they are numbered.
     (`railRectWith`); a rail has jacks on one side only, so the rule makes no difference
     within one. Dropping a port still moves every port after it up a slot, since ports are
     positional -- this ends the movement on adding, not on dropping.
-  - *To build.* `portIn`, and `PatchTest`'s two tests that pin centering ("a lone port sits
-    centered in the body", "the port subpatch is centered in the body at any count"), which
-    become tests that a jack never moves when a port is added to either side.
+  - *As built.* `portIn` takes no port count and no body height any more, since neither
+    decides where a jack goes, so centering cannot come back by passing them. `PatchTest`'s two
+    tests that pinned centering became one that a jack hangs from the header whatever the
+    body's height, and one that a module's first jacks are level. `SubpatchTest` adds ports to a
+    box one at a time, through every case -- to the longer side, the shorter, and a side as
+    long as the other -- and asserts through `portScreen`, where the drawing and the hit tests
+    find a jack, that none already there moved. Mutation-checked twice: the old centering put
+    back at `portScreen` moved `in 1` by 53.6px (22dp at the reference density) when a second
+    output arrived, and a jack placed by the body's height failed the header test.
+  - *On the emulator.* A patch of Drone, Osc, a box with one input and three outputs, and
+    Reverb, placed level: every cable between them straight. A box input added from inside
+    through the rail's slot, then the screen diffed against the one before it -- the new jack
+    and the undo button changed, and nothing else by a pixel.
+  - *Left alone, and Forrest's call:* the **open panel's** jacks (`panelPort`) are spread down
+    its edge by their count and centered, so one added while the panel is open -- a box's
+    Controls panel and its `[ ]` -- re-spaces the others. The decision was drawn and made about
+    the canvas, and the panel is screen space with cables only as stubs, so it was not folded
+    in without asking.
 - **Decided alongside, to fit wherever they land:**
   - **Stereo stays at the end of the chain.** Cables stay mono; a new **Mixer** replaces `Mix`,
     with one to eight inputs, a level and a pan on each, and a left and right out. `Reverb`

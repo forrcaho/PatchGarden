@@ -114,7 +114,7 @@ class ModulationTest {
         val voice = patch.add(Types.Osc, Offset(40f, 60f))!!
         fun sides() = listOf(PortDirection.INPUT, PortDirection.OUTPUT).flatMap { dir ->
             val ports = voice.ports(dir)
-            ports.indices.map { portIn(voice.bounds, 1f, dir, it, ports.size, voice.portsBody) }
+            ports.indices.map { portIn(voice.bounds, 1f, dir, it) }
         }
         fun jack(index: Int) = modPortIn(voice.bounds, 1f, voice.type, index, voice.portsBody)
         val before = sides()

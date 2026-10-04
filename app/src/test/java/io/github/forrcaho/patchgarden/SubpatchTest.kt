@@ -323,12 +323,42 @@ class SubpatchTest {
         assertTrue(f.patch.addSubpatchPort(subpatch.id, source))
 
         val index = railOut.ports(PortDirection.INPUT).size - 1
-        val landed = portIn(
-            frame.railRect(railOut), frame.density, PortDirection.INPUT, index,
-            railOut.ports(PortDirection.INPUT).size, railOut.portsBody * frame.density,
-        )
+        val landed = portIn(frame.railRect(railOut), frame.density, PortDirection.INPUT, index)
         assertEquals("the slot's x", slot.x, landed.x, 0.01f)
         assertEquals("the slot's y", slot.y, landed.y, 0.01f)
+    }
+
+    /**
+     * A box is the one module whose ports change in number, and each side used to be centered:
+     * a port added to its longer side grew the body and slid the other side down half a pitch,
+     * and one added to its shorter side re-centered that side and slid its own jacks up -- every
+     * cable on them jumping. Both cases, measured where the drawing and the hit tests find a
+     * jack.
+     */
+    @Test
+    fun `adding a port to a box never moves a jack already on it`() {
+        val patch = Patch()
+        val osc = patch.add(Types.Osc, Offset(0f, 0f))!!
+        val filter = patch.add(Types.Filter, Offset(200f, 0f))!!
+        val lfo = patch.add(Types.Lfo, Offset(0f, 200f))!!
+        val box = patch.makeSubpatch(setOf(osc.id, filter.id, lfo.id))!!
+        val camera = Camera(frame.density)
+        fun jacks(): Map<PortRef, Offset> = listOf(PortDirection.INPUT, PortDirection.OUTPUT).flatMap { dir ->
+            box.ports(dir).indices.map { PortRef(box.id, dir, it) }
+        }.associateWith { portScreen(patch, it, camera, frame)!! }
+        fun addReaching(inside: PortRef, case: String) {
+            val before = jacks()
+            assertTrue(case, patch.addSubpatchPort(box.id, inside))
+            val after = jacks()
+            assertEquals(case, before.size + 1, after.size)
+            before.forEach { (ref, at) -> assertEquals("$case: $ref", at, after.getValue(ref)) }
+        }
+
+        addReaching(PortRef(osc.id, PortDirection.INPUT, 0), "the first port")
+        addReaching(PortRef(filter.id, PortDirection.OUTPUT, 0), "an output beside one input")
+        addReaching(PortRef(lfo.id, PortDirection.OUTPUT, 0), "a second output, longer than the inputs")
+        addReaching(PortRef(osc.id, PortDirection.INPUT, 1), "an input to the shorter side")
+        addReaching(PortRef(filter.id, PortDirection.INPUT, 0), "an input to a side as long as the other")
     }
 
     @Test

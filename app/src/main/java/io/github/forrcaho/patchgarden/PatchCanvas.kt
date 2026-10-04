@@ -1622,25 +1622,22 @@ class PatchModule(
  * Where a port sits inside a box, in whatever units the box is expressed in. Shared by
  * world modules (dp, inside the camera transform) and rails (px, screen space) so the
  * two cannot drift apart.
+ *
+ * Hung from the top: jack [index] is half a pitch and then [index] pitches below the header,
+ * on either side, whatever else the module has. Until 2026-10-04 each side was centered in a
+ * body as tall as its longer side, which a box broke -- it is the one module whose count
+ * changes, so a port added to its longer side grew the body and slid the other side down
+ * half a pitch, and one added to its shorter side re-centered that side and slid its own
+ * jacks up, every attached cable jumping with them. From the top, a new port goes under the
+ * others and nothing that was there moves. Forrest chose it for every module rather than
+ * boxes alone, for consistency: one rule, and modules placed level have their first jacks
+ * level, so the cable between them is straight. Nothing here reads the body's height, so
+ * nothing that changes it -- a port added, a modulation band below -- can move a jack.
  */
-internal fun portIn(
-    rect: Rect,
-    unit: Float,
-    dir: PortDirection,
-    index: Int,
-    count: Int,
-    /**
-     * The ports' band, in the same units as the rect. Given rather than derived from the
-     * rect's height, because a module that is open is taller and its jacks must not
-     * move -- every cable attached to it would jump.
-     */
-    bodyHeight: Float,
-): Offset {
+internal fun portIn(rect: Rect, unit: Float, dir: PortDirection, index: Int): Offset {
     val x = if (dir == PortDirection.INPUT) rect.left else rect.right
     val bodyTop = rect.top + PatchModule.HEADER * unit
-    val span = (count - 1) * PatchModule.PORT_PITCH * unit
-    val first = bodyTop + (bodyHeight - span) / 2f
-    return Offset(x, first + index * PatchModule.PORT_PITCH * unit)
+    return Offset(x, bodyTop + (index + 0.5f) * PatchModule.PORT_PITCH * unit)
 }
 
 /**
@@ -4786,8 +4783,7 @@ internal fun railDirFor(source: PortRef): PortDirection =
  */
 internal fun subpatchPortSlot(frame: Frame, rail: PatchModule, dir: PortDirection): Offset {
     val count = rail.ports(dir).size
-    val body = maxOf(PatchModule.MIN_BODY, (count + 1) * PatchModule.PORT_PITCH)
-    return portIn(frame.railRectWith(rail, count + 1), frame.density, dir, count, count + 1, body * frame.density)
+    return portIn(frame.railRectWith(rail, count + 1), frame.density, dir, count)
 }
 
 /** Screen position of any port, whether its module is pinned or free. */
@@ -4807,10 +4803,9 @@ internal fun portScreen(
     val count = module.ports(ref.dir).size
     if (ref.index >= count) return null
     return if (module.isPinned) {
-        portIn(frame.railRect(module), frame.density, ref.dir, ref.index, count,
-               module.portsBody * frame.density)
+        portIn(frame.railRect(module), frame.density, ref.dir, ref.index)
     } else {
-        camera.toScreen(portIn(module.bounds, 1f, ref.dir, ref.index, count, module.portsBody))
+        camera.toScreen(portIn(module.bounds, 1f, ref.dir, ref.index))
     }
 }
 
@@ -9557,7 +9552,7 @@ private fun DrawScope.drawModuleBox(
         val ports = module.ports(dir)
         ports.forEachIndexed { i, port ->
             val ref = PortRef(module.id, dir, i)
-            val at = portIn(rect, unit, dir, i, ports.size, module.portsBody * unit)
+            val at = portIn(rect, unit, dir, i)
             val lit = ref == armed
             // Idle color comes from what the port carries, so the four kinds are
             // distinguishable at a glance without reading a label -- and since typing is

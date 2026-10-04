@@ -445,42 +445,53 @@ class PortGeometryTest {
 
     @Test
     fun `adjacent ports are exactly one pitch apart`() {
-        val type = Types.Osc // two inputs
-        val rect = boxFor(type)
-        val band = PatchModule.portsBodyFor(type)
-        val a = portIn(rect, 1f, PortDirection.INPUT, 0, 2, band)
-        val b = portIn(rect, 1f, PortDirection.INPUT, 1, 2, band)
+        val rect = boxFor(Types.Osc) // two inputs
+        val a = portIn(rect, 1f, PortDirection.INPUT, 0)
+        val b = portIn(rect, 1f, PortDirection.INPUT, 1)
         assertEquals(PatchModule.PORT_PITCH, b.y - a.y, 0.001f)
     }
 
+    /**
+     * Each side used to be centered in a body as tall as its longer side, so a jack's height
+     * depended on the body -- and a box, whose body grows with its ports, moved its jacks
+     * whenever it gained one. Hung from the header, a jack is the same distance down a module
+     * however tall the module is.
+     */
     @Test
-    fun `pitch is independent of how many ports there are`() {
-        val rect = Rect(Offset.Zero, Size(PatchModule.WIDTH, PatchModule.heightFor(Types.Osc)))
-        (2..5).forEach { n ->
+    fun `a jack hangs from the header, whatever the body's height`() {
+        (1..5).forEach { n ->
             val tall = Rect(Offset.Zero, Size(PatchModule.WIDTH, PatchModule.HEADER + n * PatchModule.PORT_PITCH))
-            val band = tall.height - PatchModule.HEADER
-            val first = portIn(tall, 1f, PortDirection.INPUT, 0, n, band)
-            val second = portIn(tall, 1f, PortDirection.INPUT, 1, n, band)
-            assertEquals("n=$n", PatchModule.PORT_PITCH, second.y - first.y, 0.001f)
+            PortDirection.entries.filter { it != PortDirection.MOD }.forEach { dir ->
+                val first = portIn(tall, 1f, dir, 0)
+                assertEquals("$dir, n=$n", PatchModule.HEADER + PatchModule.PORT_PITCH / 2f, first.y, 0.001f)
+                assertEquals("$dir, n=$n", first.y + PatchModule.PORT_PITCH, portIn(tall, 1f, dir, 1).y, 0.001f)
+            }
         }
-        assertTrue(rect.height > 0f)
     }
 
+    /**
+     * The consistency Forrest chose it for: a module's first input and first output are level,
+     * however many of each it has, so two modules placed level are joined by a straight cable.
+     * Centered, Osc's one output sat half a pitch below its first input.
+     */
     @Test
-    fun `a lone port sits centered in the body`() {
-        val type = Types.Env // one input, one output
-        val rect = boxFor(type)
-        val at = portIn(rect, 1f, PortDirection.INPUT, 0, 1, PatchModule.portsBodyFor(type))
-        val bodyCenter = PatchModule.HEADER + (rect.height - PatchModule.HEADER) / 2f
-        assertEquals(bodyCenter, at.y, 0.001f)
+    fun `a module's first jacks are level on both sides`() {
+        listOf(Types.Osc, Types.Reverb, Types.Gain).forEach { type ->
+            val rect = boxFor(type)
+            assertEquals(
+                type.name,
+                portIn(rect, 1f, PortDirection.INPUT, 0).y,
+                portIn(rect, 1f, PortDirection.OUTPUT, 0).y,
+                0.001f,
+            )
+        }
     }
 
     @Test
     fun `inputs sit on the left edge and outputs on the right`() {
         val rect = boxFor(Types.Osc)
-        val band = PatchModule.portsBodyFor(Types.Osc)
-        assertEquals(rect.left, portIn(rect, 1f, PortDirection.INPUT, 0, 2, band).x, 0.001f)
-        assertEquals(rect.right, portIn(rect, 1f, PortDirection.OUTPUT, 0, 1, band).x, 0.001f)
+        assertEquals(rect.left, portIn(rect, 1f, PortDirection.INPUT, 0).x, 0.001f)
+        assertEquals(rect.right, portIn(rect, 1f, PortDirection.OUTPUT, 0).x, 0.001f)
     }
 
     @Test
@@ -494,28 +505,11 @@ class PortGeometryTest {
     }
 
     @Test
-    fun `the port subpatch is centered in the body at any count`() {
-        // Spacing and centering are separate terms in portIn: index * pitch places the
-        // ports, span only decides where the subpatch starts. A pitch test alone leaves
-        // the centering unpinned, so assert the subpatch's midpoint lands on the body's.
-        (1..5).forEach { n ->
-            val h = PatchModule.HEADER + maxOf(PatchModule.MIN_BODY, n * PatchModule.PORT_PITCH)
-            val rect = Rect(Offset.Zero, Size(PatchModule.WIDTH, h))
-            val band = h - PatchModule.HEADER
-            val first = portIn(rect, 1f, PortDirection.INPUT, 0, n, band).y
-            val last = portIn(rect, 1f, PortDirection.INPUT, n - 1, n, band).y
-            val bodyCenter = PatchModule.HEADER + (h - PatchModule.HEADER) / 2f
-            assertEquals("n=$n", bodyCenter, (first + last) / 2f, 0.001f)
-        }
-    }
-
-    @Test
     fun `the unit multiplier scales layout without changing pitch ratio`() {
         val d = 2.4375f // the reference device
         val rect = Rect(Offset.Zero, Size(PatchModule.RAIL_WIDTH * d, PatchModule.heightFor(Types.Out) * d))
-        val band = PatchModule.portsBodyFor(Types.Out) * d
-        val a = portIn(rect, d, PortDirection.INPUT, 0, 2, band)
-        val b = portIn(rect, d, PortDirection.INPUT, 1, 2, band)
+        val a = portIn(rect, d, PortDirection.INPUT, 0)
+        val b = portIn(rect, d, PortDirection.INPUT, 1)
         assertEquals(PatchModule.PORT_PITCH * d, b.y - a.y, 0.001f)
     }
 }

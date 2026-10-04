@@ -144,13 +144,18 @@ call out the audio thread makes.
 only at density 1.0 — which is where `@Preview` renders and nowhere else. `Camera` folds
 density into the single place that converts.
 
-**Ports must never move.** Side jacks are placed down from a module's top, never from its
-height, and the open panel is screen space -- both so that nothing can shift a jack and make
-every attached cable jump. A module's height does change in exactly one way: exposing a
-parameter adds a band of modulation ports *below* the side jacks. Each parameter has a fixed
-slot in that band rather than a packed one, because packing slides a port along whenever an
-earlier parameter is exposed. A module never gets wider, since its outputs are on its right
-edge.
+**Ports must never move.** Side jacks hang from the header -- jack i is half a pitch and i
+pitches below it, on either side, never centered (`portIn`) -- and the open panel is screen
+space, both so that nothing can shift a jack and make every attached cable jump. Until
+2026-10-04 each side was centered in a body as tall as its longer side, and a box, the one
+module whose port count changes, slid its jacks half a pitch whenever it gained one; Forrest
+chose from-the-top for every module rather than boxes alone, so modules placed level have
+level first jacks. A module's height changes in two ways and neither moves a jack: a box grows
+downward as it gains ports, and exposing a parameter adds a band of modulation ports *below*
+the side jacks. Each parameter has a fixed slot in that band rather than a packed one, because
+packing slides a port along whenever an earlier parameter is exposed. Dropping a port is the
+one movement left, since ports are positional and every later one takes the slot above. A
+module never gets wider, since its outputs are on its right edge.
 
 **Cycles are legal.** Whatever cannot be topologically ordered is appended, which costs
 exactly one block of delay on the back edge — because output buffers are never cleared
