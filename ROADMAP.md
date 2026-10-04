@@ -26,6 +26,12 @@ It is the only way to patch per note -- an `Env` on one note's FM index, a filte
 anything wired anywhere -- which a synth with its own voices inside could never offer. That
 one limitation is why Phase 10 happened.
 
+**Where it leads is songs, built of boxes.** *Forrest, 2026-10-04; not yet designed.* The
+module he expects to make the app useful is an **Arranger**, after Bespoke's songbuilder,
+which says what plays when -- and subpatches are how it nests: a box that builds a verse
+out of phrases, and the level above building a song out of verses. That carries the theme
+from the instrument up to the song. The questions it raises are in *Open work*.
+
 ### Bespoke outside a poly subpatch, Eurorack inside it
 
 The early vocabulary was Eurorack's; Phase 6 made the model Bespoke Synth's, and Phase 10
@@ -68,8 +74,8 @@ knob out of one sends a playing patch nothing (Phases 7 and 10).
 `Env` shapes a note while it is held; a tail that outlives the note needs a module that
 keeps sounding, which is one reason delay and reverb are in Phase 11. *Revised by
 decision, 2026-09-25, and built 2026-10-02: every synth has a level with its own jack, and a
-synth whose level an envelope drives keeps sounding until that envelope has finished (Open
-work, 7). Still no envelope inside a synth -- the envelope stays a module you patch.*
+synth whose level an envelope drives keeps sounding until that envelope has finished (Phase
+12, 7). Still no envelope inside a synth -- the envelope stays a module you patch.*
 
 **A poly subpatch may not contain another.** Instances would multiply, and the id space
 that numbers them is one level deep on purpose. A plain subpatch nests as deep as you like,
@@ -90,20 +96,21 @@ changing it is the one rename an installed copy cannot follow.
 
 Each of these was recorded where it was found. They are collected here because together
 they are the work the theme implies. Where each stands after Forrest's review of
-2026-09-25 is in *Open work*, below; the notes here say which part of it.
+2026-09-25 is in *Phase 12*, which keeps that list as built; the notes here say which part
+of it.
 
 - ~~**The add menu offers every built-in module before a subpatch.**~~ The palette came first,
   and the empty `Subpatch` and `Poly` followed it. *Done 2026-09-26: Boxes is a chip of its
-  own, as near as any other (Open work, 5).*
+  own, as near as any other (Phase 12, 5).*
 - ~~**A saved subpatch does not sit beside the built-ins.**~~ The library was its own menu
   behind "Load...", stopping at twelve tiles with no list past them, and a saved subpatch could
   not be deleted from inside the app. *Done 2026-09-26: saved subpatches are tiles in Boxes,
-  under the boxes, scrolling; a long press on one offers Delete (Open work, 5).*
+  under the boxes, scrolling; a long press on one offers Delete (Phase 12, 5).*
 - ~~**A knob promotes one level and no further.**~~ A subpatch's own panel had no promote
   chip, so a knob two boxes down stopped at the first edge; and a promoted knob could not be
   given a jack from outside. *Done 2026-09-25: the subpatch's own panel has the promote chip
   -- faint at the top of the patch, where there is nothing further to promote to -- and its
-  `[ ]` gives a knob a jack on the box (Open work, 2).*
+  `[ ]` gives a knob a jack on the box (Phase 12, 2).*
 - **A module moves between scopes only by making or unpacking a subpatch.** A subpatch
   loaded into the wrong one can only be unpacked out of it. *Cut, copy and paste would answer
   it; later, unless the menu or the selection design needs it sooner.*
@@ -113,341 +120,347 @@ they are the work the theme implies. Where each stands after Forrest's review of
   That was chosen on purpose in Phase 7 and is worth watching, since the promoted knobs are
   the whole of a subpatch's face from outside. *There is nothing better from outside; from
   inside, the "Controls…" chip beside the breadcrumb reaches the same panel since 2026-09-25
-  (Open work, 2).*
+  (Phase 12, 2).*
 
 ## Open work
 
-**Revised 2026-09-25**, from Forrest's answers to a review of everything the phases below
-left open, and then his choices among the options that review raised. This is the one list; the phases keep the reasoning, and where one of them
-disagrees with this, this is current. v0.2.1, released 2026-09-24, is the first build shared
-with anyone.
+**Revised 2026-10-04**, from Forrest's notes of that day. The list decided on 2026-09-25 is
+built to its seventh item, and the record of building it is now *Phase 12*, below; what is
+left of it is under *Still from 2026-09-25*. This is the one list; the phases keep the
+reasoning, and where one of them disagrees with this, this is current. v0.2.1, released
+2026-09-24, is the first build shared with anyone.
 
-### Decided 2026-09-25, in this order
+### From Forrest's notes, 2026-10-04
 
-Forrest took the recommended option on every item that was open for discussion, and the
-order below. Each is the plan, not yet the build; where building one turns something up,
-that goes in its own section as it always has.
+**Decided 2026-10-04, in this order:** every module's jacks from the top (under *Still from
+2026-09-25*, since it is small and stands alone), then these five as numbered, then the `fm`
+port, the ladder filter and the Mixer. Each item is the idea as Forrest gave it, then what
+the code says about it, then what was decided. He answered every open question the same day
+and took the recommended answer on all but one -- "other…" goes as high as the encoding
+holds -- and the Arranger's timing was asked twice, the second time with an answer the first
+round's decisions had made possible. Where a paragraph still says *proposed*, Forrest has not
+been asked; what is still open is said where it stands. These depend on one another more than
+the last list did -- a step of four bars needs the first, and the Arranger is built out of the
+third and the fourth -- which is why they go in the order they are numbered.
 
-1. ~~**Smaller release builds.**~~ **Done 2026-09-25: 25MB to 3.9MB.** The two dex files
-   were 22.6MB of Compose and Material 3 kept whole; R8 and resource shrinking leave the
-   native libraries as most of what is left. Nothing in the app is found by name but the JNI
-   entry points, which the default rules keep -- every class with a native method, and those
-   methods, unrenamed -- and the engine calls back into nothing but `java.lang.String`.
-   Checked on the emulator from a fresh install of the shrunk release: the engine starting,
-   patching, a held Drone note, the keypad, renaming through the system keyboard, a patch
-   saved to the library and loaded back, and the licenses page. Not checked: an `SF` loading
-   a bank, since the emulator has none.
-2. ~~**Controls.**~~ **Done 2026-09-25.** A knob promotes through every level: the subpatch's
-   own panel gets the promote chip, present but disabled at the top of the patch. A promoted
-   knob can be given a jack from outside. "Knobs..." becomes **"Controls..."**, since a knob
-   reads as a rotary dial, and inside a subpatch a **Controls** chip beside the breadcrumb
-   opens the same panel.
+1. **A step's length, chosen again: on the beat or on the clock.** The chooser built on
+   2026-09-25 (Phase 12, 4) is not good, on three counts: its two rows of sixteen tiles take
+   the whole panel; "free" does not bring "a fixed time" to mind; and nothing can be chosen
+   that is not a tile. That answers what was left "to be settled on the phone".
 
-   As built: one rule for the ↑ chip everywhere -- a row on a panel promotes into the box
-   that panel's module sits in -- so a module's own panel sends its knob into the first box
-   and that box's Controls panel sends it on. The chip is faint where there is nowhere to go
-   (the top of the patch, or a full box) and takes the tap without doing anything, so a
-   finger aimed at it never lands on the row behind. Taking a knob back takes it back from
-   every box further out, since those reached it through this one.
+   *As asked.* A switch at the top between **beat** and **wall**, both names tentative --
+   "clock" was passed over because MIDI clock is a thing, and "abs. time" is the other
+   candidate and is long.
+   - **Beat**: the panel reads "[n] divisions of [m] beats", each number a dropdown laid out
+     in several columns to save room and ending in **other…**, which opens the keypad.
+   - **Wall**: a second switch, **freq** or **period**, and the value entered either way -- a
+     slider, perhaps, with the keypad always there as well.
 
-   The jack from outside is the Controls panel's `[ ]` chip, the same chip that exposes a knob
-   on a module's own panel. It builds what a hand would: the knob exposed if it was not, then
-   a port on each box between it and the panel's box, each reaching the one inside -- so it
-   crosses to the engine as one modulation cable, like any chain of subpatch ports, and
-   tapping the chip sends nothing but the knob's range. A driven knob's chain ends at the
-   port that drives it (`Amp`'s gain at `mod`), since a knob has one way in. Turning it off
-   undoes exactly that, including the exposure, and follows the chain **outward** past the
-   panel's box as well: a jack left on an outer box after the inner one's went would reach
-   nothing. A box port that also fans out inside to something else loses only this cable.
-   The chip is **faint where the knob is already patched from inside** -- a filter an LFO in
-   the box already sweeps, or an `Amp` an `Env` already opens, which is every poly voice --
-   because a live one would silently swap the modulator inside for the cable outside.
+   *What the code says.*
+   - **The encoding caps both numbers at 16**: `INTERVAL_CODE + (beats - 1) * 16 +
+     (divisions - 1)`, written once in Kotlin and once in `nodes.h`, so a keypad that can type
+     24 needs a new one. The smallest change keeps one knob and widens the radix: at 1024 both
+     numbers run to 1023 and every code is still exact in a float, since 1024² is under 2²⁴.
+     That is format 20, reading nothing older, under the policy of 2026-10-02.
+   - **Fixed goes where free is now, on `Delay` and `LFO`** -- exactly where a knob is live only
+     then (`canBeFree`). The sequencers stay on the beat, since their steps are the
+     transport's ticks and nothing has asked for one that keeps a time of its own.
+   - **Freq and period are one number shown two ways.** An LFO keeps its rate and a Delay its
+     time; the switch says which way round the number is read and typed. Both knobs are
+     already exponential, and on that scale a frequency slider is the period slider reversed,
+     so one slider serves both and the switch flips its direction and its label. The ranges are
+     the open part: an LFO's 0.02 to 20Hz is a period of 50s down to 50ms, and a Delay's 1 to
+     4000ms is 1000Hz down to 0.25Hz. Saving the switch with the module makes flipping it an
+     undo step.
+   - **Long steps want bars.** Item 3's example is a step of four bars, which is 16 beats in
+     4/4 -- today's ceiling exactly -- and 12 in 3/4. Typed as beats, it is right until the
+     meter changes. The mod sequencer and the Arranger will both ask for bars, so this item is
+     where to decide whether the beats dropdown offers them.
+   - The order turns round: divisions first, where the chooser has beats over divisions. The
+     header chip still says the reduced length in beats.
+   - It is a new gesture, so `GestureTest` gets a test aimed at it.
 
-   The Controls chip beside the breadcrumb says **"Controls…"**, with the menu's ellipsis:
-   without it the chip read as one more level of the path. It shows only where the panel
-   would have rows, as the menu tile does. `ControlsTest` covers all of it; checked on the
-   emulator two boxes deep, down to `PatchSync` sending one `modulate` for an LFO patched into
-   the outer box's new jack and one `unmodulate` when the inner panel's chip was turned off.
+   *Decided 2026-10-04:*
+   - The switch is **tempo** | **fixed**: each side says what it follows, and "fixed" says the
+     set time that "free" did not.
+   - **Bars are offered beside beats** for long steps, so a four-bar step stays four bars when
+     the meter changes; the mod sequencer and the Arranger both count in bars. The encoding
+     has to carry the unit as well as the two numbers.
+   - **other…** goes as high as the encoding holds, **1023**.
+   - The freq/period switch **is saved** with the module.
 
-   **Found while building it, and open:** a box's jacks are centered in its body like every
-   module's (`portIn`), but a box is the one module whose port count changes, so a new input
-   moves its outputs down half a pitch and every cable on them with it. It is older than this
-   -- a port made at a rail slot does the same -- but the chip makes it a tap away. Laying a
-   box's jacks from the top would end it and would redraw every box already built; Forrest's
-   call.
-3. ~~**Gesture tests through Compose's test tools**~~, before the menu redesign changes the
-   gesture loop. Every gesture fault in this project was found by a finger; a test that
-   drives the real loop is the missing layer. **Done 2026-09-25: `GestureTest`, 24 tests.**
+   *Still open:* the fixed ranges, if the knobs' own are not them -- to be settled on the phone.
 
-   On the JVM under Robolectric rather than as instrumented tests on a device, so they run in
-   `testDebugUnitTest` with everything else, in about seven seconds -- a suite that needs a
-   phone plugged in is one that does not get run. Native graphics, so text is measured as the
-   app measures it; the reference device's density, since world units and pixels agree only at
-   a density of one; one test at font scale 1.5. Targets come from the drawing's own geometry
-   and outcomes from the model, so the menu redesign can change where a tile is without
-   rewriting the tests that tap it.
+2. **An LFO gets a phase**, from 0 to 1, with some way to say "two beats late" and have it
+   come out as 0.25 on an LFO whose cycle is eight beats.
 
-   What they cover: patching by two taps, and a mismatch refused; a module following the
-   finger in dp; a pan; a pinch; the rail switch; the undo button once there is something to
-   undo; the add menu and a module's menu; a panel opened by a tap and closed by one outside
-   it; typing a knob; making a subpatch from a selection; going in and out through a box and
-   the breadcrumb; the envelope's node menu, the tap on a node that does nothing, the tap on
-   the line that adds one, the drag in the fill that bends it the way the finger went, and a
-   time typed in milliseconds; the dot grid's tap, stretch and locked velocity drag; and both
-   ways into a subpatch's Controls. Twelve mutants, seven of them faults a finger actually
-   found -- the undo button frozen at launch, the envelope claiming the whole screen, kotlinx's
-   timeout caught for Compose's, a curve following the number instead of the finger, a drag
-   forgetting density, a tap removing a node, a chip that did not answer -- each caught by the
-   test aimed at it.
+   *What the code says.* A synced LFO reads its phase straight off the transport's beat
+   (`setTiming` hands it `beat_`), so an offset there is exact: the cycle starts that much late
+   and stays in phase with the sequencers. In fixed time the phase has nothing to be late
+   against -- a free LFO starts wherever its node is built -- so it means nothing until
+   something can restart an LFO, and should be faint there as a Delay's time is while synced.
+   `Param.liveWhen` only says "live while that knob holds this value", so "live while it does
+   not" is a small extension.
 
-   Two changes to the app came with it. The camera is a parameter of `PatchCanvas`, defaulting
-   to the one it always made, so a test can aim through it. And the four per-frame engine polls
-   -- playing step, scale entry, live knobs, transport beat -- now return at once when the
-   native library is not loaded: with no engine they could only ever read "not running", and a
-   frame loop that never ends never lets a test's clock go idle, so every sequencer test hung.
-   Robolectric 4.17 is pinned to SDK 36 for these tests, since its image of 37 lacks what
-   touch injection calls.
-4. ~~**Shared time divisions, and LFO synced to the beat.**~~ **Built 2026-09-25; the chooser
-   is to be settled on the phone.** A step is 1/n of a beat for any n from 1 to 16 -- five to a
-   beat is n = 5 -- plus lengths of whole beats for slow LFOs and long delays; the transport's
-   beats per bar is the other half. One definition, shared by `Seq`, `LFO`, `Delay` and the
-   rest, so a change to how time is divided is one change. The interface to try first: the
-   division chip opens a row of steps-per-beat numbers, with "1/8" and "1/8T" as labels on the
-   ones they are. Settled on the phone, by trial.
+   *Decided 2026-10-04:* the knob keeps **the fraction** when the cycle's length changes. Two
+   beats late on an eight-beat cycle is a quarter late, and changed to four beats it is still a
+   quarter -- one beat -- rather than still two beats, which would be half. It is what the knob
+   stores, and the simpler of the two.
 
-   **Revised the same evening, from Forrest's first look:** the first build offered 1/n of a
-   beat and whole beats, kept the quarter triplet (2/3 of a beat) as a special case, and was
-   about to be asked to add the dotted eighth (3/4). He pointed out that those are just
-   fractions of a beat, and that what is wanted is **both the numerator and the denominator**.
-   So a step is now **beats divided into divisions**, each 1 to 16, chosen in two rows --
-   beats over divisions, his sketch -- with both defaulting to 1: a step a beat.
+   *Proposed, with it:* the translation lives in the readout and the keypad rather than in what
+   is stored. The row says both ("0.25 · 2 beats") while synced, so a changed cycle shows its
+   beats changing, and the keypad takes either. A knob added to a module bumps the format, so
+   this lands with 1.
 
-   As built. **The chooser** stays open while both rows are picked, since a step is two
-   choices, and closes on a tap anywhere but a tile. A line above the rows says what they make
-   -- "2 beats ÷ 4 = 1/2 beat". "Free" ends the beats row on a Delay or an LFO, offered exactly
-   where a knob is live only then. The header chip says the length in beats, reduced -- "1 beat",
-   "1/2 beat", "2/3 beat", "3/2 beats" -- and grows with the text size. A choice is kept as made:
-   2 ÷ 4 stays 2 ÷ 4 on the rows and plays as half a beat.
+3. **A sequencer for modulation: `ModSeq`.** A loop of steps, each holding a value from 0 to 1, stepped
+   at an interval like any sequencer and sent out as modulation. Forrest's case: a four-bar
+   phrase repeating, with a filter's cutoff low the first time through and higher each time
+   after -- four steps of four bars each. Bespoke's `controlsequencer` is this module
+   ("modulate a control step-wise at an interval": an interval, a length, and a value per
+   step).
 
-   **Revised 2026-09-26: beats, not note names.** The first two builds named every length that
-   Western notation names, as Bespoke does -- "1/8", "1/4T" for 2 ÷ 3, "1/4." for 3 ÷ 2 -- with a
-   readout that spelled it out ("= 1/4T, a quarter triplet") on the argument that two bare
-   numbers never say "triplet". Forrest dropped it: that notation makes a beat a quarter note,
-   which is a fact about time signatures the app has no use for, and a step here is already a
-   fraction of a beat, so the fraction is the name. Nothing in the file or the engine changed;
-   only what the chip and the readout say.
+   *What the code says.* Most of it is there. A value from 0 to 1 is what modulation already
+   is: the graph maps it between the target's brackets, in the target's own units. The step
+   length is the interval knob, which is why 1 comes first -- four bars is today's ceiling and
+   eight is past it. It sends modulation, so its chip is Mod and its color a purple.
 
-   **The knob writes beats and divisions outright**, 64 + (beats − 1) × 16 + (divisions − 1),
-   and one `intervalParam()` builds it for Steps, Seq, Arp, Euclid, Delay and LFO. Values under
-   64 are the old table's indices -- Bespoke's nine note lengths, then the first build's
-   additions -- read and never written, every one of them some beats divided into some
-   divisions. So **format 18 reads 17, 16 and 15** unchanged, and nothing was refused. The
-   encoding is written once in Kotlin and once in C++, and two literals asserted on both sides
-   (82 is 2 ÷ 3, 97 is 3 ÷ 2) hold them together.
+   **A step said in the target's terms.** "A saw for bar three and a square for bar four",
+   rather than whatever numbers those are. The module must not depend on what it drives, and
+   in the engine it does not need to: a step stays a number from 0 to 1. But the *interface*
+   can see the cable -- `Patch.rangeOf` already answers "is this row bracketed" from the
+   patch, and `engineGraph()` follows a chain of box ports to its far end -- so the panel can
+   label each step in the target's units and, for a stepped knob like `wave`, offer its
+   choices by name. *Decided 2026-10-04:*
+   - a step is said in the target's terms when the output reaches exactly one knob, and as 0
+     to 1 when it fans out to several;
+   - when the target's brackets move after the steps were set, the stored 0 to 1 stays and the
+     labels follow, since storing the target's values would be the dependence Forrest ruled
+     out.
 
-   **The grids mark beats and bars**: a faint line where each beat begins, when a step is
-   shorter than one, and a heavier one at each bar, from the patch's beats per bar -- so five
-   to a beat reads as fives. Counted from the top of the loop, which is exact when the loop is
-   a whole number of beats.
+   **Found in the code: a stepped knob reads the block's mean.** `Graph::modulatedValue`
+   averages the modulator over the block, so a step that lands mid-block gives a stepped
+   target, for that one block, whatever lies between -- going from saw to triangle passes
+   through square, since `wave` is saw, square, triangle, sine. Nobody would hear it on a
+   cutoff, but on a waveform it is a glitch, and item 4's version knob would have the same
+   fault. *Decided 2026-10-04:* a stepped knob takes the block's *last* sample rather than its
+   mean -- every stepped knob, whatever drives it. Outside a cycle, the modulator is always evaluated before the knob it turns, so a step taken
+   on a tick in this block is already the value by the time the target's own tick reads it.
 
-   **The LFO syncs** from the same chip: one cycle per step, its phase read straight off the
-   transport's beat (handed to every node with `setTiming` now), so its cycles start on the
-   beat and hold still while the transport does -- only ever while the output is off. Free by
-   default, which is where every older LFO comes back. Leaving sync carries on from the phase it
-   had rather than jumping.
+   **Curves between steps** -- linear or exponential rather than held -- are possible and may
+   not be worth what they cost. If they come, a step is a level and a curve, which is the
+   `Env`'s `SegmentSlot` without its time, bent by the `Env`'s own expression. *Decided
+   2026-10-04:* it is built held, with the slot shaped so a curve can be added without a fourth
+   kind of slot.
 
-   Checked on the emulator. The chooser is still to be settled on the phone.
+   *Decided:* it is called **`ModSeq`**, beside `Seq`; Bespoke's name would not fit in eight
+   characters. *Still open:* how many steps.
 
-5. ~~**The add menu in categories**~~, two taps to a module, grouped by what a module sends --
-   which is what its color already says: **Synths** (Osc, Pluck, FM, SF, Noise), **Notes**
-   (Seq, Drone, Euclid), **Note fx** (Arp, Chord, Chance), **Effects** (Filter, Delay, Reverb,
-   Gain, Mixer), **Mod** (Env, LFO), **Boxes** (a new Subpatch or Poly, empty or made from a
-   selection, then the saved subpatches as a list that scrolls, each deleted by a long press)
-   and **Patch** (open, save, new, settings). This finishes the patch library. With it, the
-   **module catalog** tidied on the Kotlin side: one declaration per module carrying its
-   engine id and its category, with the name map and the menu derived from it. The larger
-   version -- the engine declaring its modules and the interface reading them at startup --
-   is not worth its plumbing.
+4. **A `Seq` with versions.** A phrase is often played ABAB', where B' is B with a few notes
+   changed -- like first and second endings in notation. The first phrase entered is version 1.
+   Making a new version makes every note common to both; from then on, a note changed is
+   changed in the new version only, so the old note stays in 1 and the new one is in 2. Color
+   says which is which: common notes one color, version 1's own another, version 2's a third.
+   There can be any number of versions, and a modulator chooses which one plays.
 
-   **Built 2026-09-26, overnight, from Forrest's answers before he went to sleep.** Checked on
-   the emulator, at font scale 1 and 1.5; **not yet on the phone.**
+   **What else does this.** No other sequencer was found that makes versions this way, but
+   several make a variation per *note* rather than per phrase:
+   - Elektron's **trig conditions** (Digitakt, Syntakt, Octatrack, Analog Four). A note carries
+     a condition `A:B`, true on the A-th of every B loops, so `1:2` on one note and `2:2` on
+     another are B and B' in one pattern. Beside it are FILL, PRE (the last condition on this
+     track was true) and NEI (the neighbor track's was).
+   - Bitwig's **Recurrence**: per note, a cycle of 2 to 8 loops and a toggle per loop -- the
+     clip unrolled -- next to **Occurrence**: first loop, not first, fill, with or without the
+     previous note.
+   - The Deluge's **iterance**: a note plays on iteration x of y, up to 8.
+   - TidalCycles and Strudel's **angle brackets**: `"c e <g a>"` plays c e g, then c e a. The
+     common notes are written once, and the one that varies is written as alternatives in
+     place.
+   - Renoise's **pattern aliases**: a slot holds another pattern's data, so an edit to one
+     changes all of them, with "make unique" to fork. That is sharing and then forking, but a
+     whole track at a time.
 
-   *The shape.* Asked, Forrest chose **chips across the top** over a menu of categories and a
-   second menu with a Back -- which is the "filter in place" Phase 7's *Choosing from a
-   library* worked out. Seven chips in a row, the showing category's tiles below it, five to a
-   row, so every category of modules is one row: a module is two taps from a long press, and
-   one when its category is already showing. The menu opens on the category chosen last and
-   never on Patch, so a long press and a stray tap cannot be all it takes to clear the patch.
-   **The chips never move**: the menu is placed for its tallest category -- Boxes, with three
-   rows of library -- whichever is showing, so a chip stays under the finger that is about to
-   choose the next. The cost is a menu that sits higher above a press near the bottom of the
-   screen than the old one did.
+   Two things are worth taking from them:
+   - **The data is the same in all of them.** Each note belongs to a set -- of loops in
+     Bitwig's case, of versions in this one -- so a dot carries the set of versions it is in,
+     and "common" means "in all of them".
+   - **What chooses the version differs.** They count loops; Forrest's choice is a modulator,
+     because the Arranger has to decide. The two do not conflict: the version is a knob, and a
+     knob could also have a setting that counts loops by itself, which would give Elektron's
+     `A:B` with no Arranger at all. That was not asked for; it is only noted.
 
-   *Boxes.* The two kinds of box, empty and from a selection, then the library as tiles like any
-   module's -- Phase 7's rule that a built-in and a saved subpatch are picked alike -- in whole
-   rows that scroll by a drag, with a thumb when there is more than shows. A long press on a
-   saved one opens a menu of one tile, **Delete**, with the held one lit in red beneath it
-   (Forrest chose the tile over a bare long press, which is the long-press rule; the file is
-   deleted, since the library is not undone). A tap away from that hands the library back rather
-   than closing everything. "Load..." and its twelve-tile ceiling are gone.
+   **The editing rules.** *Decided 2026-10-04, as proposed, faint dots included:*
+   - Viewing version k, a new dot is in k alone. Removing a dot that k shares takes k out of
+     its set and leaves it in the others. Changing one that k shares -- its length, degree or
+     velocity -- splits it: the old dot keeps the other versions, and the changed copy is in k.
+   - A dot that is in another version and not this one is drawn faint, and a tap on it takes
+     it into this one.
+   - **Color with three or more versions** cannot give every combination its own color.
+     Coloring against the version being edited does carry over: in every version, in this one
+     alone, in this one and some others, and not in this one (faint). With two versions, that
+     is exactly Forrest's three colors.
 
-   *Patch* is Open..., Save patch..., New patch and Licenses... until Settings arrives with 6.
-   **Open** was not built before: a saved patch could only come back as a box. Forrest's rule:
-   Open replaces the patch, but **a patch that is not saved is offered the save first** -- Save...
-   or Don't save, and tapping away abandons it. Two things were needed to make that true:
-   - A whole-patch file now keeps what is around the box: its cables to Out and from In, the
-     rails' knobs, the scales, the tempo and the name. It had held the box alone, so a patch
-     opened from one would have been silent and in the default tuning. Loading one as a
-     subpatch reads none of that, so nothing else changed and no format version moved. Files
-     saved before this open unwired.
-   - "Saved" is asked of the library rather than remembered: the file under the patch's name
-     is what saving would write now (`isSavedIn`). So **Save patch... now names the patch**, as
-     saving a document does, and opening then re-saving has to be byte-identical -- a test says
-     it is, with a box inside. Undoing back to what was saved makes it saved again.
+   *Decided 2026-10-04:* a wrong note that is in every version is fixed from an **all** view.
+   The version picker has an "all" entry; an edit made there applies to a dot in every version
+   it is in, and a dot added there goes into every version.
 
-   Opening unpacks the one plain box through `replaceWith`, so it is one edit and one undo takes
-   it back (checked on the emulator); a poly voice opens boxed, since unpacking it would make one
-   voice of everything.
+   *What the code says.* A dot is a `DotSlot` (step, degree, length, velocity), so the set is a
+   fifth field. As a bitmask, "any number" becomes a cap in practice -- 32 in an `int32` -- and
+   *decided:* the cap is **8**, enough for variations of this kind and few enough for the
+   colors and the picker to stay legible on a phone. The slot shim's ten arguments grow by
+   one, and the format bumps. A version change takes effect at the next tick, since every note
+   start is read at a tick, and a note already sounding finishes its length. A `Seq` holds
+   **32 steps**, which is two bars of sixteenths; if a phrase means four bars, the grid has to
+   grow, and the `Env` editor's reasons for refusing a scroll or a zoom apply here as well.
+   *Decided:* it **stays 32** until a real phrase needs more.
 
-   *The catalog.* `ModuleType` carries `engine` and `category`; `Types.modules` is the one list
-   a module is added to, and `palette`, `byName` and what the engine is told to build all derive
-   from it -- `NodeType.of`'s name map went. `CatalogTest` reads `Types` by reflection so a type
-   declared and never registered fails, and pins **each category to what its modules send**
-   against the ports: a new module filed under the wrong chip fails there. A sixth module in a
-   category would be a second row, and fails there too, so that is a decision rather than a
-   drift. Gain and Mixer are still Amp and Mix, until 7 and the Mixer land.
+5. **The Arranger**, after Bespoke's songbuilder: what plays when. Forrest expects it to be
+   the key to the app's utility. Subpatches are how it nests: one box builds a verse out of
+   phrases, and the level above builds a song out of verses. It has to make ABAB' natural to
+   say, where A is a phrase in one `Seq` and B and B' are two versions of a phrase in another.
 
-   Mutation-checked, nine faults, all caught: the chips placed for the category showing, the
-   category not remembered, Patch remembered, the library's drag panning the canvas instead, a
-   long press deleting on its own, away from Delete closing everything, Open never asking, a
-   saved patch losing its tuning, and one losing its cables. Writing the tests found a real bug
-   first: after Don't save the question stayed on screen, since `produceState` keeps its value
-   across a change of key.
+   **What the songbuilder is**, from Bespoke's documentation and issues:
+   - *targets*, the controls it sets;
+   - *scenes*, each a value for every target;
+   - a *sequence* of scenes, each played for a number of bars, with play, pause, stop and a
+     loop;
+   - changes made at once ("switch"), or at once with the transport reset ("jump");
+   - a first scene that is recommended to be "off" and is chosen on stop.
 
-6. ~~**Files, Settings and recording.**~~ A PatchGarden folder chosen once through the system's
-   folder picker, as Pagan does, holding `soundfonts/`, `scales/`, `subpatches/` and
-   `recordings/` -- somewhere another app can be pointed at the same SoundFonts. The first
-   launch offers to move what is in app-specific storage now. A small **Settings** page
-   changes the folder, sets the recording's length, and shows the version and the licenses,
-   which move there from the add menu. Always-on recording saves into `recordings/`.
+   In short, a table: targets down one side, scenes across, and a playlist of scenes with
+   lengths. **Cubase** has a feature called the Arranger as well, which counts in the name's
+   favor: named sections of the timeline, and *chains* that play sections in any order with
+   repeats, several chains to a project.
 
-   **Built 2026-09-27, overnight, straight after 5 at Forrest's say-so.** Checked on the
-   emulator end to end; **not yet on the phone**, where the first launch will offer the folder.
+   *Decided 2026-10-04:* **version 0 is silence**, so a version knob says both whether and which. Then
+   ABAB' is two lanes and four sections, and the Arranger's table reads like the song:
 
-   *The folder.* The libraries read through a `Folder`: app storage, as before, or a Storage
-   Access Framework tree the user picked, whose grant is persisted and let go when replaced. A
-   chosen folder has no files in the java.io sense -- a file is found by name among its folder's
-   children -- and a provider will not overwrite by name, so a write finds the file and
-   truncates it. The patch itself, the recording's window and the debug capture stay in
-   app-private storage: they are the app's working state, not what a person keeps. The first
-   launch offers the folder once ("Not now" is an answer); choosing one offers to move what
-   app storage holds -- copy, check the length, then delete, never replacing a file already
-   there, so a move cut short leaves every file somewhere -- and then **recreates the
-   activity**, since every library reads its folder once at the start and a restart is the one
-   way to know none is still reading the old one. On the emulator: Music/PatchGarden made in
-   the picker, 12 scales and 17 subpatches moved, the old folders left empty, the patch intact.
+   ```
+            A   B   A   B'
+   Seq 1    1   0   1   0
+   Seq 2    0   1   0   2
+   ```
 
-   *Settings* is a page off Patch: the folder with Change..., the recording's length (off, 1, 5,
-   10 or 30 minutes, with what it costs of the phone), the version, and Licenses..., which moved
-   there from the add menu and closes back to it.
+   Each lane is a modulation output, so a lane patched to a version knob is an ordinary cable,
+   and the same lane patched to a cutoff is item 3's case. **That makes item 3 a one-lane
+   Arranger whose steps are all one length**, which argues for building 3 first and building
+   the Arranger out of what it teaches. Item 3's labels carry over: a lane patched to a
+   version knob says B' rather than 0.67.
 
-   *Recording* is Phase 8's design as written: the audio thread copies each block into a
-   lock-free ring and returns, a writer thread drains it into a circular file, and the bit depth
-   is chosen at save. The file is a 64-byte header and the window **plus a 30s margin**; a save
-   reads only the window, oldest first, so the writer carrying on during a save has the margin
-   to write through before it could reach a frame being read. Frames go down before the count
-   that includes them. A window of the same rate and length carries on after the app is put
-   away and brought back, so it survives a crash as the design wanted; any other shape starts
-   over, and off deletes the file. **Save recording...** in Patch writes a WAV into
-   `recordings/` named for the patch and the moment -- 16-bit (TPDF-dithered), 24-bit or 32-bit
-   float -- starting where the sound starts, since a window begins wherever it began, and
-   keeping any silence after that. Only into a chosen folder: a recording in app storage is one
-   nobody can find. Saved on the emulator as float: 23s from the note's attack, 523Hz, the C5
-   the Drone cell was playing.
+   *Decided:* **an Arranger has versions too.** For a song to be built of verses, the verse's
+   own Arranger, a level down, has to be told from above whether it is playing and which verse
+   it is. Verse 1 and verse 2 differing in their last phrase is B and B' again, one level up.
+   If an Arranger's versions are its chains (Cubase's word) and version 0 is stopped, then a
+   `Seq` and an Arranger are controlled the same way, and the recursion is the same move at
+   every level.
 
-   Tests: `recorder_test` on the host (the window across a wrap, carrying on, starting over,
-   drops), clean under ASan, UBSan and, by hand, TSan; `FilesTest` and `RecordingTest` on the
-   JVM. Seven mutants, six caught; the one missed is a failed disk write counted as written,
-   which nothing on the host can make happen.
+   **The hard part is time.** Every sequencer today is positioned by the transport's tick count
+   modulo its own length (`SeqNode::onTick`), so a phrase is at its first step only at whole
+   multiples of its length from the top. When every phrase and section is the same length,
+   that is right by itself. When they differ -- a four-bar A, a two-bar B, then A again at bar
+   six -- the second A starts halfway through its loop:
 
-   Not done: the undo snapshots timestamped against the window, so a saved recording could carry
-   the patch that made it -- still an idea.
+   ```
+   song bar      1 2 3 4 | 5 6 | 7 8 9 10 | 11 12
+   section       A       | B   | A        | B'
+   Seq 1 plays   1 2 3 4 | - - | 3 4 1 2  | -  -    <- the second A starts mid-phrase
+   Seq 2 plays   - - - - | 1 2 | - - - -  | 1  2    (a 2-bar loop always lands on its top)
+   ```
 
-   **Saving was too slow, found on the phone 2026-10-02.** Forrest's two saves took two and
-   five minutes, with the button reading "Saving..." and nothing else until he tapped away --
-   which closed the page and left nothing to say the save had finished. Both files were
-   whole. Storage was not it (dd wrote 360MB/s to the same place); the Kotlin export was,
-   converting tens of millions of samples one at a time through ByteBuffer views in a debug
-   build. It is native now, beside the recorder that already owns the file's layout, writing
-   into a descriptor the folder opens -- a ten-minute window in a fifth of a second on the
-   computer -- and the page stays up until the save is done. It showed a percentage for one
-   build; on the phone a save was over before the number could be read, so it says "Saving..."
-   and nothing more.
-7. ~~**A level on every synth, `Gain`, and the release.**~~ Every sound source gets a `level` with
-   its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
-   for `tune` too. An `Env` patches straight into the synth, and because the synth then knows
-   an envelope has its level, it keeps sounding after note-off until that level reaches zero:
-   `Env`'s release becomes audible, which is the Bespoke and Helio answer without a fixed
-   ADSR. With nothing patched, a note still stops at note-off. `Amp` is renamed **`Gain`** and
-   stays, for after effects and anything else a VCA is for. Before 8, since both new sounds
-   would build on it.
+   The review first offered three answers, in rising cost:
+   - a section must be a whole number of every phrase in it, which is true of a lot of music
+     and false of the rest;
+   - the Arranger restarts what it starts: a pulse per lane into a reset on each sequencer,
+     which is the bare trigger `SignalKind.PULSE` was kept for;
+   - **local time**: whatever an Arranger starts counts its ticks from that section's start, so
+     a verse's Arranger begins from its top whenever the song's starts that verse. This is the
+     recursion as Forrest describes it, and the costliest, because boxes never reach the
+     engine and time would have to be handed to every node inside one.
 
-   **Built 2026-10-02.** Checked by the tests; **not yet heard on the phone.**
+   It proposed building the equal-length case first and choosing between the last two later.
+   Asked again with the first round's answers in, it found a fourth.
 
-   *The level.* One `levelParam()` for Osc, Pluck, FM, SF and Noise: a knob from 0 to 2 driven
-   by a new modulation port, the way `Gain`'s gain is -- `notes` stays port 0 and `level` is
-   port 1, or Noise's only port. Patched, it grows brackets that run from nothing to the knob.
-   `tune` stays on `Osc` alone for now: moving it into the shared base would mean giving
-   Pluck, FM and SF a knob each, which is its own change.
+   **Decided 2026-10-04: a sequencer restarts when its version changes.** Whenever a
+   sequencer's version knob changes -- including from 0, which is how a section starts it -- it
+   starts again from its first step, so the cable that says "play B'" also says "from the
+   top". The example's second A goes from 0 to 1 at bar seven and starts at its top. It nests
+   the same way: when the song starts a verse, the verse's Arranger goes from 0 to a version and
+   starts from its top. It costs a check in each sequencer's tick, adds no kind of cable, and
+   tells the engine nothing about boxes -- local time for exactly the things an Arranger
+   controls, which is what version 0 made possible. The stepped-knob decision in item 3 is what
+   makes it land on the tick: by the time a sequencer's tick reads its version, a change made on
+   that tick is already the knob's value. **Its limit**: a section repeated back to back (A A)
+   does not change the version, so the second A carries on rather than restarting -- right
+   whenever a section is a whole number of its phrases, and the one case a reset pulse would
+   still be needed for.
 
-   *The release.* **Only an envelope holds a note open, not "until the level reaches zero".**
-   Taken literally, that would have let an LFO on the level hold every released note
-   forever, since a tremolo never stays at zero; and an envelope ending above zero, or one
-   whose brackets start above it, would have done the same. So the synth asks whether the
-   envelope is still *running* (`Node::envelopeRunning`, which the graph checks on every
-   driven port each block). It keeps its gate open after the Off while that is true, then
-   closes it over the usual 5ms. Nothing patched, or anything that is not an `Env`, and the
-   note stops at its Off as it did. A `Pluck` rings while the envelope runs and then for its
-   `R`. `SF` takes the jack and holds nothing open, since TinySoundFont sounds releases of
-   its own.
+   A section's length is counted in **bars**, which item 1 now offers.
 
-   *What it changed underneath.* `PolyIn` takes the released instance **let go earliest**,
-   where it took the one struck earliest: with releases audible, a released instance is
-   usually still ringing, and since every instance is a copy of one voice, the one let go
-   first is the quietest -- where struck-first took a pad held through three short notes and
-   let go a moment ago. A voice counts as stolen whenever it is still *sounding*, not only
-   while held: `PolyIn`'s steal sends the Off before the On, so an `FM` it took restarted its
-   phases mid-cycle -- a step of 0.51 where a sine's own largest is 0.034, older than this and
-   made common by it. And a driven knob moved with nothing patched ramps across one block in
-   the graph, which is what SF's own level ramp used to do; a typed level is a jump of any
-   size.
+   *Still open:*
+   - what happens on stop (the songbuilder's "off" scene is version 0 everywhere);
+   - whether a jump resets the transport, as the songbuilder's can;
+   - what the panel looks like on a phone. A table of lanes down and sections across, a value
+     in each cell and each section's length in a rail beneath, would be the `Env` editor's
+     problem of rails that must line up with what they label.
 
-   *The file.* **Format 19 reads nothing but 19**, the first format under the policy Forrest
-   set the same day: until development settles, compatibility is dropped wherever that is an
-   option. So `Amp` became `Gain` in the file with no alias, `DotSeq` stopped being read as
-   `Seq`, and the interval knob's codes start at 1 with free at 0 -- the table that values
-   under 64 were read through is gone. Every older patch and saved subpatch is refused, moved
-   aside rather than deleted, as every refusal is.
+   Sources for 4 and 5: [Elektron trig conditions](https://www.manualslib.com/manual/2952572/Elektron-Syntakt.html?page=42),
+   [Bitwig 4 operators](https://www.soundonsound.com/reviews/bitwig-studio-4?page=2),
+   [the Deluge's iterance](https://github.com/SynthstromAudible/DelugeFirmware/pull/4929),
+   [Strudel's mini-notation](https://strudel.cc/learn/mini-notation/),
+   [Renoise's pattern matrix](https://tutorials.renoise.com/wiki/Pattern_Matrix),
+   [Bespoke's reference](https://www.bespokesynth.com/docs/) and
+   [its changelog](https://github.com/BespokeSynth/BespokeSynth/blob/main/CHANGELOG.md),
+   [Cubase's Arranger track](https://www.steinberg.help/r/cubase-pro/14.0/en/cubase_nuendo/topics/arranger_track/arranger_track_c.html).
 
-   Mutation-checked, five faults, all caught: no lingering at all, lingering on anything
-   patched (the LFO), `PolyIn` choosing by strike, a steal that is only a steal while held, and
-   a knob that steps.
-8. **The `fm` port on `Osc`, then the ladder filter.**
+### Still from 2026-09-25
 
-**Decided alongside, to fit wherever they land:**
+- **The `fm` port on `Osc`, then the ladder filter** -- the eighth item of that list, after the
+  five above. The port is designed (*The fm port comes back to Osc*, Phase 11). *Decided
+  2026-10-04:* the ladder is **another type in `Filter`**, not a module of its own -- the same
+  cutoff, resonance, tracking and jacks, so changing type keeps every cable. Its design beyond
+  that is still to do.
+- **Every module's jacks are laid out from the top.** *Decided 2026-10-04, not yet built, and
+  first in the order.* A
+  box's jacks moved when it gained a port (Phase 12, 2), because each side was centered in a
+  body as tall as its longer side. Adding to the longer side grew the body and slid the other
+  side down 22dp; adding to the shorter side re-centered that side and slid its own jacks up.
+  Jack i now sits at 22dp + i × 44dp below the body's top on either side, so a new port goes
+  under the others and nothing that was there moves. Three layouts were drawn and compared --
+  centered, from the top for boxes only, and from the top for everything -- and Forrest chose
+  the last **for consistency**: one rule in `portIn`, and modules placed level are joined by
+  straight cables, since every first jack is the same distance below its module's top.
+  - *What it costs.* The shorter side of every module and box whose sides differ (`Osc`,
+    `Gain`, `Reverb` and most others) redraws once, at the top. No file changes, since jack
+    positions are worked out when drawn and never stored.
+  - *What it does not change.* The rails inside a box stay centered on screen, as asked for
+    (`railRectWith`); a rail has jacks on one side only, so the rule makes no difference
+    within one. Dropping a port still moves every port after it up a slot, since ports are
+    positional -- this ends the movement on adding, not on dropping.
+  - *To build.* `portIn`, and `PatchTest`'s two tests that pin centering ("a lone port sits
+    centered in the body", "the port subpatch is centered in the body at any count"), which
+    become tests that a jack never moves when a port is added to either side.
+- **Decided alongside, to fit wherever they land:**
+  - **Stereo stays at the end of the chain.** Cables stay mono; a new **Mixer** replaces `Mix`,
+    with one to eight inputs, a level and a pan on each, and a left and right out. `Reverb`
+    keeps its pair; a ping-pong `Delay` can come later. Making every cable stereo would double
+    every module for a phone that has no room to spare.
+  - **A poly subpatch's sliders draw a thin mark per sounding voice**, rather than one bar
+    following whichever instance happens to be first.
+  - **A module turning notes into modulation** -- pitch, velocity or gate as a signal any knob can
+    follow, like Bespoke's `pitchtocv` and `velocitytocv` -- waits for a patch that needs it.
+    Velocity to a filter's cutoff is the likeliest first.
+  - **Collapsing a module to a title strip**: it shows its title alone, and its cables meet at
+    its left and right edges; expand it to patch it. Low priority, since subpatches already save
+    most of that space.
 
-- **Stereo stays at the end of the chain.** Cables stay mono; a new **Mixer** replaces `Mix`,
-  with one to eight inputs, a level and a pan on each, and a left and right out. `Reverb`
-  keeps its pair; a ping-pong `Delay` can come later. Making every cable stereo would double
-  every module for a phone that has no room to spare.
-- **A poly subpatch's sliders draw a thin mark per sounding voice**, rather than one bar
-  following whichever instance happens to be first.
-- **A module turning notes into modulation** -- pitch, velocity or gate as a signal any knob can
-  follow, like Bespoke's `pitchtocv` and `velocitytocv` -- waits for a patch that needs it.
-  Velocity to a filter's cutoff is the likeliest first.
-- **Collapsing a module to a title strip**: it shows its title alone, and its cables meet at
-  its left and right edges; expand it to patch it. Low priority, since subpatches already save
-  most of that space.
+### Still to be heard on the phone
+
+- **A level on every synth, and the release** (Phase 12, 7). Built on 2026-10-02 and checked
+  only by the tests. It also changed which instance `PolyIn` takes.
+- **The overnight run of 2026-09-23** (Phase 11), whose list for the morning was never
+  answered: the three new colors, `Noise`'s olive above all; `Noise`'s three kinds at their
+  levels; a delay time changed while it sounds, and whether that should be a tape bend or a
+  crossfade; room against plate, and which to keep; `size`, `damp` and the plate's shimmer;
+  and an `Osc`'s tune patched from an `LFO` as a vibrato.
 
 ### Later
 
@@ -458,6 +471,8 @@ that goes in its own section as it always has.
 - **Typing the sequencer grid's and the scale card's numbers.** Low priority; they may not be
   needed.
 - **A name's 16-character ceiling**, which may be too short. Left for now.
+- **A saved recording carrying the patch that made it**, by timestamping the undo snapshots
+  against the window (Phase 8, and Phase 12, 6). Still an idea.
 - **Amp emulation** -- a tube stage, the response-shaping thing "Amp" sounds like it should be.
   An aside, and a good one.
 
@@ -878,7 +893,7 @@ Some variety is already paid for: `Svf` has low, high, band, notch and peak taps
 mode parameter turns one module into five filters.
 
 **Fix the cost of adding one before adding the fifth.** *Decided 2026-09-25, when a module
-touched about eight places: tidied on the Kotlin side only (Open work, 5).* A module currently touches five
+touched about eight places: tidied on the Kotlin side only (Phase 12, 5).* A module currently touches five
 places across two languages -- a C++ node class, the C++ enum, the Kotlin enum, a
 `ModuleType`, and the palette -- and the two enums must agree. There is already a test
 asserting they do, which is a smell rather than a solution. The engine should own the
@@ -2604,7 +2619,7 @@ clean.
 > **The deadline passed without the separation being needed**, because a saved subpatch
 > loads as a copy (*A group can be saved and loaded*, above). What still stands is the
 > first half: the picker has to treat a built-in and a saved subpatch alike. **Done
-> 2026-09-26** (Open work, 5): the add menu is category chips over tiles, as this section
+> 2026-09-26** (Phase 12, 5): the add menu is category chips over tiles, as this section
 > said, and the library is tiles under Boxes.
 
 A cheaper partial win, available any time: collapsing a module to a title-only strip
@@ -2613,7 +2628,7 @@ buys back a good deal of the same screen space for far less work.
 ## Phase 8 -- App-ness
 
 - Patch library: name, save, load, duplicate, browse. *Partly there through the subpatch
-  library; finishing it is wanted, with the menu redesign -- see Open work.*
+  library; finished with the menu redesign, 2026-09-26 (Phase 12, 5).*
 - Undo/redo. Falls out of Phase 3's command structs nearly free if they are designed to
   be invertible -- worth spending ten minutes on then rather than a refactor here. *Done, as
   whole-patch snapshots rather than inverted commands; see Undo.*
@@ -2632,7 +2647,7 @@ buys back a good deal of the same screen space for far less work.
 
   An idea rather than a decision: undo snapshots timestamped against the window would let
   a saved recording carry the patch that made it. *Wanted, 2026-09-25, and the saved file
-  should not land in app-specific storage.* *Built 2026-09-27 (Open work, 6), without the snapshots.*
+  should not land in app-specific storage.* *Built 2026-09-27 (Phase 12, 6), without the snapshots.*
 - In-app open-source licenses screen. MIT requires the notice ship with the binary;
   DaisySP alone brings three (DaisySP, Plaits, Soundpipe) and Oboe brings Apache-2.0.
   *(Done 2026-09-24, before the first release shared with anyone. The notices ship inside
@@ -2643,7 +2658,7 @@ buys back a good deal of the same screen space for far less work.
   in the file word for word, so vendoring something new cannot ship without its notice.
   v0.1.0 carried none, and v0.2.0 had the file without the page.)*
 - Turn `isMinifyEnabled` on for release and confirm nothing reflective breaks. *Done
-  2026-09-25: see Open work.*
+  2026-09-25 (Phase 12, 1).*
 - ~~MIDI in over USB/BLE via `android.media.midi`, translated at the edge into Phase 6's
   note events, if it still seems worth it by then.~~ *Dropped 2026-09-25: nobody is expected
   to connect a MIDI device to a phone for this.*
@@ -4071,6 +4086,327 @@ was saved.
 
 ---
 
+## Phase 12 -- The list of 2026-09-25, as built
+
+> Moved here from *Open work* on 2026-10-04, once the list was built to its seventh item, so
+> that *Open work* holds only what is open. Unchanged but for three notes on what has gone
+> stale. The numbers are the list's own, which is what "(Phase 12, 5)" elsewhere refers to;
+> the eighth item is still open and is in *Open work*.
+
+Forrest took the recommended option on every item that was open for discussion, and the
+order below. Each is the plan, not yet the build; where building one turns something up,
+that goes in its own section as it always has.
+
+1. ~~**Smaller release builds.**~~ **Done 2026-09-25: 25MB to 3.9MB.** The two dex files
+   were 22.6MB of Compose and Material 3 kept whole; R8 and resource shrinking leave the
+   native libraries as most of what is left. Nothing in the app is found by name but the JNI
+   entry points, which the default rules keep -- every class with a native method, and those
+   methods, unrenamed -- and the engine calls back into nothing but `java.lang.String`.
+   Checked on the emulator from a fresh install of the shrunk release: the engine starting,
+   patching, a held Drone note, the keypad, renaming through the system keyboard, a patch
+   saved to the library and loaded back, and the licenses page. Not checked: an `SF` loading
+   a bank, since the emulator has none.
+2. ~~**Controls.**~~ **Done 2026-09-25.** A knob promotes through every level: the subpatch's
+   own panel gets the promote chip, present but disabled at the top of the patch. A promoted
+   knob can be given a jack from outside. "Knobs..." becomes **"Controls..."**, since a knob
+   reads as a rotary dial, and inside a subpatch a **Controls** chip beside the breadcrumb
+   opens the same panel.
+
+   As built: one rule for the ↑ chip everywhere -- a row on a panel promotes into the box
+   that panel's module sits in -- so a module's own panel sends its knob into the first box
+   and that box's Controls panel sends it on. The chip is faint where there is nowhere to go
+   (the top of the patch, or a full box) and takes the tap without doing anything, so a
+   finger aimed at it never lands on the row behind. Taking a knob back takes it back from
+   every box further out, since those reached it through this one.
+
+   The jack from outside is the Controls panel's `[ ]` chip, the same chip that exposes a knob
+   on a module's own panel. It builds what a hand would: the knob exposed if it was not, then
+   a port on each box between it and the panel's box, each reaching the one inside -- so it
+   crosses to the engine as one modulation cable, like any chain of subpatch ports, and
+   tapping the chip sends nothing but the knob's range. A driven knob's chain ends at the
+   port that drives it (`Amp`'s gain at `mod`), since a knob has one way in. Turning it off
+   undoes exactly that, including the exposure, and follows the chain **outward** past the
+   panel's box as well: a jack left on an outer box after the inner one's went would reach
+   nothing. A box port that also fans out inside to something else loses only this cable.
+   The chip is **faint where the knob is already patched from inside** -- a filter an LFO in
+   the box already sweeps, or an `Amp` an `Env` already opens, which is every poly voice --
+   because a live one would silently swap the modulator inside for the cable outside.
+
+   The Controls chip beside the breadcrumb says **"Controls…"**, with the menu's ellipsis:
+   without it the chip read as one more level of the path. It shows only where the panel
+   would have rows, as the menu tile does. `ControlsTest` covers all of it; checked on the
+   emulator two boxes deep, down to `PatchSync` sending one `modulate` for an LFO patched into
+   the outer box's new jack and one `unmodulate` when the inner panel's chip was turned off.
+
+   **Found while building it, and open:** a box's jacks are centered in its body like every
+   module's (`portIn`), but a box is the one module whose port count changes, so a new input
+   moves its outputs down half a pitch and every cable on them with it. It is older than this
+   -- a port made at a rail slot does the same -- but the chip makes it a tap away. Laying a
+   box's jacks from the top would end it and would redraw every box already built; Forrest's
+   call.
+3. ~~**Gesture tests through Compose's test tools**~~, before the menu redesign changes the
+   gesture loop. Every gesture fault in this project was found by a finger; a test that
+   drives the real loop is the missing layer. **Done 2026-09-25: `GestureTest`, 24 tests.**
+
+   On the JVM under Robolectric rather than as instrumented tests on a device, so they run in
+   `testDebugUnitTest` with everything else, in about seven seconds -- a suite that needs a
+   phone plugged in is one that does not get run. Native graphics, so text is measured as the
+   app measures it; the reference device's density, since world units and pixels agree only at
+   a density of one; one test at font scale 1.5. Targets come from the drawing's own geometry
+   and outcomes from the model, so the menu redesign can change where a tile is without
+   rewriting the tests that tap it.
+
+   What they cover: patching by two taps, and a mismatch refused; a module following the
+   finger in dp; a pan; a pinch; the rail switch; the undo button once there is something to
+   undo; the add menu and a module's menu; a panel opened by a tap and closed by one outside
+   it; typing a knob; making a subpatch from a selection; going in and out through a box and
+   the breadcrumb; the envelope's node menu, the tap on a node that does nothing, the tap on
+   the line that adds one, the drag in the fill that bends it the way the finger went, and a
+   time typed in milliseconds; the dot grid's tap, stretch and locked velocity drag; and both
+   ways into a subpatch's Controls. Twelve mutants, seven of them faults a finger actually
+   found -- the undo button frozen at launch, the envelope claiming the whole screen, kotlinx's
+   timeout caught for Compose's, a curve following the number instead of the finger, a drag
+   forgetting density, a tap removing a node, a chip that did not answer -- each caught by the
+   test aimed at it.
+
+   Two changes to the app came with it. The camera is a parameter of `PatchCanvas`, defaulting
+   to the one it always made, so a test can aim through it. And the four per-frame engine polls
+   -- playing step, scale entry, live knobs, transport beat -- now return at once when the
+   native library is not loaded: with no engine they could only ever read "not running", and a
+   frame loop that never ends never lets a test's clock go idle, so every sequencer test hung.
+   Robolectric 4.17 is pinned to SDK 36 for these tests, since its image of 37 lacks what
+   touch injection calls.
+4. ~~**Shared time divisions, and LFO synced to the beat.**~~ **Built 2026-09-25; the chooser
+   is to be settled on the phone.** A step is 1/n of a beat for any n from 1 to 16 -- five to a
+   beat is n = 5 -- plus lengths of whole beats for slow LFOs and long delays; the transport's
+   beats per bar is the other half. One definition, shared by `Seq`, `LFO`, `Delay` and the
+   rest, so a change to how time is divided is one change. The interface to try first: the
+   division chip opens a row of steps-per-beat numbers, with "1/8" and "1/8T" as labels on the
+   ones they are. Settled on the phone, by trial.
+
+   **Revised the same evening, from Forrest's first look:** the first build offered 1/n of a
+   beat and whole beats, kept the quarter triplet (2/3 of a beat) as a special case, and was
+   about to be asked to add the dotted eighth (3/4). He pointed out that those are just
+   fractions of a beat, and that what is wanted is **both the numerator and the denominator**.
+   So a step is now **beats divided into divisions**, each 1 to 16, chosen in two rows --
+   beats over divisions, his sketch -- with both defaulting to 1: a step a beat.
+
+   As built. **The chooser** stays open while both rows are picked, since a step is two
+   choices, and closes on a tap anywhere but a tile. A line above the rows says what they make
+   -- "2 beats ÷ 4 = 1/2 beat". "Free" ends the beats row on a Delay or an LFO, offered exactly
+   where a knob is live only then. The header chip says the length in beats, reduced -- "1 beat",
+   "1/2 beat", "2/3 beat", "3/2 beats" -- and grows with the text size. A choice is kept as made:
+   2 ÷ 4 stays 2 ÷ 4 on the rows and plays as half a beat.
+
+   **Revised 2026-09-26: beats, not note names.** The first two builds named every length that
+   Western notation names, as Bespoke does -- "1/8", "1/4T" for 2 ÷ 3, "1/4." for 3 ÷ 2 -- with a
+   readout that spelled it out ("= 1/4T, a quarter triplet") on the argument that two bare
+   numbers never say "triplet". Forrest dropped it: that notation makes a beat a quarter note,
+   which is a fact about time signatures the app has no use for, and a step here is already a
+   fraction of a beat, so the fraction is the name. Nothing in the file or the engine changed;
+   only what the chip and the readout say.
+
+   **The knob writes beats and divisions outright**, 64 + (beats − 1) × 16 + (divisions − 1),
+   and one `intervalParam()` builds it for Steps, Seq, Arp, Euclid, Delay and LFO. Values under
+   64 are the old table's indices -- Bespoke's nine note lengths, then the first build's
+   additions -- read and never written, every one of them some beats divided into some
+   divisions. So **format 18 reads 17, 16 and 15** unchanged, and nothing was refused. The
+   encoding is written once in Kotlin and once in C++, and two literals asserted on both sides
+   (82 is 2 ÷ 3, 97 is 3 ÷ 2) hold them together. *Format 19 (item 7) moved the codes down to
+   start at 1, with free at 0, so those literals are 19 and 34 now.*
+
+   **The grids mark beats and bars**: a faint line where each beat begins, when a step is
+   shorter than one, and a heavier one at each bar, from the patch's beats per bar -- so five
+   to a beat reads as fives. Counted from the top of the loop, which is exact when the loop is
+   a whole number of beats.
+
+   **The LFO syncs** from the same chip: one cycle per step, its phase read straight off the
+   transport's beat (handed to every node with `setTiming` now), so its cycles start on the
+   beat and hold still while the transport does -- only ever while the output is off. Free by
+   default, which is where every older LFO comes back. Leaving sync carries on from the phase it
+   had rather than jumping.
+
+   Checked on the emulator. The chooser is still to be settled on the phone.
+   *Settled against it on 2026-10-04: see Open work, item 1 of Forrest's notes.*
+
+5. ~~**The add menu in categories**~~, two taps to a module, grouped by what a module sends --
+   which is what its color already says: **Synths** (Osc, Pluck, FM, SF, Noise), **Notes**
+   (Seq, Drone, Euclid), **Note fx** (Arp, Chord, Chance), **Effects** (Filter, Delay, Reverb,
+   Gain, Mixer), **Mod** (Env, LFO), **Boxes** (a new Subpatch or Poly, empty or made from a
+   selection, then the saved subpatches as a list that scrolls, each deleted by a long press)
+   and **Patch** (open, save, new, settings). This finishes the patch library. With it, the
+   **module catalog** tidied on the Kotlin side: one declaration per module carrying its
+   engine id and its category, with the name map and the menu derived from it. The larger
+   version -- the engine declaring its modules and the interface reading them at startup --
+   is not worth its plumbing.
+
+   **Built 2026-09-26, overnight, from Forrest's answers before he went to sleep.** Checked on
+   the emulator, at font scale 1 and 1.5; **not yet on the phone.**
+
+   *The shape.* Asked, Forrest chose **chips across the top** over a menu of categories and a
+   second menu with a Back -- which is the "filter in place" Phase 7's *Choosing from a
+   library* worked out. Seven chips in a row, the showing category's tiles below it, five to a
+   row, so every category of modules is one row: a module is two taps from a long press, and
+   one when its category is already showing. The menu opens on the category chosen last and
+   never on Patch, so a long press and a stray tap cannot be all it takes to clear the patch.
+   **The chips never move**: the menu is placed for its tallest category -- Boxes, with three
+   rows of library -- whichever is showing, so a chip stays under the finger that is about to
+   choose the next. The cost is a menu that sits higher above a press near the bottom of the
+   screen than the old one did.
+
+   *Boxes.* The two kinds of box, empty and from a selection, then the library as tiles like any
+   module's -- Phase 7's rule that a built-in and a saved subpatch are picked alike -- in whole
+   rows that scroll by a drag, with a thumb when there is more than shows. A long press on a
+   saved one opens a menu of one tile, **Delete**, with the held one lit in red beneath it
+   (Forrest chose the tile over a bare long press, which is the long-press rule; the file is
+   deleted, since the library is not undone). A tap away from that hands the library back rather
+   than closing everything. "Load..." and its twelve-tile ceiling are gone.
+
+   *Patch* is Open..., Save patch..., New patch and Licenses... until Settings arrives with 6.
+   **Open** was not built before: a saved patch could only come back as a box. Forrest's rule:
+   Open replaces the patch, but **a patch that is not saved is offered the save first** -- Save...
+   or Don't save, and tapping away abandons it. Two things were needed to make that true:
+   - A whole-patch file now keeps what is around the box: its cables to Out and from In, the
+     rails' knobs, the scales, the tempo and the name. It had held the box alone, so a patch
+     opened from one would have been silent and in the default tuning. Loading one as a
+     subpatch reads none of that, so nothing else changed and no format version moved. Files
+     saved before this open unwired.
+   - "Saved" is asked of the library rather than remembered: the file under the patch's name
+     is what saving would write now (`isSavedIn`). So **Save patch... now names the patch**, as
+     saving a document does, and opening then re-saving has to be byte-identical -- a test says
+     it is, with a box inside. Undoing back to what was saved makes it saved again.
+
+   Opening unpacks the one plain box through `replaceWith`, so it is one edit and one undo takes
+   it back (checked on the emulator); a poly voice opens boxed, since unpacking it would make one
+   voice of everything.
+
+   *The catalog.* `ModuleType` carries `engine` and `category`; `Types.modules` is the one list
+   a module is added to, and `palette`, `byName` and what the engine is told to build all derive
+   from it -- `NodeType.of`'s name map went. `CatalogTest` reads `Types` by reflection so a type
+   declared and never registered fails, and pins **each category to what its modules send**
+   against the ports: a new module filed under the wrong chip fails there. A sixth module in a
+   category would be a second row, and fails there too, so that is a decision rather than a
+   drift. Gain and Mixer are still Amp and Mix, until 7 and the Mixer land. *Gain landed with 7;
+   the Mixer has not, and `Mix` is still `Mix`.*
+
+   Mutation-checked, nine faults, all caught: the chips placed for the category showing, the
+   category not remembered, Patch remembered, the library's drag panning the canvas instead, a
+   long press deleting on its own, away from Delete closing everything, Open never asking, a
+   saved patch losing its tuning, and one losing its cables. Writing the tests found a real bug
+   first: after Don't save the question stayed on screen, since `produceState` keeps its value
+   across a change of key.
+
+6. ~~**Files, Settings and recording.**~~ A PatchGarden folder chosen once through the system's
+   folder picker, as Pagan does, holding `soundfonts/`, `scales/`, `subpatches/` and
+   `recordings/` -- somewhere another app can be pointed at the same SoundFonts. The first
+   launch offers to move what is in app-specific storage now. A small **Settings** page
+   changes the folder, sets the recording's length, and shows the version and the licenses,
+   which move there from the add menu. Always-on recording saves into `recordings/`.
+
+   **Built 2026-09-27, overnight, straight after 5 at Forrest's say-so.** Checked on the
+   emulator end to end; **not yet on the phone**, where the first launch will offer the folder.
+
+   *The folder.* The libraries read through a `Folder`: app storage, as before, or a Storage
+   Access Framework tree the user picked, whose grant is persisted and let go when replaced. A
+   chosen folder has no files in the java.io sense -- a file is found by name among its folder's
+   children -- and a provider will not overwrite by name, so a write finds the file and
+   truncates it. The patch itself, the recording's window and the debug capture stay in
+   app-private storage: they are the app's working state, not what a person keeps. The first
+   launch offers the folder once ("Not now" is an answer); choosing one offers to move what
+   app storage holds -- copy, check the length, then delete, never replacing a file already
+   there, so a move cut short leaves every file somewhere -- and then **recreates the
+   activity**, since every library reads its folder once at the start and a restart is the one
+   way to know none is still reading the old one. On the emulator: Music/PatchGarden made in
+   the picker, 12 scales and 17 subpatches moved, the old folders left empty, the patch intact.
+
+   *Settings* is a page off Patch: the folder with Change..., the recording's length (off, 1, 5,
+   10 or 30 minutes, with what it costs of the phone), the version, and Licenses..., which moved
+   there from the add menu and closes back to it.
+
+   *Recording* is Phase 8's design as written: the audio thread copies each block into a
+   lock-free ring and returns, a writer thread drains it into a circular file, and the bit depth
+   is chosen at save. The file is a 64-byte header and the window **plus a 30s margin**; a save
+   reads only the window, oldest first, so the writer carrying on during a save has the margin
+   to write through before it could reach a frame being read. Frames go down before the count
+   that includes them. A window of the same rate and length carries on after the app is put
+   away and brought back, so it survives a crash as the design wanted; any other shape starts
+   over, and off deletes the file. **Save recording...** in Patch writes a WAV into
+   `recordings/` named for the patch and the moment -- 16-bit (TPDF-dithered), 24-bit or 32-bit
+   float -- starting where the sound starts, since a window begins wherever it began, and
+   keeping any silence after that. Only into a chosen folder: a recording in app storage is one
+   nobody can find. Saved on the emulator as float: 23s from the note's attack, 523Hz, the C5
+   the Drone cell was playing.
+
+   Tests: `recorder_test` on the host (the window across a wrap, carrying on, starting over,
+   drops), clean under ASan, UBSan and, by hand, TSan; `FilesTest` and `RecordingTest` on the
+   JVM. Seven mutants, six caught; the one missed is a failed disk write counted as written,
+   which nothing on the host can make happen.
+
+   Not done: the undo snapshots timestamped against the window, so a saved recording could carry
+   the patch that made it -- still an idea.
+
+   **Saving was too slow, found on the phone 2026-10-02.** Forrest's two saves took two and
+   five minutes, with the button reading "Saving..." and nothing else until he tapped away --
+   which closed the page and left nothing to say the save had finished. Both files were
+   whole. Storage was not it (dd wrote 360MB/s to the same place); the Kotlin export was,
+   converting tens of millions of samples one at a time through ByteBuffer views in a debug
+   build. It is native now, beside the recorder that already owns the file's layout, writing
+   into a descriptor the folder opens -- a ten-minute window in a fifth of a second on the
+   computer -- and the page stays up until the save is done. It showed a percentage for one
+   build; on the phone a save was over before the number could be read, so it says "Saving..."
+   and nothing more.
+7. ~~**A level on every synth, `Gain`, and the release.**~~ Every sound source gets a `level` with
+   its own jack, as `Amp`'s gain has now -- the base every synth shares, and the natural home
+   for `tune` too. An `Env` patches straight into the synth, and because the synth then knows
+   an envelope has its level, it keeps sounding after note-off until that level reaches zero:
+   `Env`'s release becomes audible, which is the Bespoke and Helio answer without a fixed
+   ADSR. With nothing patched, a note still stops at note-off. `Amp` is renamed **`Gain`** and
+   stays, for after effects and anything else a VCA is for. Before 8, since both new sounds
+   would build on it.
+
+   **Built 2026-10-02.** Checked by the tests; **not yet heard on the phone.**
+
+   *The level.* One `levelParam()` for Osc, Pluck, FM, SF and Noise: a knob from 0 to 2 driven
+   by a new modulation port, the way `Gain`'s gain is -- `notes` stays port 0 and `level` is
+   port 1, or Noise's only port. Patched, it grows brackets that run from nothing to the knob.
+   `tune` stays on `Osc` alone for now: moving it into the shared base would mean giving
+   Pluck, FM and SF a knob each, which is its own change.
+
+   *The release.* **Only an envelope holds a note open, not "until the level reaches zero".**
+   Taken literally, that would have let an LFO on the level hold every released note
+   forever, since a tremolo never stays at zero; and an envelope ending above zero, or one
+   whose brackets start above it, would have done the same. So the synth asks whether the
+   envelope is still *running* (`Node::envelopeRunning`, which the graph checks on every
+   driven port each block). It keeps its gate open after the Off while that is true, then
+   closes it over the usual 5ms. Nothing patched, or anything that is not an `Env`, and the
+   note stops at its Off as it did. A `Pluck` rings while the envelope runs and then for its
+   `R`. `SF` takes the jack and holds nothing open, since TinySoundFont sounds releases of
+   its own.
+
+   *What it changed underneath.* `PolyIn` takes the released instance **let go earliest**,
+   where it took the one struck earliest: with releases audible, a released instance is
+   usually still ringing, and since every instance is a copy of one voice, the one let go
+   first is the quietest -- where struck-first took a pad held through three short notes and
+   let go a moment ago. A voice counts as stolen whenever it is still *sounding*, not only
+   while held: `PolyIn`'s steal sends the Off before the On, so an `FM` it took restarted its
+   phases mid-cycle -- a step of 0.51 where a sine's own largest is 0.034, older than this and
+   made common by it. And a driven knob moved with nothing patched ramps across one block in
+   the graph, which is what SF's own level ramp used to do; a typed level is a jump of any
+   size.
+
+   *The file.* **Format 19 reads nothing but 19**, the first format under the policy Forrest
+   set the same day: until development settles, compatibility is dropped wherever that is an
+   option. So `Amp` became `Gain` in the file with no alias, `DotSeq` stopped being read as
+   `Seq`, and the interval knob's codes start at 1 with free at 0 -- the table that values
+   under 64 were read through is gone. Every older patch and saved subpatch is refused, moved
+   aside rather than deleted, as every refusal is.
+
+   Mutation-checked, five faults, all caught: no lingering at all, lingering on anything
+   patched (the LFO), `PolyIn` choosing by strike, a steal that is only a steal while held, and
+   a knob that steps.
+
+---
+
 ## Testing
 
 28 tests as of Phase 1, against a suite that previously had a `junit` dependency and
@@ -4088,8 +4424,9 @@ Still to cover:
   target has geometry tests -- though the camera's own transforms are tested only through them.
 - ~~The C++ graph, via a host-side binary.~~ Done: `graph_test` and `node_test`, under ASan
   and UBSan, run by every `testDebugUnitTest`.
-- Gesture classification through `ComposeTestRule.performTouchInput`, once the loop
-  stops changing shape. *Wanted, 2026-09-25 -- see Open work.*
+- ~~Gesture classification through `ComposeTestRule.performTouchInput`, once the loop
+  stops changing shape.~~ Done 2026-09-25 as `GestureTest`, on the JVM under Robolectric
+  (Phase 12, 3).
 
 ## Open questions
 
