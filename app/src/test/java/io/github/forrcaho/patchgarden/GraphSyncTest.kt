@@ -93,6 +93,32 @@ class GraphSyncTest {
     private val sync = GraphSync(rec)
 
     /**
+     * The engine never learns what a bar is: a step said in bars is sent in beats, at the
+     * patch's meter, and a change of meter re-sends exactly the steps it changes -- a step in
+     * beats stays where it was. Through the ordinary knob diff, so nothing else has to know.
+     */
+    @Test
+    fun `a step in bars is sent in beats, and a change of meter re-sends only it`() {
+        val patch = Patch()
+        val inBars = patch.add(Types.Seq, Offset.Zero)!!
+        val inBeats = patch.add(Types.Seq, Offset(200f, 0f))!!
+        val index = Types.Seq.intervalParam
+        inBars.setParam(index, Interval(2, 1, bars = true).code.toFloat())
+        inBeats.setParam(index, Interval(3, 1).code.toFloat())
+        patch.beatsPerBar = 4
+        sync.sync(patch)
+        fun sent(id: Long) = rec.log.filterIsInstance<Cmd.SetParam>().lastOrNull { it.id == id && it.index == index }?.value
+        assertEquals("two bars of 4/4 is eight beats", Interval(8, 1).code.toFloat(), sent(inBars.id))
+        assertEquals(Interval(3, 1).code.toFloat(), sent(inBeats.id))
+
+        rec.clear()
+        patch.beatsPerBar = 3
+        sync.sync(patch)
+        assertEquals("and of 3/4, six", Interval(6, 1).code.toFloat(), sent(inBars.id))
+        assertNull("a step in beats is not re-sent", sent(inBeats.id))
+    }
+
+    /**
      * The engine-facing half of subpatches: a playing patch subpatched, nested, unpacked or
      * re-subpatched is sent nothing, because the cables the engine has are the same cables. A
      * command here would be a crossfade, and every one of them is audible.
@@ -728,9 +754,11 @@ class SteppedParamTest {
      * is stepped only because it is a whole number: it has no row and no travel, and is
      * chosen from a page of names.
      */
+    // Not the codes picked from a page rather than slid to: an SF preset, and an interval, which
+    // has two million of them since format 20 and is chosen in the chooser, never by travel.
     private fun stepped() =
         Types.byName.values.flatMap { it.params }
-            .filter { it.curve == ParamCurve.STEPPED && it.choice != Choice.PRESET }
+            .filter { it.curve == ParamCurve.STEPPED && it.choice != Choice.PRESET && it.choice != Choice.DIVISION }
 
     @Test
     fun `the option count is the span plus one`() {
@@ -1057,14 +1085,17 @@ class TransportSyncTest {
         assertEquals(constant("kDefaultInterval"), DEFAULT_INTERVAL)
         assertEquals(constant("kFreeInterval"), FREE_INTERVAL)
         assertEquals(constant("kIntervalCode"), INTERVAL_CODE)
-        assertEquals(constant("kMaxBeats"), MAX_BEATS)
+        assertEquals(constant("kIntervalRadix"), INTERVAL_RADIX)
+        assertEquals(constant("kMaxCount"), MAX_COUNT)
         assertTrue("free is below the codes", FREE_INTERVAL < INTERVAL_CODE)
         assertTrue("and is no length", intervalOf(FREE_INTERVAL.toFloat()).free)
+        assertTrue("bars begin past every code the engine reads",
+            BARS_CODE > Interval(MAX_COUNT, MAX_COUNT).code)
 
-        // Every clocked module's knob reaches the last code, from the header.
+        // Every clocked module's knob reaches the last code there is, which is in bars.
         Types.byName.values.filter { it.intervalParam >= 0 }.forEach { type ->
             val interval = type.params[type.intervalParam]
-            assertEquals(type.name, (INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1).toFloat(), interval.max)
+            assertEquals(type.name, Interval(MAX_COUNT, MAX_COUNT, bars = true).code.toFloat(), interval.max)
             assertTrue("${type.name}: the interval belongs in the header", interval.header)
         }
     }

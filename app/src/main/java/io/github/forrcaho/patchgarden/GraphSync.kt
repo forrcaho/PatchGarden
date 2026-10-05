@@ -378,7 +378,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         // Knobs last, and every knob of a node that was just added: the engine's node
         // starts at its own C++ defaults, which are not required to agree with the ones
         // declared here, and a patch loaded from disk has values for all of them.
-        val params = sounding.associate { it.id to it.module?.params.orEmpty().toList() }
+        val params = sounding.associate { it.id to (it.module?.engineParams(patch.beatsPerBar) ?: emptyList()) }
         params.forEach { (id, values) ->
             val previous = syncedParams[id]
             values.forEachIndexed { index, value ->

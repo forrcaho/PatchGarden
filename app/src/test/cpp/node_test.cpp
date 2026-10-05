@@ -1005,13 +1005,13 @@ void theIntervalIsChosenByParameter() {
     check(steps.interval().num == 1 && steps.interval().den == 2, "one beat in two is an eighth");
     // Literals, and the same ones IntervalTest writes: the formula lives once on each side of
     // the boundary, and these numbers are what hold the two to each other.
-    steps.setParam(2, 19.0f);
-    check(steps.interval().num == 2 && steps.interval().den == 3, "19 is two beats in three");
-    steps.setParam(2, 34.0f);
-    check(steps.interval().num == 3 && steps.interval().den == 2, "34 is three beats in two");
+    steps.setParam(2, 1027.0f);
+    check(steps.interval().num == 2 && steps.interval().den == 3, "1027 is two beats in three");
+    steps.setParam(2, 2050.0f);
+    check(steps.interval().num == 3 && steps.interval().den == 2, "2050 is three beats in two");
 
-    steps.setParam(2, 9999.0f);
-    check(steps.interval().num == kMaxBeats && steps.interval().den == kMaxBeats,
+    steps.setParam(2, 9.0e6f);
+    check(steps.interval().num == kMaxCount && steps.interval().den == kMaxCount,
           "an out-of-range value clamps to the last there is rather than reading past it");
 }
 
@@ -2672,7 +2672,7 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
     check(std::fabs(lfo.output(0)[0] - 0.5f) < 1e-4f, "a tenth of a beat is half a fifth of one");
 
     // Every four beats, for a slow sweep: a quarter of the way through at beat one.
-    lfo.setParam(2, 49.0f); // four beats divided into one
+    lfo.setParam(2, 3073.0f); // four beats divided into one
     lfo.setTiming(perFrame, true, nullptr, perFrame, 1.0);
     lfo.process(kBlockSize);
     check(std::fabs(lfo.output(0)[0] - 0.25f) < 1e-4f, "a whole note's LFO is a quarter through at beat one");
@@ -2694,13 +2694,16 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
 
 /**
  * The interval knob says beats and divisions outright, from 1, with free at 0 below them. It
- * indexed a table of note lengths until format 19 dropped it.
+ * indexed a table of note lengths until format 19 dropped it, and both numbers stopped at 16
+ * until format 20. Every pair is exact in a float, which is what the radix is chosen for -- so
+ * the loop takes the corners and a stride through the middle rather than a million codes.
  */
 void theIntervalCodeSaysBeatsAndDivisions() {
     std::printf("the interval code says beats and divisions\n");
-    for (int beats = 1; beats <= kMaxBeats; ++beats) {
-        for (int divisions = 1; divisions <= kMaxBeats; ++divisions) {
-            const float code = static_cast<float>(kIntervalCode + (beats - 1) * kMaxBeats + (divisions - 1));
+    const std::array<int, 9> counts{1, 2, 3, 16, 17, 255, 512, 1022, kMaxCount};
+    for (const int beats : counts) {
+        for (const int divisions : counts) {
+            const float code = static_cast<float>(kIntervalCode + (beats - 1) * kIntervalRadix + (divisions - 1));
             const Interval read = intervalOf(code);
             check(read.num == beats && read.den == divisions,
                   std::to_string(beats) + " beats in " + std::to_string(divisions) + " reads back");

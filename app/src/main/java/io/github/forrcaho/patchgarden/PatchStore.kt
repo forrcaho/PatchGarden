@@ -77,8 +77,13 @@ import java.io.File
  * compatibility is dropped wherever dropping it is an option (Forrest, 2026-10-02; see
  * CLAUDE.md). Keeping 15 to 18 readable would have meant an "Amp" alias, a level port
  * appended where it could be read past, and the interval table kept for values nobody writes.
+ * 20: the interval knob's beats and divisions each run to 1023 where they stopped at 16, with a
+ * radix of 1024, and a step can be said in bars, from a code of its own; a Delay and an LFO
+ * have a `period` knob saying how their fixed time is shown. Reads nothing but 20, under the
+ * same policy: a 19 code read with the new radix is a different step, and that is a refusal,
+ * never a conversion.
  */
-private const val FORMAT_VERSION = 19
+private const val FORMAT_VERSION = 20
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {

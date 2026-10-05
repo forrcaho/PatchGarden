@@ -60,19 +60,25 @@ enum class NodeType : int32_t {
 };
 
 /**
- * How the interval knob writes a step of [beats] beats divided into [divisions] steps, each
- * from 1 to kMaxBeats: kIntervalCode + (beats - 1) * kMaxBeats + (divisions - 1). Self-
- * describing -- and a fraction of a beat, a numerator and a denominator, is Forrest's model of
- * what a step is: 2 ÷ 3 is 2/3 of a beat and 3 ÷ 2 is 3/2 beats, neither a special case.
- * Mirrors INTERVAL_CODE.
+ * How the interval knob writes a step of [beats] beats divided into [divisions] steps:
+ * kIntervalCode + (beats - 1) * kIntervalRadix + (divisions - 1). Self-describing -- and a
+ * fraction of a beat, a numerator and a denominator, is Forrest's model of what a step is: 2 ÷ 3
+ * is 2/3 of a beat and 3 ÷ 2 is 3/2 beats, neither a special case. Mirrors INTERVAL_CODE.
  *
- * It was an index into a table of note lengths before format 18, and from 18 the codes started
- * at 64 so that every value under it could still be read through that table. Format 19 reads
- * nothing older, so the table went and the codes start at 1.
+ * Both numbers run to kMaxCount, since the chooser's "other…" types any of them; the radix is
+ * the next power of two, so every code is exact in the float a knob is. Until format 20 both
+ * stopped at 16, with a radix of 16, because the chooser offered sixteen tiles and nothing more.
+ *
+ * **Only beats reach the engine.** A step the interface lets you say in bars is converted to
+ * beats as the patch is flattened (`PatchModule.engineParams` in Kotlin), against the patch's
+ * beats per bar -- so the engine never learns what a bar is, as it never learns a semitone,
+ * and a change of meter re-sends every step said in bars. A bars code that arrived here anyway
+ * would clamp to the last beats code, a long step rather than a wrong one.
  */
 constexpr int32_t kIntervalCode = 1;
-constexpr int32_t kMaxBeats = 16;
-constexpr int32_t kLastIntervalValue = kIntervalCode + kMaxBeats * kMaxBeats - 1;
+constexpr int32_t kIntervalRadix = 1024;
+constexpr int32_t kMaxCount = 1023;
+constexpr int32_t kLastIntervalValue = kIntervalCode + (kMaxCount - 1) * kIntervalRadix + (kMaxCount - 1);
 /** One beat divided into one: a step a beat. Mirrors DEFAULT_INTERVAL. */
 constexpr int32_t kDefaultInterval = 1;
 /**
@@ -88,7 +94,8 @@ inline Interval intervalOf(float value) {
     const auto v = static_cast<int32_t>((value < 0.0f ? 0.0f : (value < last ? value : last)) + 0.5f);
     if (v < kIntervalCode) return {0, 1};
     const int32_t code = v - kIntervalCode;
-    return {code / kMaxBeats + 1, code % kMaxBeats + 1};
+    const int32_t divisions = code % kIntervalRadix + 1;
+    return {code / kIntervalRadix + 1, divisions < kMaxCount ? divisions : kMaxCount};
 }
 
 /**

@@ -191,6 +191,22 @@ third and the fourth -- which is why they go in the order they are numbered.
 
    *Still open:* the fixed ranges, if the knobs' own are not them -- to be settled on the phone.
 
+   *Decided 2026-10-04, from a mockup* (https://claude.ai/artifact/8HeFGuAZjbGKs51KDpneah):
+   build it as drawn -- the tempo | fixed switch only where a module can keep its own time, the
+   sentence with a dropdown per number opening as a grid of 1 to 16 and **other…** under it,
+   beats | bars as a switch rather than a third dropdown; the freq/period switch applies to the
+   module's own rate or time row as well, brackets and all, so the panel and the chooser never
+   disagree; and in fixed time the header chip says the time itself ("2 Hz", "500 ms").
+
+   **Built in three commits.** *The encoding, first:* both numbers to 1023 with a radix of
+   1024, bars from a code past every beats code, format 20 reading nothing older, and a
+   `period` header knob on Delay and LFO. Bars become beats in `PatchModule.engineParams` as
+   GraphSync sends them, so the engine is unchanged but for its radix, and a change of meter
+   re-sends exactly the steps said in bars (`GraphSyncTest`). The old two-row chooser still
+   drives it until the new one replaces it. Four literal codes in the C++ tests were written for
+   the old radix -- two beats was 17, four was 49 -- and one failed outright; the others now say
+   1025 and 3073.
+
 2. **An LFO gets a phase**, from 0 to 1, with some way to say "two beats late" and have it
    come out as 0.25 on an LFO whose cycle is eight beats.
 

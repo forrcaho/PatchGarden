@@ -874,7 +874,7 @@ void aRemovedSourceEndsTheNotesItStarted() {
     graph.postConnect(2, 0, 3, 0);
     // Whole notes at 60bpm: four seconds a step, so the note under test is still held
     // rather than having ended on its own while the test was looking away.
-    graph.postSetParam(1, 2, 49.0f); // four beats divided into one
+    graph.postSetParam(1, 2, 3073.0f); // four beats divided into one
     graph.postSetTempo(60.0f);
     graph.applyCommands();
     graph.setTransportRunning(true);
@@ -1289,7 +1289,7 @@ void anIdIsOnlyUniqueToItsOwnSource() {
     polyRig(graph, 2);
     graph.postConnect(1, 0, kEdge, 0);
     graph.postConnect(2, 0, kEdge, 0);
-    graph.postSetParam(1, 2, 17.0f); // two beats: one long note held across many short ones
+    graph.postSetParam(1, 2, 1025.0f); // two beats: one long note held across many short ones
     graph.postSetParam(2, 2, 8.0f);  // an eighth of a beat, starting and ending inside it over and over
     graph.postSetParam(2, 1, 700.0f);
     graph.postSetTempo(240.0f);

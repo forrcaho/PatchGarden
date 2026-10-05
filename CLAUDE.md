@@ -675,14 +675,21 @@ also hands over `beat_`, where the transport is at the block's first frame, for 
 its cycles start on the beat and cannot drift from the sequencers, where counting ticks would.
 
 **A step is beats divided into divisions, for every module the transport times.** Numerator
-and denominator both chosen, 1 to 16 each -- Forrest's model, after a first version offered
-1/n of a beat and whole beats and had to keep 2/3 of a beat as a special case while leaving
-out 3/4. The knob writes `INTERVAL_CODE + (beats - 1) * 16 +
-(divisions - 1)`, self-describing, with `INTERVAL_CODE` at 1, and `intervalOf` in Kotlin and in
-`nodes.h` reads it; **the formula is written once on each side**, and the literals 19 (2 ÷ 3)
-and 34 (3 ÷ 2) in `IntervalTest` and `node_test` are what hold the two to each other. **0 is
-`FREE_INTERVAL` / `kFreeInterval`**, the one value below the codes. It was an index into a table
-of note lengths until 18 moved the codes up to 64 to keep reading it, and 19 dropped it. One
+and denominator both chosen, each 1 to 1023 (`MAX_COUNT`) -- Forrest's model, after a first
+version offered 1/n of a beat and whole beats and had to keep 2/3 of a beat as a special case
+while leaving out 3/4. The knob writes `INTERVAL_CODE + (beats - 1) * 1024 + (divisions - 1)`,
+self-describing, with `INTERVAL_CODE` at 1 and a radix that keeps every code exact in a float,
+and `intervalOf` in Kotlin and in `nodes.h` reads it; **the formula is written once on each
+side**, and the literals 1027 (2 ÷ 3) and 2050 (3 ÷ 2) in `IntervalTest` and `node_test` are
+what hold the two to each other. **0 is `FREE_INTERVAL` / `kFreeInterval`**, the one value
+below the codes. It was an index into a table of note lengths until 18 moved the codes up to
+64 to keep reading it, and 19 dropped it; both numbers stopped at 16 until 20. **A step can be
+said in bars**, from `BARS_CODE`, past every code in beats, so a four-bar step stays four bars
+when the meter changes -- and **only beats reach the engine**: `PatchModule.engineParams`
+converts a step in bars at the patch's beats per bar as GraphSync sends it, so the engine never
+learns what a bar is and a change of meter re-sends exactly those steps. A Delay and an LFO
+also carry a header knob, `period`, saying whether their fixed time is shown as a period or a
+frequency; it is a knob so that saving, copying and undo carry it, and the engine ignores it. One
 `intervalParam()` builds the knob for Steps, Seq, Arp, Euclid, Delay and LFO -- "one place to
 change for all modules" was Forrest's ask. **A module offers free only when one of its knobs is
 live only then** (`ModuleType.canBeFree`, from `Param.liveWhen`): a Delay's time, an LFO's rate.

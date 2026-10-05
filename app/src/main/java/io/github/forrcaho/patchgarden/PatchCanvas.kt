@@ -708,6 +708,7 @@ object Types {
             ),
             Param("feedback", 0f, 0.95f, 0.35f, "", LIN, short = "fb"),
             Param("mix", 0f, 1f, 0.35f, "", LIN),
+            periodParam(period = true),
         ),
         engine = NodeType.Delay, category = Category.EFFECTS,
     )
@@ -739,6 +740,7 @@ object Types {
             Param("rate", 0.02f, 20f, 1f, "Hz", EXP, liveWhen = LiveWhen(2, FREE_INTERVAL)),
             Param("wave", 0f, 3f, 3f, "", STEP, Choice.WAVE),
             intervalParam(default = FREE_INTERVAL),
+            periodParam(period = false),
         ),
         engine = NodeType.Lfo, category = Category.MOD,
     )
@@ -1457,6 +1459,20 @@ class PatchModule(
      */
     fun drivenRange(index: Int): ModRange =
         modRanges[index] ?: ModRange(0f, params.getOrElse(index) { type.params[index].default })
+
+    /**
+     * The knobs as the engine is sent them: these, with a step said in bars turned into beats at
+     * [beatsPerBar]. The engine never learns what a bar is, so a change of meter re-sends exactly
+     * the steps it changes, through the same diff that sends a turned knob.
+     */
+    fun engineParams(beatsPerBar: Int): List<Float> {
+        val index = type.intervalParam
+        val values = params.toList()
+        if (index < 0 || index >= values.size) return values
+        val step = intervalOf(values[index])
+        if (!step.bars) return values
+        return values.toMutableList().also { it[index] = step.inBeats(beatsPerBar).code.toFloat() }
+    }
 
     /** The step this module is timed at, or a free one for a module the transport does not time. */
     internal val interval: Interval
@@ -2507,7 +2523,7 @@ internal fun intervalChooser(panel: Rect, d: Float, fontScale: Float, free: Bool
     val gap = 4f * d
     val readoutH = 30f * d * text
     val captionH = 22f * d * text
-    val columns = MAX_BEATS + 1
+    val columns = OFFERED_COUNTS + 1
     val tileW = (area.width - gap * (columns - 1)) / columns
     val tileH = minOf(56f * d * text, (area.height - readoutH - 2f * captionH - 3f * gap) / 2f)
     // The whole block sits in the middle of the body rather than hanging from its top.
@@ -2516,9 +2532,9 @@ internal fun intervalChooser(panel: Rect, d: Float, fontScale: Float, free: Bool
     val firstCaption = readout.y + readoutH
     val secondCaption = firstCaption + captionH + tileH + 3f * gap
     fun tile(i: Int, top: Float) = Rect(Offset(area.left + i * (tileW + gap), top), Size(tileW, tileH))
-    val beats = (1..MAX_BEATS).map { tile(it - 1, firstCaption + captionH) to IntervalPick.Beats(it) } +
-        listOfNotNull((tile(MAX_BEATS, firstCaption + captionH) to IntervalPick.Free).takeIf { free })
-    val divisions = (1..MAX_BEATS).map { tile(it - 1, secondCaption + captionH) to IntervalPick.Divisions(it) }
+    val beats = (1..OFFERED_COUNTS).map { tile(it - 1, firstCaption + captionH) to IntervalPick.Beats(it) } +
+        listOfNotNull((tile(OFFERED_COUNTS, firstCaption + captionH) to IntervalPick.Free).takeIf { free })
+    val divisions = (1..OFFERED_COUNTS).map { tile(it - 1, secondCaption + captionH) to IntervalPick.Divisions(it) }
     return IntervalChooser(
         beats + divisions,
         listOf(Offset(area.left, firstCaption) to "beats", Offset(area.left, secondCaption) to "divisions"),
@@ -7896,8 +7912,9 @@ private fun DrawScope.drawStepGrid(
  * the grid is read from; a loop that is not a whole number of beats moves against the beat
  * each time round, and the lines show where it is on the first.
  */
-internal fun beatLines(columns: Int, interval: Interval, beatsPerBar: Int): List<Pair<Int, Boolean>> {
-    if (interval.free || interval.den <= 0) return emptyList()
+internal fun beatLines(columns: Int, step: Interval, beatsPerBar: Int): List<Pair<Int, Boolean>> {
+    if (step.free || step.den <= 0) return emptyList()
+    val interval = step.inBeats(beatsPerBar)
     val bar = beatsPerBar.coerceAtLeast(1)
     return (1 until columns).mapNotNull { column ->
         val beats = column * interval.num
@@ -8851,65 +8868,97 @@ internal const val DRONE_OCTAVES = 4
 internal const val TUNE_RANGE = 2400f
 
 /**
- * How long a clocked module's step is: [num] beats divided into [den] steps. Or no length at
- * all, "free", for a Delay or an LFO keeping time of its own ([free]).
+ * How long a clocked module's step is: [num] beats -- or bars, if [bars] -- divided into [den]
+ * steps. Or no length at all, "free", for a Delay or an LFO keeping time of its own ([free]).
  *
  * A fraction of a beat, numerator and denominator both chosen, because that is what a step is
  * -- Forrest's model, after a first version offered 1/n of a beat and whole beats and had to
  * keep 2/3 of a beat as a special case and leave out 3/4. Here neither is special: five beats
  * to a bar with five steps to each is 1 ÷ 5, and the other two are 2 ÷ 3 and 3 ÷ 4. Kept as
- * chosen rather than reduced, so 2 ÷ 4 stays what the rows show; it plays as 1 ÷ 2, since only
+ * chosen rather than reduced, so 2 ÷ 4 stays what was picked; it plays as 1 ÷ 2, since only
  * the ratio reaches the engine's arithmetic.
  *
- * Said in beats and nothing else. The first builds named the lengths Western notation has
- * names for, Bespoke's way -- "1/8", "1/4T", "1/8." -- which makes a beat a quarter note, a
+ * **Bars** are for long steps -- a mod sequencer's four bars, an Arranger's sections -- and are
+ * kept as bars, so a four-bar step stays four bars when the meter changes where sixteen beats
+ * would become five and a third bars of 3/4. They become beats only on the way to the engine
+ * ([inBeats]), which never learns what a bar is.
+ *
+ * Said in beats and bars and nothing else. The first builds named the lengths Western notation
+ * has names for, Bespoke's way -- "1/8", "1/4T", "1/8." -- which makes a beat a quarter note, a
  * fact about time signatures the app has no use for: a beat here is one tick of the tempo, and
  * "1/2 beat" says what "1/8" only says once you know what a beat is worth.
  */
-internal data class Interval(val num: Int, val den: Int) {
+internal data class Interval(val num: Int, val den: Int, val bars: Boolean = false) {
     /** No length: the module's own time knob is in charge. */
     val free: Boolean get() = num <= 0
 
     private val reduced: Pair<Int, Int>
-        get() {
-            if (free) return 0 to 1
-            tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
-            val g = gcd(num, den)
-            return num / g to den / g
-        }
+        get() = if (free) 0 to 1 else reduce(num, den)
 
     /**
-     * What the header chip says: how many beats, reduced -- "1 beat", "1/2 beat", "2/3 beat",
-     * "3/2 beats". Reduced because the chip says how long a step *is*, and the rows beneath it
-     * already say how it was chosen.
+     * What the header chip says: how many beats or bars, reduced -- "1 beat", "1/2 beat",
+     * "2/3 beat", "3/2 beats", "4 bars". Reduced because the chip says how long a step *is*,
+     * and the chooser beneath it already says how it was chosen.
      */
     val label: String get() {
         if (free) return "free"
         val (n, m) = reduced
-        return (if (m == 1) "$n" else "$n/$m") + if (n > m) " beats" else " beat"
+        val unit = if (bars) "bar" else "beat"
+        return (if (m == 1) "$n" else "$n/$m") + " $unit" + if (n > m) "s" else ""
     }
 
     /** How the interval knob writes it; see [INTERVAL_CODE]. */
-    val code: Int get() = if (free) FREE_INTERVAL else INTERVAL_CODE + (num - 1) * MAX_BEATS + (den - 1)
+    val code: Int get() = when {
+        free -> FREE_INTERVAL
+        else -> (if (bars) BARS_CODE else INTERVAL_CODE) + (num - 1) * INTERVAL_RADIX + (den - 1)
+    }
+
+    /**
+     * The same step in beats, at [beatsPerBar]: what the engine is sent and what the grids mark
+     * beats against. Reduced, so that a long step in bars stays within what a code can say, and
+     * clamped to the longest step there is past that -- [MAX_COUNT] beats, some eight minutes at
+     * 120bpm, which no step ought to reach.
+     */
+    fun inBeats(beatsPerBar: Int): Interval {
+        if (free || !bars) return copy(bars = false)
+        val (n, m) = reduce(num * beatsPerBar.coerceAtLeast(1), den)
+        return Interval(n.coerceAtMost(MAX_COUNT), m)
+    }
 
     companion object {
         /** No length: a Delay's or an LFO's own knob keeps the time. */
         val FREE = Interval(0, 1)
+
+        private fun reduce(n: Int, m: Int): Pair<Int, Int> {
+            tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+            val g = gcd(n, m)
+            return n / g to m / g
+        }
     }
 }
 
 /**
- * How the interval knob writes a step: INTERVAL_CODE + (beats - 1) * MAX_BEATS + (divisions - 1),
- * beats and divisions each 1 to [MAX_BEATS], and [FREE_INTERVAL] below them. Mirrors
- * kIntervalCode and kMaxBeats.
+ * How the interval knob writes a step: INTERVAL_CODE + (beats - 1) * INTERVAL_RADIX +
+ * (divisions - 1), each number from 1 to [MAX_COUNT], and [FREE_INTERVAL] below them. A step in
+ * bars is the same from [BARS_CODE]. Mirrors kIntervalCode and kIntervalRadix -- for beats only,
+ * since the engine is sent beats ([PatchModule.engineParams]).
  *
  * It was an index into a table of note lengths until format 18, which moved the codes up to 64
- * so every value under it could still be read through that table. 19 reads nothing older, so
- * the table went and the codes start at 1.
+ * so every value under it could still be read through that table; 19 dropped the table and
+ * started the codes at 1, with both numbers stopping at 16. 20 lets the chooser's "other…" type
+ * any of them up to 1023, with the radix the next power of two so every code is exact in a
+ * float, and adds bars.
  */
 internal const val INTERVAL_CODE = 1
-internal const val MAX_BEATS = 16
-private const val LAST_INTERVAL = INTERVAL_CODE + MAX_BEATS * MAX_BEATS - 1
+internal const val INTERVAL_RADIX = 1024
+internal const val MAX_COUNT = 1023
+
+/** The counts the chooser offers as tiles, 1 to 16; anything else up to [MAX_COUNT] is typed. */
+internal const val OFFERED_COUNTS = 16
+
+/** Where steps said in bars begin: past every code in beats. */
+internal const val BARS_CODE = INTERVAL_CODE + INTERVAL_RADIX * INTERVAL_RADIX
+private const val LAST_INTERVAL = BARS_CODE + (MAX_COUNT - 1) * INTERVAL_RADIX + (MAX_COUNT - 1)
 
 /** Mirrors kDefaultInterval: one beat divided into one, a step a beat. */
 internal const val DEFAULT_INTERVAL = INTERVAL_CODE
@@ -8917,13 +8966,18 @@ internal const val DEFAULT_INTERVAL = INTERVAL_CODE
 /** Mirrors kFreeInterval: no division, a time of the module's own. */
 internal const val FREE_INTERVAL = 0
 
-/** The step an interval knob's value stands for. Mirrors intervalOf in nodes.h. */
+/** The step an interval knob's value stands for. Mirrors intervalOf in nodes.h, for beats. */
 internal fun intervalOf(value: Float): Interval {
     if (value.isNaN()) return Interval(1, 1)
     val v = value.coerceIn(0f, LAST_INTERVAL.toFloat()).roundToInt()
     if (v < INTERVAL_CODE) return Interval.FREE
-    val code = v - INTERVAL_CODE
-    return Interval(code / MAX_BEATS + 1, code % MAX_BEATS + 1)
+    val bars = v >= BARS_CODE
+    val code = v - if (bars) BARS_CODE else INTERVAL_CODE
+    return Interval(
+        (code / INTERVAL_RADIX + 1).coerceAtMost(MAX_COUNT),
+        (code % INTERVAL_RADIX + 1).coerceAtMost(MAX_COUNT),
+        bars,
+    )
 }
 
 /**
@@ -8936,6 +8990,22 @@ internal fun intervalOf(value: Float): Interval {
 internal fun intervalParam(default: Int = DEFAULT_INTERVAL) = Param(
     "interval", 0f, LAST_INTERVAL.toFloat(), default.toFloat(),
     curve = ParamCurve.STEPPED, choice = Choice.DIVISION, header = true,
+)
+
+/**
+ * How a module's fixed time is shown and typed: 1 as a period, 0 as a frequency. Only a module
+ * that can keep time of its own has one ([ModuleType.canBeFree]) -- a Delay, whose time is a
+ * period, and an LFO, whose rate is a frequency, each defaulting to what its knob already is.
+ *
+ * Saved with the module (Forrest, 2026-10-04), so a Delay set in hertz opens in hertz, and kept
+ * as a knob for that: a knob is saved, copied, undone and duplicated by the paths that already
+ * do it for every knob, where a field of its own would have to be taught to each of them --
+ * the way a second kind of grid once came back from three copies as the default. In the header
+ * rather than a row, since the chooser is where it is switched. The engine is sent it and
+ * ignores it: it changes what a number reads as, never what it is.
+ */
+internal fun periodParam(period: Boolean) = Param(
+    "period", 0f, 1f, if (period) 1f else 0f, curve = ParamCurve.STEPPED, header = true,
 )
 
 /**
@@ -8969,8 +9039,8 @@ internal sealed interface IntervalPick {
  * the other row starts at 1 -- Forrest's default for both.
  */
 internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
-    is IntervalPick.Beats -> Interval(pick.n, if (free) 1 else den)
-    is IntervalPick.Divisions -> Interval(if (free) 1 else num, pick.n)
+    is IntervalPick.Beats -> if (free) Interval(pick.n, 1) else copy(num = pick.n)
+    is IntervalPick.Divisions -> if (free) Interval(1, pick.n) else copy(den = pick.n)
     IntervalPick.Free -> Interval.FREE
 }
 

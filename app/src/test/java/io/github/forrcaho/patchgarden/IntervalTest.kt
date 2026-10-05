@@ -16,19 +16,26 @@ import org.junit.Test
 class IntervalTest {
 
     @Test
-    fun `every beats and divisions from 1 to 16 is written and read back as itself`() {
-        (1..MAX_BEATS).forEach { beats ->
-            (1..MAX_BEATS).forEach { divisions ->
-                val step = Interval(beats, divisions)
-                assertEquals(step, intervalOf(step.code.toFloat()))
+    fun `every step in beats or bars is written and read back as itself`() {
+        // Every pair the chooser offers as tiles, and the corners of what "other…" can type.
+        val counts = (1..OFFERED_COUNTS) + listOf(17, 255, 512, 1022, MAX_COUNT)
+        val codes = mutableSetOf<Int>()
+        listOf(false, true).forEach { bars ->
+            counts.forEach { num ->
+                counts.forEach { den ->
+                    val step = Interval(num, den, bars)
+                    assertEquals(step, intervalOf(step.code.toFloat()))
+                    assertEquals("exact in the float a knob is", step.code, step.code.toFloat().toInt())
+                    codes += step.code
+                }
             }
         }
-        assertEquals("all 256 of them distinct", 256,
-            (1..MAX_BEATS).flatMap { b -> (1..MAX_BEATS).map { Interval(b, it).code } }.toSet().size)
-        // The same number node_test hands the engine as two beats in three: the formula is
-        // written twice, once a side, and this is what holds the two to each other.
-        assertEquals(19, Interval(2, 3).code)
-        assertEquals(Interval(3, 2), intervalOf(34f))
+        assertEquals("all distinct, bars from beats as well", 2 * counts.size * counts.size, codes.size)
+        // The same numbers node_test hands the engine: the formula is written twice, once a side,
+        // and these are what hold the two to each other.
+        assertEquals(1027, Interval(2, 3).code)
+        assertEquals(Interval(3, 2), intervalOf(2050f))
+        assertEquals("one beat in d is d, under any radix", 2, Interval(1, 2).code)
         assertTrue("and free is free", intervalOf(FREE_INTERVAL.toFloat()).free)
         assertEquals(FREE_INTERVAL, Interval.FREE.code)
     }
@@ -43,12 +50,12 @@ class IntervalTest {
         assertEquals(1, INTERVAL_CODE)
         assertTrue(intervalOf(-3f).free)
         assertEquals(Interval(1, 1), intervalOf(1f))
-        assertEquals("past the last code, the last", Interval(16, 16), intervalOf(9999f))
+        assertEquals("past the last code, the last", Interval(MAX_COUNT, MAX_COUNT, bars = true), intervalOf(9.0e6f))
         assertEquals("and NaN is a step a beat rather than no step", Interval(1, 1), intervalOf(Float.NaN))
     }
 
     @Test
-    fun `a step says how many beats it is, and never what note that would be`() {
+    fun `a step says how many beats or bars it is, and never what note that would be`() {
         assertEquals("1 beat", Interval(1, 1).label)
         assertEquals("2 beats", Interval(2, 1).label)
         assertEquals("1/2 beat", Interval(1, 2).label)
@@ -57,6 +64,9 @@ class IntervalTest {
         assertEquals("2/3 beat", Interval(2, 3).label)
         assertEquals("more than one is plural", "3/2 beats", Interval(3, 2).label)
         assertEquals("16/15 beats", Interval(16, 15).label)
+        assertEquals("1 bar", Interval(1, 1, bars = true).label)
+        assertEquals("4 bars", Interval(4, 1, bars = true).label)
+        assertEquals("2/3 bar", Interval(2, 3, bars = true).label)
         assertEquals("free", Interval.FREE.label)
 
         assertEquals("1 beat ÷ 3 = 1/3 beat", Interval(1, 3).readout())
@@ -64,10 +74,40 @@ class IntervalTest {
         assertEquals("5 beats ÷ 1 = 5 beats", Interval(5, 1).readout())
     }
 
+    /**
+     * Bars stay bars until the engine is sent them, so a four-bar step is four bars of whatever
+     * the meter is: sixteen beats of 4/4, twelve of 3/4. Reduced on the way, and clamped at the
+     * longest step a code can say rather than wrapping into a short one.
+     */
+    @Test
+    fun `a step in bars is that many bars of the meter, in beats`() {
+        val four = Interval(4, 1, bars = true)
+        assertEquals(Interval(16, 1), four.inBeats(4))
+        assertEquals(Interval(12, 1), four.inBeats(3))
+        assertEquals("reduced", Interval(2, 1), Interval(2, 3, bars = true).inBeats(3))
+        assertEquals("a step in beats ignores the meter", Interval(2, 3), Interval(2, 3).inBeats(7))
+        assertEquals("clamped, never wrapped", Interval(MAX_COUNT, 1), Interval(MAX_COUNT, 1, bars = true).inBeats(4))
+        assertTrue(Interval.FREE.inBeats(4).free)
+    }
+
+    @Test
+    fun `the engine is sent a step in bars as beats, and every other knob as it stands`() {
+        val patch = Patch()
+        val seq = patch.add(Types.Seq, Offset.Zero)!!
+        val index = Types.Seq.intervalParam
+        seq.setParam(index, Interval(1, 4, bars = true).code.toFloat())
+        val sent = seq.engineParams(beatsPerBar = 4)
+        assertEquals("a quarter of a bar of 4/4 is a beat", Interval(1, 1).code.toFloat(), sent[index])
+        assertEquals(seq.params.toList().filterIndexed { i, _ -> i != index }, sent.filterIndexed { i, _ -> i != index })
+        seq.setParam(index, Interval(1, 4).code.toFloat())
+        assertEquals("beats go as they are", seq.params.toList(), seq.engineParams(beatsPerBar = 4))
+    }
+
     @Test
     fun `a tap on a row changes that row and keeps the other`() {
         val half = Interval(1, 2)
         assertEquals(Interval(3, 2), half.with(IntervalPick.Beats(3)))
+        assertEquals("and keeps bars", Interval(3, 2, bars = true), Interval(1, 2, bars = true).with(IntervalPick.Beats(3)))
         assertEquals(Interval(1, 5), half.with(IntervalPick.Divisions(5)))
         assertTrue(half.with(IntervalPick.Free).free)
         val free = Interval.FREE
