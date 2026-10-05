@@ -318,6 +318,25 @@ class IntervalTest {
     }
 
     @Test
+    fun `an LFO's phase reads as the beats it is late, and means nothing in fixed time`() {
+        val patch = Patch()
+        val lfo = patch.add(Types.Lfo, Offset.Zero)!!
+        val phase = Types.Lfo.params.indexOfFirst { it.name == "phase" }
+        assertEquals("appended, leaving every other knob where it was", Types.Lfo.params.size - 1, phase)
+        assertFalse("fixed: nothing to be late against", lfo.isLive(phase))
+        assertTrue("and fixed time is still what the rate answers to", Types.Lfo.canBeFree)
+        lfo.setParam(Types.Lfo.intervalParam, Interval(8, 1).code.toFloat())
+        assertTrue(lfo.isLive(phase))
+        val row = ParamRow(lfo, phase)
+        assertEquals("0.25  \u00b7  2 beats", row.plainReading(0.25f, 4))
+        assertEquals("0.125  \u00b7  1 beat", row.plainReading(0.125f, 4))
+        lfo.setParam(Types.Lfo.intervalParam, Interval(2, 1, bars = true).code.toFloat())
+        assertEquals("a quarter of two bars of 3/4", "0.25  \u00b7  1.5 beats", row.plainReading(0.25f, 3))
+        lfo.setParam(Types.Lfo.intervalParam, FREE_INTERVAL.toFloat())
+        assertEquals("fixed, the fraction alone", "0.25", row.plainReading(0.25f, 4))
+    }
+
+    @Test
     fun `the interval chip grows with the text and stays in the header`() {
         val small = panelIntervalChip(panel, d, 1f)
         val large = panelIntervalChip(panel, d, 1.5f)

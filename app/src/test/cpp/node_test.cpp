@@ -2677,6 +2677,16 @@ void aSyncedLfoIsInPhaseWithTheBeat() {
     lfo.process(kBlockSize);
     check(std::fabs(lfo.output(0)[0] - 0.25f) < 1e-4f, "a whole note's LFO is a quarter through at beat one");
 
+    // Late by a quarter of its four beats, it is one beat behind: at beat one, just starting.
+    lfo.setParam(4, 0.25f);
+    lfo.setTiming(perFrame, true, nullptr, perFrame, 1.0);
+    lfo.process(kBlockSize);
+    check(std::fabs(lfo.output(0)[0]) < 1e-4f, "a quarter late on four beats starts at beat one");
+    lfo.setTiming(perFrame, true, nullptr, perFrame, 0.0);
+    lfo.process(kBlockSize);
+    check(std::fabs(lfo.output(0)[0] - 0.75f) < 1e-4f, "and at beat zero is three quarters through the cycle before");
+    lfo.setParam(4, 0.0f);
+
     // Stopped, the transport holds and so does it.
     lfo.setTiming(0.0, false, nullptr, perFrame, 2.3);
     lfo.process(kBlockSize);

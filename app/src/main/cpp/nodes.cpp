@@ -947,7 +947,9 @@ void LfoNode::process(int32_t frames) {
     const double cyclesPerBeat = sync.none() ? 0.0 : static_cast<double>(sync.den) / sync.num;
     for (int32_t i = 0; i < frames; ++i) {
         if (cyclesPerBeat > 0.0) {
-            const double cycles = (beat_ + static_cast<double>(i) * beatsPerFrame_) * cyclesPerBeat;
+            // Late by the phase knob: a quarter on an eight-beat cycle starts two beats after
+            // the transport's own cycle would.
+            const double cycles = (beat_ + static_cast<double>(i) * beatsPerFrame_) * cyclesPerBeat - phaseOffset_;
             phase_ = cycles - std::floor(cycles);
         }
         const auto phase = static_cast<float>(phase_);
@@ -974,6 +976,8 @@ void LfoNode::setParam(int32_t index, float value) {
         // Switched back to free, it carries on from the phase it had reached, so leaving
         // sync is not a jump.
         case 2: interval_ = intervalOf(value); break;
+        // 3 is how its fixed time is shown, which the engine has no use for.
+        case 4: phaseOffset_ = clampf(value, 0.0f, 1.0f); break;
         default: break;
     }
 }

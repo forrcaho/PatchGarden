@@ -165,4 +165,26 @@ class KeypadTest {
         val at = Offset(row.right - widthOf(text) / 2f, row.top + 8f * d)
         assertEquals("its reading can be typed", ParamRow(seq, 0) to ValueTarget.VALUE, panelValueAt(panel, d, seq, rows(seq), bracketsIn(patch), at, widthOf = widthOf))
     }
+
+    /**
+     * A phase's reading says the beats it is late as well as the fraction, and the zone a tap
+     * types it from is the whole reading as drawn -- including the number at its left, which a
+     * zone measured from the number alone would have left outside it.
+     */
+    @Test
+    fun `a phase's reading is typed from anywhere along it, the number included`() {
+        val patch = Patch()
+        val lfo = patch.add(Types.Lfo, Offset.Zero)!!
+        val phase = Types.Lfo.params.indexOfFirst { it.name == "phase" }
+        lfo.setParam(Types.Lfo.intervalParam, Interval(8, 1).code.toFloat())
+        lfo.setParam(phase, 0.25f)
+        val text = ParamRow(lfo, phase).plainReading(0.25f, 4)
+        assertEquals("0.25  \u00b7  2 beats", text)
+        val slot = rows(lfo).indexOfFirst { it.index == phase }
+        val row = panelRowAt(panel, d, lfo.type, rows(lfo).size, slot)
+        val onNumber = Offset(row.right - widthOf(text) + widthOf("0.2"), row.top + 8f * d)
+        assertEquals(ParamRow(lfo, phase) to ValueTarget.VALUE,
+            panelValueAt(panel, d, lfo, rows(lfo), bracketsIn(patch), onNumber, beatsPerBar = 4, widthOf = widthOf))
+    }
+
 }

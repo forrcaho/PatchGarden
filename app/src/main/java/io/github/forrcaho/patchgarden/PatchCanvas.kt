@@ -202,7 +202,7 @@ enum class ParamCurve { LINEAR, EXPONENTIAL, STEPPED }
  * described.
  */
 /** See [Param.liveWhen]: knob [param] must hold [value]. */
-data class LiveWhen(val param: Int, val value: Int)
+data class LiveWhen(val param: Int, val value: Int, val unless: Boolean = false)
 
 /**
  * What a stepped parameter's options look like on the panel.
@@ -251,6 +251,12 @@ data class Param(
      * about Euclid, 2026-09-19.
      */
     val degree: Boolean = false,
+    /**
+     * A fraction of the module's synced cycle, read with how many beats that is: "0.25 · 2 beats"
+     * on an eight-beat cycle. Typed as the fraction; the beats are there so a phase can be thought
+     * of as "two beats late" without a second way to enter it (Forrest, 2026-10-04).
+     */
+    val cycle: Boolean = false,
     /**
      * The input port that sweeps this knob, per sample, or -1 for an ordinary knob.
      *
@@ -760,6 +766,12 @@ object Types {
             Param("wave", 0f, 3f, 3f, "", STEP, Choice.WAVE),
             intervalParam(default = FREE_INTERVAL),
             periodParam(period = false),
+            // Late by this much of a synced cycle, so it can be offset from the bar; meaningless
+            // in fixed time, where nothing restarts an LFO for it to be late against.
+            Param(
+                "phase", 0f, 1f, 0f, "", LIN, short = "ph",
+                liveWhen = LiveWhen(2, FREE_INTERVAL, unless = true), cycle = true,
+            ),
         ),
         engine = NodeType.Lfo, category = Category.MOD,
     )
@@ -1221,6 +1233,26 @@ data class ParamRow(val owner: PatchModule, val index: Int) {
 }
 
 /**
+ * What a row's reading says for a plain value, as drawn and as the tap zone measures it: the
+ * number as the row reads it, and for a phase the beats it is late while the cycle is synced.
+ */
+internal fun ParamRow.plainReading(stored: Float, beatsPerBar: Int): String {
+    val text = format(stored)
+    if (!param.cycle) return text
+    val step = owner.interval
+    if (step.free) return text
+    val beats = step.inBeats(beatsPerBar)
+    return "$text  \u00b7  ${beatsLabel(stored * beats.num / beats.den)}"
+}
+
+/** A count of beats as a reading says it: "2 beats", "1 beat", "0.5 beat". */
+internal fun beatsLabel(beats: Float): String {
+    val text = if (kotlin.math.abs(beats - beats.roundToInt()) < 1e-3f) beats.roundToInt().toString()
+        else "%.2f".format(beats).trimEnd('0').trimEnd('.')
+    return text + if (beats > 1.0005f) " beats" else " beat"
+}
+
+/**
  * The other way round to read a knob: [param] is what the row shows -- its name, range, curve
  * and unit -- and a stored value [v] reads as [scale] / [v]. See [Param.reciprocal].
  */
@@ -1574,7 +1606,7 @@ class PatchModule(
     fun isLive(index: Int): Boolean {
         val needs = type.params.getOrNull(index)?.liveWhen ?: return true
         val holds = params.getOrElse(needs.param) { type.params[needs.param].default }
-        return holds.roundToInt() == needs.value
+        return (holds.roundToInt() == needs.value) != needs.unless
     }
 
     /**
@@ -2066,6 +2098,8 @@ internal fun panelValueAt(
     rangeOf: (ParamRow) -> ModRange?,
     at: Offset,
     place: (slot: Int) -> Rect = { slot -> panelRowAt(panel, d, module.type, rows.size, slot) },
+    /** For a phase's reading, which says its beats; see [plainReading]. */
+    beatsPerBar: Int = 4,
     widthOf: (String) -> Float,
 ): Pair<ParamRow, ValueTarget>? {
     rows.forEachIndexed { slot, entry ->
@@ -2074,7 +2108,7 @@ internal fun panelValueAt(
         val row = place(slot)
         val range = rangeOf(entry)?.let(entry.view::shown)
         val text = if (range != null) rangeReading(param, range)
-            else entry.format(entry.owner.params.getOrElse(entry.index) { entry.param.default })
+            else entry.plainReading(entry.owner.params.getOrElse(entry.index) { entry.param.default }, beatsPerBar)
         val width = widthOf(text)
         val zone = Rect(
             row.right - width - 8f * d, row.top - 4f * d,
@@ -5444,6 +5478,7 @@ fun PatchCanvas(
                             val rangeOfRow = { row: ParamRow -> patch.rangeOf(row.owner, row.index) }
                             val typed = if (onHistory) null else panelValueAt(
                                 panel, frame.density, open, rows, rangeOfRow, down.position,
+                                beatsPerBar = patch.beatsPerBar,
                             ) { screenMeasurer.measure(it, PanelValueStyle).size.width.toFloat() }
                             if (typed != null) {
                                 waitForUpRelease()
@@ -10171,7 +10206,7 @@ private fun DrawScope.drawPanel(
             val value = live[fixedIndex] ?: module.params.getOrElse(fixedIndex) { entry.param.default }
             drawKnobRow(
                 row, d, entry, value, patch.rangeOf(module, fixedIndex), module.type.accent, 1f,
-                measurer, scale, rootCents,
+                measurer, scale, rootCents, patch.beatsPerBar,
             )
         }
         return
@@ -10250,7 +10285,7 @@ private fun DrawScope.drawPanel(
         val name = measurer.measure(label, PanelParamStyle)
         drawText(name, topLeft = Offset(row.left, row.top + 4f * d), alpha = faint)
 
-        drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents)
+        drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents, patch.beatsPerBar)
     }
 }
 
@@ -10270,6 +10305,7 @@ private fun DrawScope.drawKnobRow(
     measurer: TextMeasurer,
     scale: Scale,
     rootCents: Float,
+    beatsPerBar: Int,
 ) {
     val view = entry.view
     val param = view.param
@@ -10282,7 +10318,7 @@ private fun DrawScope.drawKnobRow(
         val text = when {
             range != null -> rangeReading(param, range)
             param.degree -> "${param.format(value)}  ${degreeName(value.roundToInt(), scale, rootCents)}"
-            else -> param.format(value)
+            else -> entry.plainReading(stored, beatsPerBar)
         }
         val reading = measurer.measure(text, PanelValueStyle)
         drawText(

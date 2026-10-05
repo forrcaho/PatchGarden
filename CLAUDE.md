@@ -673,6 +673,9 @@ whether or not anything is playing, and reading the first made a stopped delay n
 also hands over `beat_`, where the transport is at the block's first frame, for what has to be
 *in phase* with it and not just at its rate: a synced LFO reads its phase straight off it, so
 its cycles start on the beat and cannot drift from the sequencers, where counting ticks would.
+Its `phase` knob makes it late by a fraction of the cycle, typed as the fraction and read with
+the beats that is ("0.25 · 2 beats", `plainReading`); faint in fixed time, where nothing restarts
+an LFO for it to be late against.
 
 **A step is beats divided into divisions, for every module the transport times.** Numerator
 and denominator both chosen, each 1 to 1023 (`MAX_COUNT`) -- Forrest's model, after a first

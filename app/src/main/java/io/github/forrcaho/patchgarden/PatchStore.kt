@@ -82,8 +82,10 @@ import java.io.File
  * have a `period` knob saying how their fixed time is shown. Reads nothing but 20, under the
  * same policy: a 19 code read with the new radix is a different step, and that is a refusal,
  * never a conversion.
+ * 21: the overnight build of 2026-10-04 -- an LFO has a phase. Reads nothing but 21, under
+ * the same policy, one bump for everything that night.
  */
-private const val FORMAT_VERSION = 20
+private const val FORMAT_VERSION = 21
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {

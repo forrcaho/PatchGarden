@@ -234,7 +234,11 @@ third and the fourth -- which is why they go in the order they are numbered.
    emulator: 1Hz switched to period reads 1s, the slider turned round, and the panel's row reads
    "period 1s" when the chooser closes.
 
-2. **An LFO gets a phase**, from 0 to 1, with some way to say "two beats late" and have it
+2. ~~**An LFO gets a phase**~~ **Done overnight 2026-10-04**, on the emulator only: a `phase`
+   knob appended to the LFO, faint in fixed time (`LiveWhen` learned `unless`), late by that
+   fraction of a synced cycle in the engine, and read as "0.25 · 2 beats" -- one function
+   (`plainReading`) for the drawing and the tap zone, which was mutation-checked by measuring
+   the number alone: a tap on "0.25" then missed. Format 21. The idea: from 0 to 1, with some way to say "two beats late" and have it
    come out as 0.25 on an LFO whose cycle is eight beats.
 
    *What the code says.* A synced LFO reads its phase straight off the transport's beat

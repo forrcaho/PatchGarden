@@ -956,6 +956,8 @@ private:
     int32_t wave_ = 3;
     /** One cycle per step of this interval, or free -- none() -- to run at rateHz_. */
     Interval interval_ = intervalOf(kFreeInterval);
+    /** How late a synced cycle starts, as a fraction of it; nothing while free. */
+    double phaseOffset_ = 0.0;
 };
 
 /**
