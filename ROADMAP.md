@@ -395,7 +395,17 @@ third and the fourth -- which is why they go in the order they are numbered.
    grow, and the `Env` editor's reasons for refusing a scroll or a zoom apply here as well.
    *Decided:* it **stays 32** until a real phrase needs more.
 
-5. **The Arranger**, after Bespoke's songbuilder: what plays when. Forrest expects it to be
+5. **The Arranger**, after Bespoke's songbuilder: what plays when. **Designed and mocked up
+   overnight 2026-10-04, not built** -- https://claude.ai/artifact/Jvc49sfazg9YqAt4oGURXc. *Proposed
+   there:* lanes are modulation outputs (four, up to eight), each named by the knob its cable
+   reaches and its cells said in that knob's terms -- ModSeq's lookup; **scenes and a song**, as
+   both the songbuilder and Cubase have them, the table showing the song so it reads like the
+   music and a cell editing its scene so every place it plays follows; a bar a step, counted from
+   where it last started; versions of its own as alternative songs over the same scenes, 0
+   stopped with every lane at 0, a change starting its song from the top -- which with a Seq's
+   restart on a version change is the whole of the nesting. *To decide there:* scenes or a plain
+   table; how many lanes; loop or stop at the end; hold or jump to the first scene on stop; a jump
+   while playing; and scrolling a long song. The idea: Forrest expects it to be
    the key to the app's utility. Subpatches are how it nests: one box builds a verse out of
    phrases, and the level above builds a song out of verses. It has to make ABAB' natural to
    say, where A is a phrase in one `Seq` and B and B' are two versions of a phrase in another.
