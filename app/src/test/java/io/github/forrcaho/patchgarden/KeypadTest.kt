@@ -96,12 +96,12 @@ class KeypadTest {
 
         val text = param.format(filter.params[index])
         val at = Offset(row.right - widthOf(text) / 2f, row.top + 8f * d)
-        assertEquals(ParamRow(filter, index) to ValueTarget.VALUE, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), at, widthOf))
+        assertEquals(ParamRow(filter, index) to ValueTarget.VALUE, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), at, widthOf = widthOf))
 
         // The bar below it is the knob's, and stays the knob's.
-        assertNull(panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(at.x, row.bottom - 12f * d), widthOf))
+        assertNull(panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(at.x, row.bottom - 12f * d), widthOf = widthOf))
         // So does the label at the row's left, which is not a number.
-        assertNull(panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(row.left + 10f * d, at.y), widthOf))
+        assertNull(panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(row.left + 10f * d, at.y), widthOf = widthOf))
     }
 
     @Test
@@ -120,8 +120,8 @@ class KeypadTest {
         val lowMiddle = left + widthOf("[${param.format(range.low)}") / 2f
         val highMiddle = row.right - widthOf("${param.format(range.high)}]") / 2f
 
-        assertEquals(ParamRow(filter, index) to ValueTarget.LOW, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(lowMiddle, y), widthOf))
-        assertEquals(ParamRow(filter, index) to ValueTarget.HIGH, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(highMiddle, y), widthOf))
+        assertEquals(ParamRow(filter, index) to ValueTarget.LOW, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(lowMiddle, y), widthOf = widthOf))
+        assertEquals(ParamRow(filter, index) to ValueTarget.HIGH, panelValueAt(panel, d, filter, rows(filter), bracketsIn(patch), Offset(highMiddle, y), widthOf = widthOf))
     }
 
     @Test
@@ -134,7 +134,7 @@ class KeypadTest {
             val row = panelRow(panel, d, osc.type, index)
             val at = Offset(row.right - 20f * d, row.top + 8f * d)
             // Its lit button is its reading, so there is no number over the row to take.
-            assertNull(panelValueAt(panel, d, osc, rows(osc), bracketsIn(patch), at, widthOf))
+            assertNull(panelValueAt(panel, d, osc, rows(osc), bracketsIn(patch), at, widthOf = widthOf))
         }
     }
 
@@ -163,6 +163,6 @@ class KeypadTest {
         val row = panelRow(panel, d, seq.type, 0)
         val text = length.format(seq.params[0])
         val at = Offset(row.right - widthOf(text) / 2f, row.top + 8f * d)
-        assertEquals("its reading can be typed", ParamRow(seq, 0) to ValueTarget.VALUE, panelValueAt(panel, d, seq, rows(seq), bracketsIn(patch), at, widthOf))
+        assertEquals("its reading can be typed", ParamRow(seq, 0) to ValueTarget.VALUE, panelValueAt(panel, d, seq, rows(seq), bracketsIn(patch), at, widthOf = widthOf))
     }
 }

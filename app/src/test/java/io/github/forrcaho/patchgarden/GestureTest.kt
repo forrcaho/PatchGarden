@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -787,6 +788,45 @@ class GestureTest {
         host.chooseInterval(lfo, IntervalPick.Fixed)
         assertTrue(lfo.interval.free)
         assertTrue(lfo.isLive(rate))
+    }
+
+    /** An LFO with its panel open and its chooser showing fixed time. */
+    private fun fixedLfo(): Pair<Host, PatchModule> {
+        val host = Host()
+        val lfo = host.patch.add(Types.Lfo, Offset(40f, 40f))!!
+        compose.waitForIdle()
+        host.tap(host.body(lfo))
+        host.chooseInterval(lfo, close = false)
+        return host to lfo
+    }
+
+    private fun Host.slider(module: PatchModule): Rect =
+        intervalChooser(panelRect(frame), d, frame.fontScale, true, module.interval).slider!!
+
+    @Test
+    fun `a period typed into fixed time is stored as the rate it is`() {
+        val (host, lfo) = fixedLfo()
+        host.tapInChooser(lfo, IntervalPick.Show(true))
+        assertTrue(lfo.showsPeriod)
+        val slider = host.slider(lfo)
+        host.tap(Offset(slider.right - 10f * host.d, slider.top + 8f * host.d))
+        listOf("2", KEY_OK).forEach(host::key)
+        val rate = Types.Lfo.fixedTimeParam
+        assertEquals("two seconds is half a hertz", 0.5f, lfo.params[rate], 1e-4f)
+        assertEquals("and the chip says it as typed", "2s", lfo.stepLabel)
+    }
+
+    @Test
+    fun `dragging the period slider to the right makes an LFO slower`() {
+        val (host, lfo) = fixedLfo()
+        host.tapInChooser(lfo, IntervalPick.Show(true))
+        val slider = host.slider(lfo)
+        val bar = slider.bottom - 18f * host.d
+        val rate = Types.Lfo.fixedTimeParam
+        host.drag(Offset(slider.left + slider.width * 0.3f, bar), Offset(slider.left + slider.width * 0.7f, bar))
+        val after = lfo.params[rate]
+        assertTrue("further right is a longer period, so a lower rate: $after", after < 1f)
+        assertEquals("and the knob is where the finger left it", 0.7f, ParamRow(lfo, rate).positionOf(after), 0.02f)
     }
 
     // ------------------------------------------------------------------ subpatch controls

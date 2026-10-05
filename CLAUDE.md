@@ -693,11 +693,19 @@ frequency; it is a knob so that saving, copying and undo carry it, and the engin
 `intervalParam()` builds the knob for Steps, Seq, Arp, Euclid, Delay and LFO -- "one place to
 change for all modules" was Forrest's ask. **A module offers free only when one of its knobs is
 live only then** (`ModuleType.canBeFree`, from `Param.liveWhen`): a Delay's time, an LFO's rate.
-The chooser is two rows, beats over divisions, and **stays open** while both are picked, since
-a step is two choices; a line above them says what they make. **A step is said in beats and
-nothing else** -- "1 beat", "1/2 beat", "2/3 beat", "3/2 beats" -- never as a note length: "1/8"
-and "1/4T" were Bespoke's and made a beat a quarter note, which is a time signature's business
-and not this app's. The grids draw a line where each beat
+**The chooser** (`intervalChooser`, from a mockup Forrest chose to build as drawn) is a
+tempo | fixed switch where a module can keep its own time, then the sentence "[n] divisions of
+[m] beats" -- each number a dropdown opening a grid of 1 to 16 and **other…**, which types up to
+1023 on the keypad, and beats | bars a switch. In fixed time it is freq | period and the module's
+own time knob as a slider. It **stays open** while a step is chosen, and a tap on nothing closes
+the open grid first and the chooser after, one step back at a time. In fixed time the header chip
+says the time itself. **freq | period turns the knob's own panel row round too** (`RowView`): a
+rate reads as a period, a time as a frequency, the slider reversed and every path that maps a
+value to it -- drawing, dragging, brackets, the keypad -- going through `ParamRow`, so the chooser
+and the panel never disagree; stored values never change, and a bracket keeps which end is the
+modulator's zero. **A step is said in beats or bars and nothing else** -- "1 beat", "1/2 beat",
+"2/3 beat", "3/2 beats", "4 bars" -- never as a note length: "1/8" and "1/4T" were Bespoke's and
+made a beat a quarter note, which is a time signature's business and not this app's. The grids draw a line where each beat
 begins and a heavier one at each bar (`beatLines`), counted from the top of the loop.
 
 **Nothing carries a pulse yet, and the kind stays anyway.** `Env` was the last thing taking

@@ -270,6 +270,12 @@ data class Param(
      * would move every row under it -- or pretending to be a control.
      */
     val liveWhen: LiveWhen? = null,
+    /**
+     * The other way round to read this knob, for a module's fixed time: a period for a rate, a
+     * frequency for a time. Null for every knob but those two. Which way a row reads is the
+     * module's `period` knob ([periodParam]); see [RowView].
+     */
+    val reciprocal: Reciprocal? = null,
 ) {
     /**
      * How many options a stepped parameter offers.
@@ -602,6 +608,13 @@ data class ModuleType(
 
     /** The parameter choosing a clocked module's interval, or -1 for one the transport does not drive. */
     val intervalParam: Int get() = params.indexOfFirst { it.choice == Choice.DIVISION }
+
+    /** The header knob saying how this module's fixed time is shown, or -1; see [periodParam]. */
+    val periodParam: Int get() = params.indexOfFirst { it.header && it.name == "period" }
+
+    /** The knob that keeps time while the step is fixed -- an LFO's rate, a Delay's time -- or -1. */
+    val fixedTimeParam: Int get() =
+        if (intervalParam < 0) -1 else params.indexOfFirst { it.liveWhen == LiveWhen(intervalParam, FREE_INTERVAL) }
 }
 
 object Types {
@@ -705,6 +718,8 @@ object Types {
             Param(
                 "time", 1f, 4000f, 250f, "ms", EXP,
                 liveWhen = LiveWhen(0, FREE_INTERVAL),
+                // As a frequency: 1000 over the milliseconds, so 250ms is 4Hz.
+                reciprocal = Reciprocal(Param("freq", 0.25f, 1000f, 4f, "Hz", EXP), 1000f, isPeriod = false),
             ),
             Param("feedback", 0f, 0.95f, 0.35f, "", LIN, short = "fb"),
             Param("mix", 0f, 1f, 0.35f, "", LIN),
@@ -737,7 +752,11 @@ object Types {
             // Order mirrors LfoNode::setParam. The rate is faint while the interval is synced,
             // as a Delay's time is: one cycle a step, in phase with the transport. Free by
             // default, and last, so every LFO saved before it existed is the one it was.
-            Param("rate", 0.02f, 20f, 1f, "Hz", EXP, liveWhen = LiveWhen(2, FREE_INTERVAL)),
+            Param(
+                "rate", 0.02f, 20f, 1f, "Hz", EXP, liveWhen = LiveWhen(2, FREE_INTERVAL),
+                // As a period, in seconds: one over the hertz, so 2Hz is 0.5s.
+                reciprocal = Reciprocal(Param("period", 0.05f, 50f, 1f, "s", EXP), 1f, isPeriod = true),
+            ),
             Param("wave", 0f, 3f, 3f, "", STEP, Choice.WAVE),
             intervalParam(default = FREE_INTERVAL),
             periodParam(period = false),
@@ -1185,8 +1204,51 @@ data class ParamRef(val moduleId: Long, val index: Int)
  * which is what lets one panel drawing serve both.
  */
 data class ParamRow(val owner: PatchModule, val index: Int) {
+    /** The knob as declared, in the units it is stored in. */
     val param: Param get() = owner.type.params[index]
+
+    /** How this row reads and slides, which for a fixed time can be the other way round. */
+    val view: RowView get() = owner.rowView(index)
+
+    /** The stored value at [position] of the row's travel, as the row reads it. */
+    fun valueAt(position: Float): Float = view.stored(view.param.valueAt(position))
+
+    /** Where a stored value sits on the row's travel. */
+    fun positionOf(value: Float): Float = view.param.positionOf(view.shown(value))
+
+    /** A stored value as the row reads it: "2Hz", or "0.5s" for the same rate as a period. */
+    fun format(value: Float): String = view.param.format(view.shown(value))
 }
+
+/**
+ * The other way round to read a knob: [param] is what the row shows -- its name, range, curve
+ * and unit -- and a stored value [v] reads as [scale] / [v]. See [Param.reciprocal].
+ */
+data class Reciprocal(val param: Param, val scale: Float, val isPeriod: Boolean)
+
+/**
+ * How a row reads and slides: its knob as declared, or that knob's [Reciprocal] -- an LFO's rate
+ * as a period, a Delay's time as a frequency -- while the module's `period` knob says so.
+ *
+ * Forrest asked to set a fixed time either way (2026-10-04), and chose for the panel's own row
+ * to follow the switch rather than only the chooser, so the two never disagree. Stored values
+ * never change: only what a row shows and what a finger or the keypad sets is converted, here
+ * and nowhere else. On the exponential curve both knobs already have, a period slider is the
+ * rate slider reversed, so the conversion is all it takes -- and a bracket keeps its meaning,
+ * the opening one where the modulator's zero lands, so a sweep that speeds an LFO up reads as
+ * the inverted sweep of its period that it is.
+ */
+class RowView internal constructor(val param: Param, private val scale: Float, val flipped: Boolean) {
+    fun shown(value: Float): Float = if (flipped) scale / value.coerceAtLeast(MIN_RECIPROCAL) else value
+    fun stored(shown: Float): Float = if (flipped) scale / shown.coerceAtLeast(MIN_RECIPROCAL) else shown
+    fun shown(range: ModRange): ModRange = if (flipped) ModRange(shown(range.low), shown(range.high)) else range
+
+    private companion object {
+        /** Never divide by nothing: no knob with a reciprocal reaches this low. */
+        const val MIN_RECIPROCAL = 1e-6f
+    }
+}
+
 
 
 class PatchModule(
@@ -1459,6 +1521,32 @@ class PatchModule(
      */
     fun drivenRange(index: Int): ModRange =
         modRanges[index] ?: ModRange(0f, params.getOrElse(index) { type.params[index].default })
+
+    /** Whether this module shows its fixed time as a period; see [periodParam]. */
+    val showsPeriod: Boolean get() {
+        val index = type.periodParam
+        return index >= 0 && params.getOrElse(index) { type.params[index].default } >= 0.5f
+    }
+
+    /** How knob [index]'s row reads; see [RowView]. */
+    fun rowView(index: Int): RowView {
+        val param = type.params[index]
+        val other = param.reciprocal ?: return RowView(param, 1f, flipped = false)
+        return if (showsPeriod == other.isPeriod) RowView(other.param, other.scale, flipped = true)
+        else RowView(param, 1f, flipped = false)
+    }
+
+    /**
+     * What the header chip says: the step, or -- while the step is fixed -- the time itself, as
+     * the module shows it ("2Hz", "0.5s"), so the chip says what the step is in either mode.
+     * Forrest chose that over a chip reading "fixed", 2026-10-04.
+     */
+    val stepLabel: String get() {
+        val step = interval
+        val index = type.fixedTimeParam
+        if (!step.free || index < 0) return step.label
+        return ParamRow(this, index).format(params.getOrElse(index) { type.params[index].default })
+    }
 
     /**
      * The knobs as the engine is sent them: these, with a step said in bars turned into beats at
@@ -1940,16 +2028,18 @@ internal fun panelBracketAt(
     /** The brackets a row shows; [Patch.rangeOf], which alone can see a driven knob's cable. */
     rangeOf: (ParamRow) -> ModRange?,
     at: Offset,
+    /** Where row [slot] is: the panel's own rows, or the chooser's one slider. */
+    place: (slot: Int) -> Rect = { slot -> panelRowAt(panel, d, module.type, rows.size, slot) },
 ): Pair<ParamRow, Boolean>? {
     rows.forEachIndexed { slot, entry ->
         val range = rangeOf(entry) ?: return@forEachIndexed
-        val row = panelRowAt(panel, d, module.type, rows.size, slot)
+        val row = place(slot)
         val reach = PatchModule.BRACKET_REACH * d
         val zone = Rect(row.left - reach, row.top - 6f * d, row.right + reach, row.bottom + 6f * d)
         if (!zone.contains(at)) return@forEachIndexed
-        val param = entry.param
-        val low = panelBracketX(row, d, param, range.low, closing = false)
-        val high = panelBracketX(row, d, param, range.high, closing = true)
+        val view = entry.view
+        val low = panelBracketX(row, d, view.param, view.shown(range.low), closing = false)
+        val high = panelBracketX(row, d, view.param, view.shown(range.high), closing = true)
         val toLow = kotlin.math.abs(at.x - low)
         val toHigh = kotlin.math.abs(at.x - high)
         return entry to (if (toLow == toHigh) at.x > high else toHigh < toLow)
@@ -1975,15 +2065,16 @@ internal fun panelValueAt(
     panel: Rect, d: Float, module: PatchModule, rows: List<ParamRow>,
     rangeOf: (ParamRow) -> ModRange?,
     at: Offset,
+    place: (slot: Int) -> Rect = { slot -> panelRowAt(panel, d, module.type, rows.size, slot) },
     widthOf: (String) -> Float,
 ): Pair<ParamRow, ValueTarget>? {
     rows.forEachIndexed { slot, entry ->
-        val param = entry.param
+        val param = entry.view.param
         if (param.buttons || !entry.owner.isLive(entry.index)) return@forEachIndexed
-        val row = panelRowAt(panel, d, module.type, rows.size, slot)
-        val range = rangeOf(entry)
+        val row = place(slot)
+        val range = rangeOf(entry)?.let(entry.view::shown)
         val text = if (range != null) rangeReading(param, range)
-            else param.format(entry.owner.params.getOrElse(entry.index) { param.default })
+            else entry.format(entry.owner.params.getOrElse(entry.index) { entry.param.default })
         val width = widthOf(text)
         val zone = Rect(
             row.right - width - 8f * d, row.top - 4f * d,
@@ -2018,7 +2109,7 @@ internal fun Patch.moveBracket(
     row: ParamRow, bar: Rect, closing: Boolean, screenX: Float,
 ) {
     val range = rangeOf(row.owner, row.index) ?: return
-    val value = row.param.valueAt(panelKnobPosition(bar, screenX))
+    val value = row.valueAt(panelKnobPosition(bar, screenX))
     setRange(row.owner, row.index, if (closing) range.copy(high = value) else range.copy(low = value))
 }
 
@@ -2026,6 +2117,7 @@ internal fun panelKnobAt(
     panel: Rect, d: Float, module: PatchModule, rows: List<ParamRow>,
     rangeOf: (ParamRow) -> ModRange?,
     at: Offset,
+    place: (slot: Int) -> Rect = { slot -> panelRowAt(panel, d, module.type, rows.size, slot) },
 ): ParamRow? {
     rows.forEachIndexed { slot, entry ->
         // A bracketed row's knob is not the hand's. It shows where the modulator has taken the
@@ -2035,7 +2127,7 @@ internal fun panelKnobAt(
         if (!entry.owner.isLive(entry.index)) return@forEachIndexed
         // Generous vertically: the rows are the only targets on the panel, so a near
         // miss should still land rather than do nothing.
-        if (panelRowAt(panel, d, module.type, rows.size, slot).inflate(6f * d).contains(at)) return entry
+        if (place(slot).inflate(6f * d).contains(at)) return entry
     }
     return null
 }
@@ -2545,6 +2637,8 @@ internal class IntervalChooser(
     val readout: Offset?,
     /** Behind the open dropdown's tiles, or null with none open. */
     val grid: Rect?,
+    /** In fixed time, the row the module's own time knob is drawn and dragged in; else null. */
+    val slider: Rect? = null,
 ) {
     /** What a tap at [at] picks: the open grid before anything under it, or null for nothing. */
     fun pickAt(at: Offset): IntervalPick? = targets.lastOrNull { it.first.contains(at) }?.second
@@ -2573,7 +2667,17 @@ internal fun intervalChooser(
         targets += Rect(Offset(left + w + gap, y), Size(w, chipH)) to IntervalPick.Fixed
         y += chipH + 22f * d
     }
-    if (step.free) return IntervalChooser(targets, null, null, null)
+    if (step.free) {
+        // Fixed: freq | period, and the module's own time knob as a slider beneath. A row as
+        // tall as the panel's own rows, since it is the same knob drawn the same way.
+        if (!canBeFree) return IntervalChooser(targets, null, null, null)
+        val w = 74f * text * d
+        targets += Rect(Offset(left, y), Size(w, chipH)) to IntervalPick.Show(period = false)
+        targets += Rect(Offset(left + w + gap, y), Size(w, chipH)) to IntervalPick.Show(period = true)
+        y += chipH + 22f * d
+        val slider = Rect(left, y, body.right - 34f * d, y + PatchModule.PANEL_ROW_MAX * d)
+        return IntervalChooser(targets, null, null, null, slider)
+    }
 
     val dropW = 62f * text * d
     val dropH = maxOf(44f, 31f * text) * d
@@ -5255,9 +5359,46 @@ fun PatchCanvas(
                                     panel, frame.density, frame.fontScale, open.type.canBeFree,
                                     open.interval, intervalDropdown,
                                 )
+                                val pick = chooser.pickAt(down.position)
+                                // Fixed time's slider is the module's own knob, taken hold of the
+                                // way a panel row is -- the reading typed, a bracket or the knob
+                                // dragged -- by the same hit tests, placed at the chooser's row.
+                                val slider = chooser.slider
+                                val fixedIndex = open.type.fixedTimeParam
+                                if (pick == null && slider != null && fixedIndex >= 0) {
+                                    val one = listOf(ParamRow(open, fixedIndex))
+                                    val place = { _: Int -> slider }
+                                    val rangeOfOne = { row: ParamRow -> patch.rangeOf(row.owner, row.index) }
+                                    val typed = panelValueAt(
+                                        panel, frame.density, open, one, rangeOfOne, down.position, place,
+                                    ) { screenMeasurer.measure(it, PanelValueStyle).size.width.toFloat() }
+                                    if (typed != null) {
+                                        waitForUpRelease()
+                                        interaction = Interaction.Typing(NumberTarget.Knob(open.id, fixedIndex, typed.second))
+                                        return@awaitEachGesture
+                                    }
+                                    val held = panelBracketAt(panel, frame.density, open, one, rangeOfOne, down.position, place)
+                                    val knob = if (held != null) null
+                                        else panelKnobAt(panel, frame.density, open, one, rangeOfOne, down.position, place)
+                                    if (held != null || knob != null) {
+                                        fun follow(x: Float) {
+                                            if (held != null) patch.moveBracket(held.first, slider, held.second, x)
+                                            else knob!!.owner.setParam(knob.index, knob.valueAt(panelKnobPosition(slider, x)))
+                                        }
+                                        follow(down.position.x)
+                                        while (true) {
+                                            val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                            follow(change.position.x)
+                                            change.consume()
+                                        }
+                                        return@awaitEachGesture
+                                    }
+                                }
                                 waitForUpRelease()
-                                when (val pick = chooser.pickAt(down.position)) {
+                                when (pick) {
                                     null -> if (intervalDropdown != null) intervalDropdown = null else intervalMenu = false
+                                    is IntervalPick.Show -> open.type.periodParam.takeIf { it >= 0 }
+                                        ?.let { open.setParam(it, if (pick.period) 1f else 0f) }
                                     is IntervalPick.Open ->
                                         intervalDropdown = pick.part.takeIf { it != intervalDropdown }
                                     is IntervalPick.Other -> {
@@ -5683,7 +5824,7 @@ fun PatchCanvas(
                                 } else if (knob != null) {
                                     knob.owner.setParam(
                                         knob.index,
-                                        knob.param.valueAt(
+                                        knob.valueAt(
                                             panelKnobPosition(knobBar!!, change.position.x),
                                         ),
                                     )
@@ -5710,7 +5851,7 @@ fun PatchCanvas(
                                     // dragging when you already know where you want it.
                                     knob.owner.setParam(
                                         knob.index,
-                                        knob.param.valueAt(
+                                        knob.valueAt(
                                             panelKnobPosition(knobBar!!, down.position.x),
                                         ),
                                     )
@@ -6801,7 +6942,9 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
             SEGMENT_TIME.takeIf { module?.segments?.indices?.contains(target.index) == true }
         is NumberTarget.SegmentLevel ->
             SEGMENT_LEVEL.takeIf { module?.segments?.indices?.contains(target.index) == true }
-        is NumberTarget.Knob -> module?.type?.params?.getOrNull(target.index)
+        // Typed as the row reads -- a period in seconds where the row shows one -- and stored as
+        // the knob is; see RowView.
+        is NumberTarget.Knob -> module?.takeIf { target.index in it.type.params.indices }?.rowView(target.index)?.param
         is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let { countParam(target.part, it.interval) }
     } ?: run {
         // The module went away under the keypad, which only an undo could do.
@@ -6809,6 +6952,9 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         return
     }
     val range = (target as? NumberTarget.Knob)?.let { knob -> module?.let { patch.rangeOf(it, knob.index) } }
+    val view = (target as? NumberTarget.Knob)?.let { knob -> module?.rowView(knob.index) }
+    fun shown(stored: Float) = view?.shown(stored) ?: stored
+    fun stored(shown: Float) = view?.stored(shown) ?: shown
     val current = when {
         target is NumberTarget.Tempo -> param.format(patch.tempo)
         target is NumberTarget.SegmentTime ->
@@ -6817,11 +6963,13 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
             param.format(module?.segments?.get(target.index)?.level ?: 0f)
         target is NumberTarget.IntervalCount -> (module?.interval?.count(target.part) ?: 1).toString()
         target is NumberTarget.Knob && target.end == ValueTarget.LOW && range != null ->
-            param.format(range.low)
+            param.format(shown(range.low))
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH && range != null ->
-            param.format(range.high)
-        target is NumberTarget.Knob ->
-            param.format(module?.params?.getOrElse(target.index) { param.default } ?: param.default)
+            param.format(shown(range.high))
+        target is NumberTarget.Knob -> {
+            val declared = module?.type?.params?.getOrNull(target.index)?.default ?: 0f
+            param.format(shown(module?.params?.getOrElse(target.index) { declared } ?: declared))
+        }
         else -> ""
     }
     val label = when {
@@ -6866,11 +7014,11 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
                 is NumberTarget.Knob -> {
                     val m = module ?: return
                     when {
-                        range == null -> m.setParam(target.index, value)
+                        range == null -> m.setParam(target.index, stored(value))
                         target.end == ValueTarget.LOW ->
-                            patch.setRange(m, target.index, range.copy(low = value))
+                            patch.setRange(m, target.index, range.copy(low = stored(value)))
                         target.end == ValueTarget.HIGH ->
-                            patch.setRange(m, target.index, range.copy(high = value))
+                            patch.setRange(m, target.index, range.copy(high = stored(value)))
                         // A row being modulated has no plain value to type: its reading is
                         // its range, and the tap that got here landed on one end of it.
                         else -> Unit
@@ -9148,6 +9296,9 @@ internal sealed interface IntervalPick {
 
     /** beats | bars, at the sentence's end. */
     data class Bars(val on: Boolean) : IntervalPick
+
+    /** freq | period, in fixed time: how the module's own time knob reads; see [RowView]. */
+    data class Show(val period: Boolean) : IntervalPick
 }
 
 /** How many of [part] this step is: the beats or bars, or the divisions. One, while free. */
@@ -9166,7 +9317,7 @@ internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
     IntervalPick.Fixed -> Interval.FREE
     is IntervalPick.Count -> withCount(pick.part, pick.n)
     is IntervalPick.Bars -> (if (free) Interval(1, 1) else this).copy(bars = pick.on)
-    is IntervalPick.Open, is IntervalPick.Other -> this
+    is IntervalPick.Open, is IntervalPick.Other, is IntervalPick.Show -> this
 }
 
 /** [this] step with one number of the sentence set to [n], clamped to 1..[MAX_COUNT]. */
@@ -9953,7 +10104,7 @@ private fun DrawScope.drawPanel(
     val intervalParam = module.type.intervalParam
     val chosenInterval = module.interval
     if (intervalParam >= 0) {
-        drawChip(panelIntervalChip(panel, d, fontScale), d, chosenInterval.label, intervalMenu, scaleAccent, measurer)
+        drawChip(panelIntervalChip(panel, d, fontScale), d, module.stepLabel, intervalMenu, scaleAccent, measurer)
     }
 
     // Only where there are dots to pin: it is the lock on their position, not a panel
@@ -10008,9 +10159,20 @@ private fun DrawScope.drawPanel(
                 // Lit when what is chosen is past the tiles, so the grid always shows where it is.
                 is IntervalPick.Other -> "other\u2026" to (chosenInterval.count(pick.part) > OFFERED_COUNTS)
                 is IntervalPick.Bars -> (if (pick.on) "bars" else "beats") to (chosenInterval.bars == pick.on)
+                is IntervalPick.Show -> (if (pick.period) "period" else "freq") to (module.showsPeriod == pick.period)
             }
             if (pick is IntervalPick.Open) drawDropdown(rect, d, label, lit, measurer)
             else drawIntervalTile(rect, d, label, lit, measurer)
+        }
+        val fixedIndex = module.type.fixedTimeParam
+        chooser.slider?.takeIf { fixedIndex >= 0 }?.let { row ->
+            val entry = ParamRow(module, fixedIndex)
+            drawText(measurer.measure(entry.view.param.name, PanelParamStyle), topLeft = Offset(row.left, row.top + 4f * d))
+            val value = live[fixedIndex] ?: module.params.getOrElse(fixedIndex) { entry.param.default }
+            drawKnobRow(
+                row, d, entry, value, patch.rangeOf(module, fixedIndex), module.type.accent, 1f,
+                measurer, scale, rootCents,
+            )
         }
         return
     }
@@ -10083,70 +10245,95 @@ private fun DrawScope.drawPanel(
         // not whose, and a subpatch is exactly where two of them can be side by side.
         // Faint while it means nothing; see Param.liveWhen.
         val faint = if (owner.isLive(index)) 1f else 0.35f
-        val label = if (own) param.name else "${owner.title}  \u00b7  ${param.name}"
+        val shownName = entry.view.param.name
+        val label = if (own) shownName else "${owner.title}  \u00b7  $shownName"
         val name = measurer.measure(label, PanelParamStyle)
         drawText(name, topLeft = Offset(row.left, row.top + 4f * d), alpha = faint)
 
-        // A stepped parameter shows no numeric readout: the lit button is the reading,
-        // and "0" next to a picture of a sawtooth is noise.
-        if (!param.buttons) {
-            // An exposed parameter reads its range, not a value it is not going to hold.
-            val text = when {
-                range != null -> rangeReading(param, range)
-                param.degree -> "${param.format(value)}  ${degreeName(value.roundToInt(), scale, rootCents)}"
-                else -> param.format(value)
-            }
-            val reading = measurer.measure(text, PanelValueStyle)
-            drawText(
-                reading,
-                topLeft = Offset(row.right - reading.size.width, row.top + 2f * d),
-                alpha = faint,
-            )
+        drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents)
+    }
+}
+
+/**
+ * A knob's reading and bar and brackets -- or its buttons -- drawn in [row], through [entry]'s
+ * [RowView]: one function for a panel's rows and the step-length chooser's slider, which is the
+ * same knob and must never read differently from it. [value] and [range] are as stored.
+ */
+private fun DrawScope.drawKnobRow(
+    row: Rect,
+    d: Float,
+    entry: ParamRow,
+    stored: Float,
+    storedRange: ModRange?,
+    accent: Color,
+    faint: Float,
+    measurer: TextMeasurer,
+    scale: Scale,
+    rootCents: Float,
+) {
+    val view = entry.view
+    val param = view.param
+    val value = view.shown(stored)
+    val range = storedRange?.let(view::shown)
+    // A stepped parameter shows no numeric readout: the lit button is the reading,
+    // and "0" next to a picture of a sawtooth is noise.
+    if (!param.buttons) {
+        // An exposed parameter reads its range, not a value it is not going to hold.
+        val text = when {
+            range != null -> rangeReading(param, range)
+            param.degree -> "${param.format(value)}  ${degreeName(value.roundToInt(), scale, rootCents)}"
+            else -> param.format(value)
         }
-
-        if (param.buttons) {
-            drawChoices(row, d, param, value, accent, measurer)
-            if (range != null) {
-                val box = choiceBox(row, d, param, 0)
-                drawBrackets(row, d, param, range, box.top - 4f * d, box.bottom + 4f * d)
-            }
-            return@forEachIndexed
-        }
-
-        val barHeight = PatchModule.PANEL_BAR * d
-        val barTop = row.bottom - barHeight - 10f * d
-        val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
-
-        drawRoundRect(
-            color = Color(0xFF12151A),
-            topLeft = Offset(row.left, barTop),
-            size = Size(row.width, barHeight),
-            cornerRadius = radius,
-        )
-        val filled = row.width * param.positionOf(value)
-        drawRoundRect(
-            color = accent,
-            topLeft = Offset(row.left, barTop),
-            size = Size(filled.coerceAtLeast(barHeight), barHeight),
-            cornerRadius = radius,
+        val reading = measurer.measure(text, PanelValueStyle)
+        drawText(
+            reading,
+            topLeft = Offset(row.right - reading.size.width, row.top + 2f * d),
             alpha = faint,
         )
+    }
 
-        if (param.marks) {
-            drawScaleMarks(row, barTop, barHeight, d, param, scale)
-        }
-
-        // The range, over the fill, and its brackets rising above the bar rather than below
-        // it -- below a cents bar is where the scale's marks are.
+    if (param.buttons) {
+        drawChoices(row, d, param, value, accent, measurer)
         if (range != null) {
-            val lowX = panelBracketX(row, d, param, range.low, closing = false)
-            val highX = panelBracketX(row, d, param, range.high, closing = true)
-            drawRect(
-                color = ModulationColor.copy(alpha = 0.4f),
-                topLeft = Offset(minOf(lowX, highX), barTop),
-                size = Size(kotlin.math.abs(highX - lowX), barHeight),
-            )
-            drawBrackets(row, d, param, range, barTop - 8f * d, barTop + barHeight + 2f * d)
+            val box = choiceBox(row, d, param, 0)
+            drawBrackets(row, d, param, range, box.top - 4f * d, box.bottom + 4f * d)
         }
+        return
+    }
+
+    val barHeight = PatchModule.PANEL_BAR * d
+    val barTop = row.bottom - barHeight - 10f * d
+    val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
+
+    drawRoundRect(
+        color = Color(0xFF12151A),
+        topLeft = Offset(row.left, barTop),
+        size = Size(row.width, barHeight),
+        cornerRadius = radius,
+    )
+    val filled = row.width * param.positionOf(value)
+    drawRoundRect(
+        color = accent,
+        topLeft = Offset(row.left, barTop),
+        size = Size(filled.coerceAtLeast(barHeight), barHeight),
+        cornerRadius = radius,
+        alpha = faint,
+    )
+
+    if (param.marks) {
+        drawScaleMarks(row, barTop, barHeight, d, param, scale)
+    }
+
+    // The range, over the fill, and its brackets rising above the bar rather than below
+    // it -- below a cents bar is where the scale's marks are.
+    if (range != null) {
+        val lowX = panelBracketX(row, d, param, range.low, closing = false)
+        val highX = panelBracketX(row, d, param, range.high, closing = true)
+        drawRect(
+            color = ModulationColor.copy(alpha = 0.4f),
+            topLeft = Offset(minOf(lowX, highX), barTop),
+            size = Size(kotlin.math.abs(highX - lowX), barHeight),
+        )
+        drawBrackets(row, d, param, range, barTop - 8f * d, barTop + barHeight + 2f * d)
     }
 }

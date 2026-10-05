@@ -179,7 +179,8 @@ class IntervalTest {
         val tempo = lfo.targets.single { it.second == IntervalPick.Tempo }.first
         assertTrue("the switch above the sentence", lfo.targets.filter { it.second is IntervalPick.Open }.all { it.first.top > tempo.bottom })
         val fixed = intervalChooser(panel, d, 1f, Types.Lfo.canBeFree, Interval.FREE)
-        assertEquals("fixed has no sentence", listOf(IntervalPick.Tempo, IntervalPick.Fixed), fixed.targets.map { it.second })
+        assertFalse("fixed has no sentence", fixed.targets.any { it.second is IntervalPick.Open || it.second is IntervalPick.Bars })
+        assertNull(fixed.words)
     }
 
     @Test
@@ -223,6 +224,97 @@ class IntervalTest {
                 }
             }
         }
+    }
+
+    /**
+     * A fixed time read the other way round: an LFO's rate as a period, a Delay's time as a
+     * frequency. Only what a row shows and what is set through it is converted -- the knob keeps
+     * its own units -- and on the exponential curve both have, the period slider is the rate
+     * slider reversed.
+     */
+    @Test
+    fun `a rate reads as a period the other way round, and is stored as a rate`() {
+        val patch = Patch()
+        val lfo = patch.add(Types.Lfo, Offset.Zero)!!
+        val rate = Types.Lfo.fixedTimeParam
+        val row = ParamRow(lfo, rate)
+        assertFalse("an LFO shows its rate as it is", lfo.showsPeriod)
+        assertFalse(row.view.flipped)
+        val asRate = row.positionOf(2f)
+        assertEquals("2Hz", row.format(2f))
+
+        lfo.setParam(Types.Lfo.periodParam, 1f)
+        assertTrue(row.view.flipped)
+        assertEquals("period", row.view.param.name)
+        assertEquals("0.5s", row.format(2f))
+        assertEquals("the same slider, reversed", 1f - asRate, row.positionOf(2f), 1e-4f)
+        assertEquals("and what is set through it is stored as a rate", 2f, row.valueAt(row.positionOf(2f)), 1e-3f)
+        assertEquals("the ends swap", 20f, row.valueAt(0f), 1e-3f)
+        assertEquals(0.02f, row.valueAt(1f), 1e-5f)
+    }
+
+    @Test
+    fun `a delay reads as a frequency the other way round`() {
+        val patch = Patch()
+        val delay = patch.add(Types.Delay, Offset.Zero)!!
+        val time = Types.Delay.fixedTimeParam
+        assertTrue("a Delay shows its time as the period it is", delay.showsPeriod)
+        assertEquals("250ms", ParamRow(delay, time).format(250f))
+        delay.setParam(Types.Delay.periodParam, 0f)
+        assertEquals("4Hz", ParamRow(delay, time).format(250f))
+        assertEquals("freq", ParamRow(delay, time).view.param.name)
+    }
+
+    /**
+     * A bracket keeps its meaning the other way round: the opening one is where the modulator's
+     * zero lands. So a range that speeds an LFO up reads, as a period, as the inverted sweep it is.
+     */
+    @Test
+    fun `a range read as a period keeps which end is which`() {
+        val patch = Patch()
+        val lfo = patch.add(Types.Lfo, Offset.Zero)!!
+        val row = ParamRow(lfo, Types.Lfo.fixedTimeParam)
+        lfo.setParam(Types.Lfo.periodParam, 1f)
+        val shown = row.view.shown(ModRange(1f, 4f))
+        assertEquals("the low end, 1Hz, is a period of 1s", 1f, shown.low, 1e-5f)
+        assertEquals(0.25f, shown.high, 1e-5f)
+        assertTrue("so it reads inverted", row.positionOf(1f) > row.positionOf(4f))
+    }
+
+    @Test
+    fun `the chip says the step, or in fixed time the time as the module shows it`() {
+        val patch = Patch()
+        val lfo = patch.add(Types.Lfo, Offset.Zero)!!
+        assertEquals("1Hz", lfo.stepLabel)
+        lfo.setParam(Types.Lfo.periodParam, 1f)
+        assertEquals("1s", lfo.stepLabel)
+        lfo.setParam(Types.Lfo.intervalParam, Interval(2, 3).code.toFloat())
+        assertEquals("2/3 beat", lfo.stepLabel)
+        val delay = patch.add(Types.Delay, Offset(200f, 0f))!!
+        delay.setParam(Types.Delay.intervalParam, FREE_INTERVAL.toFloat())
+        assertEquals("250ms", delay.stepLabel)
+        assertEquals("a sequencer has no fixed time", "1 beat", patch.add(Types.Seq, Offset(400f, 0f))!!.stepLabel)
+    }
+
+    @Test
+    fun `fixed time offers freq or period and the knob's own slider, inside the panel`() {
+        listOf(frame, emulator).forEach { f ->
+            val p = panelRect(f)
+            val d = f.density
+            listOf(1f, 1.5f).forEach { scale ->
+                val chooser = intervalChooser(p, d, scale, true, Interval.FREE)
+                assertEquals(
+                    listOf(IntervalPick.Tempo, IntervalPick.Fixed, IntervalPick.Show(false), IntervalPick.Show(true)),
+                    chooser.targets.map { it.second },
+                )
+                val slider = chooser.slider!!
+                val body = Rect(p.left, p.top + PatchModule.PANEL_HEADER * d, p.right, p.bottom)
+                assertTrue("the slider fits at $scale", slider.top >= body.top && slider.bottom <= body.bottom &&
+                    slider.left >= body.left && slider.right <= body.right)
+                assertTrue("under the switches", chooser.targets.all { it.first.bottom < slider.top })
+            }
+        }
+        assertNull("a sequencer has no fixed page", intervalChooser(panel, d, 1f, false, Interval.FREE).slider)
     }
 
     @Test

@@ -143,7 +143,9 @@ been asked; what is still open is said where it stands. These depend on one anot
 the last list did -- a step of four bars needs the first, and the Arranger is built out of the
 third and the fourth -- which is why they go in the order they are numbered.
 
-1. **A step's length, chosen again: on the beat or on the clock.** The chooser built on
+1. ~~**A step's length, chosen again: on the beat or on the clock.**~~ **Done 2026-10-04**, in
+   three commits the same day; on the emulator and installed on the phone, **not yet tried there
+   by Forrest**. The chooser built on
    2026-09-25 (Phase 12, 4) is not good, on three counts: its two rows of sixteen tiles take
    the whole panel; "free" does not bring "a fixed time" to mind; and nothing can be chosen
    that is not a tile. That answers what was left "to be settled on the phone".
@@ -217,6 +219,20 @@ third and the fourth -- which is why they go in the order they are numbered.
    nothing closing everything, and **other…** writing its number into the wrong half of the
    sentence, were each caught by the test aimed at it. Seen on the emulator: the sentence and
    the grid, as drawn.
+
+   *Fixed time, third:* freq | period and the module's own time knob as a slider, and the header
+   chip saying the time ("1Hz", "1s", "250ms"). **The row follows the switch** through `RowView`:
+   a `Reciprocal` declared on the LFO's rate (a period in seconds) and the Delay's time (a
+   frequency), and every path that maps a value to a slider -- drawing, dragging, brackets, the
+   keypad -- now goes through `ParamRow`, so the chooser and the panel cannot disagree. Stored
+   values never change. A bracket keeps which end is the modulator's zero, so a sweep that speeds
+   an LFO up reads, as a period, as the inverted sweep it is -- swapping the ends to look tidier
+   would have said the opposite of what the modulator does. The chooser's slider is the panel's
+   row drawn by the same function (`drawKnobRow`) and hit by the same tests, which take where the
+   row is as a parameter now. Mutation-checked: the keypad storing a period unconverted (a 2s
+   period stored as 2Hz) and a drag storing the slider's own value were each caught. Seen on the
+   emulator: 1Hz switched to period reads 1s, the slider turned round, and the panel's row reads
+   "period 1s" when the chooser closes.
 
 2. **An LFO gets a phase**, from 0 to 1, with some way to say "two beats late" and have it
    come out as 0.25 on an LFO whose cycle is eight beats.
