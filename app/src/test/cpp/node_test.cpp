@@ -1098,6 +1098,135 @@ void aModSeqStepsThroughItsLevels() {
     check(true, "a slot past the end is ignored rather than written");
 }
 
+// ---------------------------------------------------------------- the Arranger
+
+/** Lane [lane] of [arranger] at sample [i] of the block just processed. */
+float laneAt(ArrangerNode &arranger, int32_t lane, int32_t i = 0) { return arranger.output(lane)[i]; }
+
+/** Scene [scene] sends [first] on lane 0 and [second] on lane 1. */
+void setScene(ArrangerNode &arranger, int32_t scene, float first, float second) {
+    arranger.setSlot(segmentSlot(scene * ArrangerNode::kLanes + 0, 1.0f, first, 0.0f, false));
+    arranger.setSlot(segmentSlot(scene * ArrangerNode::kLanes + 1, 1.0f, second, 0.0f, false));
+}
+
+/** Section [at] of song [song] (from 0): [scene] for [length] steps; 0 ends the song. */
+void setSection(ArrangerNode &arranger, int32_t song, int32_t at, int32_t scene, int32_t length) {
+    arranger.setSlot(sectionSlot(song * ArrangerNode::kMaxSections + at, scene, length));
+}
+
+/** Ticks [count] at the top of a block and processes it. */
+void stepTo(ArrangerNode &arranger, int64_t count) {
+    arranger.tick(0, count);
+    arranger.process(kBlockSize);
+}
+
+/**
+ * The Arranger, roadmap item 5: a song's sections in order, each its scene's values on every
+ * lane for as many steps as it lasts, switched on the sample the tick lands on, and looping.
+ * Before any tick it sends the first section, so it applies at once, as a ModSeq does.
+ */
+void anArrangerPlaysItsSongSectionBySection() {
+    std::printf("an arranger plays its song section by section\n");
+    ArrangerNode arranger;
+    arranger.prepare(kRate);
+    setScene(arranger, 0, 0.2f, 0.7f);  // A
+    setScene(arranger, 1, 0.9f, 0.1f);  // B
+    setSection(arranger, 0, 0, 0, 2);   // A for two steps
+    setSection(arranger, 0, 1, 1, 1);   // then B for one
+    setSection(arranger, 0, 2, 0, 0);   // and that is the song
+
+    arranger.process(kBlockSize);
+    check(laneAt(arranger, 0) == 0.2f && laneAt(arranger, 1) == 0.7f, "before any tick, the first scene");
+    check(laneAt(arranger, 2) == 0.5f, "a lane no scene has been given sends its middle");
+
+    stepTo(arranger, 0);
+    stepTo(arranger, 1);
+    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "A lasts its two steps");
+    arranger.tick(10, 2);
+    arranger.process(kBlockSize);
+    check(laneAt(arranger, 0, 9) == 0.2f, "held until the tick");
+    check(laneAt(arranger, 0, 10) == 0.9f && laneAt(arranger, 1, 10) == 0.1f, "and B from its sample, every lane");
+    check(arranger.position() == 1, "and says which section it is on");
+    stepTo(arranger, 3);
+    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "past the end it loops to the first section");
+
+    // B's slot emptied with a section still standing in the slot after it: the empty one is
+    // the end, and what is past it is not part of the song.
+    setSection(arranger, 0, 2, 1, 3);
+    setSection(arranger, 0, 1, 1, 0);
+    stepTo(arranger, 4);
+    check(arranger.position() == 0, "a length of 0 ends the song, whatever is past it");
+    arranger.setSlot(segmentSlot(ArrangerNode::kMaxScenes * ArrangerNode::kLanes, 1.0f, 1.0f, 0.0f, false));
+    arranger.setSlot(sectionSlot(ArrangerNode::kMaxSongs * ArrangerNode::kMaxSections, 0, 1));
+    check(true, "a scene or a song past the end is ignored rather than written");
+}
+
+/** Told to stop, the end of the song is every lane at 0 until the transport is back at the top. */
+void anArrangerStopsAtTheEndWhenToldTo() {
+    std::printf("an arranger stops at the end when told to\n");
+    ArrangerNode arranger;
+    arranger.prepare(kRate);
+    setScene(arranger, 0, 0.2f, 0.7f);
+    setSection(arranger, 0, 0, 0, 2);
+    arranger.setParam(3, 1.0f);  // end: stop
+    stepTo(arranger, 0);
+    stepTo(arranger, 1);
+    check(laneAt(arranger, 0) == 0.2f, "it plays to the end");
+    stepTo(arranger, 2);
+    check(laneAt(arranger, 0) == 0.0f && laneAt(arranger, 1) == 0.0f, "then every lane is 0");
+    check(arranger.position() == -1, "and it is on no section");
+    stepTo(arranger, 9);
+    check(laneAt(arranger, 0) == 0.0f, "and stays there");
+    stepTo(arranger, 0);
+    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "the transport back at the top starts it again");
+}
+
+/**
+ * Songs are its versions, as a Seq's are: a change starts the new song from its top at the next
+ * tick -- sending its first scene at once rather than the old song's -- and 0 is stopped, every
+ * lane at 0, which is what silences a Seq a lane drives. A node made on song 2 counts from the
+ * transport like everything else.
+ */
+void anArrangersVersionIsASongAndZeroIsStopped() {
+    std::printf("an arranger's version is a song, and 0 is stopped\n");
+    ArrangerNode arranger;
+    arranger.prepare(kRate);
+    setScene(arranger, 0, 0.2f, 0.7f);  // A
+    setScene(arranger, 1, 0.9f, 0.1f);  // B
+    setScene(arranger, 2, 0.4f, 0.4f);  // C
+    setSection(arranger, 0, 0, 0, 2);   // song 1: A for two, then B for two
+    setSection(arranger, 0, 1, 1, 2);
+    setSection(arranger, 1, 0, 2, 1);   // song 2: C, then A
+    setSection(arranger, 1, 1, 0, 1);
+    for (int64_t count = 0; count < 3; ++count) stepTo(arranger, count);
+    check(arranger.position() == 1, "song 1 is in its second section");
+
+    // Song 2's second section is A, so holding the section number across the change would
+    // send A here: the new song's first scene is C.
+    arranger.setParam(1, 2.0f);
+    arranger.process(kBlockSize);
+    check(laneAt(arranger, 0) == 0.4f, "a new song sends its first scene at once");
+    stepTo(arranger, 3);
+    check(laneAt(arranger, 0) == 0.4f && arranger.position() == 0, "and starts from its top on the next tick");
+    stepTo(arranger, 4);
+    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 1, "counting from there, not from the transport");
+
+    arranger.setParam(1, 0.0f);
+    stepTo(arranger, 5);
+    check(laneAt(arranger, 0) == 0.0f && laneAt(arranger, 1) == 0.0f && arranger.position() == -1,
+          "version 0 is every lane at 0");
+
+    ArrangerNode loaded;
+    loaded.prepare(kRate);
+    setScene(loaded, 0, 0.2f, 0.7f);
+    setScene(loaded, 1, 0.9f, 0.1f);
+    setSection(loaded, 1, 0, 1, 1);
+    setSection(loaded, 1, 1, 0, 1);
+    loaded.setParam(1, 2.0f);
+    stepTo(loaded, 3);
+    check(loaded.position() == 1, "a node made on song 2 is in step with the transport, not restarted");
+}
+
 void mixSumsRatherThanAverages() {
     std::printf("mix sums rather than averages\n");
     const auto quarter = constantBuffer(0.25f);
@@ -3928,6 +4057,9 @@ int main() {
     aTripletOnTheSwitchBeatTakesTheNewScale();
     aKeyChangeLandsOnItsBeat();
     mixSumsRatherThanAverages();
+    anArrangerPlaysItsSongSectionBySection();
+    anArrangerStopsAtTheEndWhenToldTo();
+    anArrangersVersionIsASongAndZeroIsStopped();
     outPassesAudioAtLevel();
     outBlocksAConstant();
     limiterIsExactBelowItsKnee();

@@ -127,6 +127,7 @@ being edited out from under it.
 | `nodes.{h,cpp}` | the module set, DaisySP-backed |
 | `reverb.h` | Reverb's two algorithms, a Freeverb room and a Dattorro plate, header-only |
 | `processors.{h,cpp}` | notes in, notes out: Chance, Chord, Arp, Euclid |
+| `Arranger.kt` | the Arranger's model, and its table's layout, choosers and drawing |
 | `soundfont.{h,cpp}` | the SF node over TinySoundFont; a SoundFont loaded once and shared |
 | `synth.h` | `MonoSynth` and `GateRamp`: one note's pitch, glide and declick |
 | `audio_engine.{h,cpp}` | Oboe streams, ADPF, debug capture |
@@ -205,7 +206,7 @@ While compatibility was kept, **a table a knob indexed grew by appending, never 
 and when the knob stopped indexing it the table stayed as the way old values were read -- which
 is what kept 17 and 18 additive rather than refusals. **19 reads nothing but 19**, under the
 policy below: every synth gained a level jack, `Amp` became `Gain`, and the interval table went.
-**A knob or
+20, 21 and 22 each read only themselves under the same policy; 22 is the Arranger. **A knob or
 a port added to an existing module bumps the version too**, for that same reason: knobs are
 keyed by name and port indices are positional, so an 11 build would read a bandpass, ignore
 the two knobs it does not know, and autosave it as a lowpass. **Adding a module type bumps the version** even though
@@ -361,14 +362,15 @@ Kotlin and `EnvNode` in C++ are **the same expression on purpose**, because an e
 sounds unlike its own picture is worse than one with no picture.
 
 **A slot-indexed list crosses as one command, and there is one of everything for it.**
-Steps, dots and segments are the same shape -- a positional list the interface edits and the
-engine keeps a slot per entry -- so they share `SlotValue` (a tag plus a union of
-`StepSlot`/`DotSlot`/`SegmentSlot`), one `Node::setSlot`, one `CommandType::SetSlot`, one
-apply case, one JNI shim and one `GraphSync.diffSlots`. **The payload stays typed**: a node
+Steps, dots, segments and an Arranger's sections are the same shape -- a positional list the
+interface edits and the engine keeps a slot per entry -- so they share `SlotValue` (a tag plus a
+union of `StepSlot`/`DotSlot`/`SegmentSlot`/`SectionSlot`), one `Node::setSlot`, one
+`CommandType::SetSlot`, one apply case, one JNI shim and one `GraphSync.diffSlots` (or
+`diffKeyed`, for entries that say their own slot). **The payload stays typed**: a node
 reads `slot.dot.velocity`, because `nodes.cpp` is where the DSP is read and clarity there
 beats the packing it would save. What is *not* typed is the JNI shim, whose ten arguments are
-the union of all three kinds -- the one place in the crossing that is not self-describing, and
-the reason `AudioEngine`'s three typed wrappers are the only callers. A dot's versions made
+the union of all the kinds -- the one place in the crossing that is not self-describing, and
+the reason `AudioEngine`'s typed wrappers are the only callers. A dot's versions made
 it eleven. `SlotKind` is a
 cross-boundary contract like `NodeType` and is asserted against `node.h` the same way; a
 disagreement there would read a segment as a dot rather than merely dropping it.
@@ -700,6 +702,23 @@ tick in this block is already the value when the knob's own tick reads it.
 crossing as segment slots -- a level now and a curve one day, the Env's slot without its time --
 and labeled in the one knob it drives (`modSeqTarget`, `levelLabel`), which the panel follows
 through boxes as the engine does.
+
+**An Arranger's scenes are shared and its songs are its versions** (`Arranger.kt`,
+`ArrangerNode`; roadmap item 5, decided 2026-10-05). A scene is a value for every lane, 0 to 1
+between the brackets of the knob the lane drives, as a ModSeq's step is; a song is sections, each
+a scene for some steps of the interval; editing A edits every A in every song. Lanes are outputs,
+`ports()` showing the first `laneCount` of eight, so a lane added is a jack under the others and
+`removeLane` renumbers the cables after it in one snapshot, as dropping a box's port does. The
+`version` knob picks the song and 0 is stopped, every lane at 0; a change restarts the new song at
+the next tick and sends its first scene at once -- the same restart as a Seq's, which is all
+nesting needs: exposed, one Arranger's lane drives a verse's Arranger in a box. Scenes cross as
+segment slots at scene * 8 + lane; songs as `SectionSlot`s at song * 64 + section, every song
+there could be followed by an empty one that ends it, compared by slot (`diffKeyed`) since a song
+growing shifts the flat list but not the engine. A Seq's or an Arranger's version, wherever a
+modulator's values are labeled, reads "silent" and "v1". The panel is a table: a cell or a head
+opens a chooser that owns the panel until a tap off it, a drag along the heads scrolls the
+sections and one down the names scrolls the lanes (past four at font scale 1.5), and a drag on the
+cells does nothing, since cells are tapped -- Forrest's choice, so the two never compete.
 
 **A knob that means nothing is faint, not gone.** `Param.liveWhen` names another knob and the
 value it must hold -- a Delay's time is live only while its interval is "free" -- and such a

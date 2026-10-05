@@ -1417,6 +1417,114 @@ void ModSeqNode::setSlot(const SlotValue &slot) {
     level_[slot.index] = clampf(slot.segment.level, 0.0f, 1.0f);
 }
 
+// ---------------------------------------------------------------- Arranger
+
+ArrangerNode::ArrangerNode() {
+    for (auto &scene : level_) {
+        for (float &level : scene) level = 0.5f;
+    }
+}
+
+void ArrangerNode::tick(int32_t offset, int64_t count) {
+    if (pendingCount_ < kMaxPending) {
+        pending_[pendingCount_].offset = offset;
+        pending_[pendingCount_].count = count;
+        ++pendingCount_;
+    }
+}
+
+int32_t ArrangerNode::sectionAt(int64_t at) const {
+    if (version_ <= 0 || version_ > kMaxSongs) return -1;
+    const int32_t song = version_ - 1;
+    int64_t total = 0;
+    for (int32_t i = 0; i < kMaxSections && length_[song][i] > 0; ++i) total += length_[song][i];
+    if (total == 0) return -1;
+    if (at < 0) at = 0;
+    if (at >= total) {
+        if (!loop_) return -1;
+        at %= total;
+    }
+    for (int32_t i = 0; i < kMaxSections; ++i) {
+        if (at < length_[song][i]) return i;
+        at -= length_[song][i];
+    }
+    return -1;
+}
+
+void ArrangerNode::onTick(int64_t count) {
+    // As a Seq: a version change starts the song from this tick, and a transport rewound past
+    // where it started is back at the song's own top.
+    if (restartPending_) {
+        origin_ = count;
+        restartPending_ = false;
+    }
+    if (count < origin_) origin_ = 0;
+    lastCount_ = count;
+    section_ = sectionAt(count - origin_);
+}
+
+void ArrangerNode::fill(int32_t from, int32_t to) {
+    const int32_t song = version_ - 1;
+    const int32_t scene = section_ >= 0 && song >= 0 && song < kMaxSongs ? scene_[song][section_] : -1;
+    for (int32_t lane = 0; lane < kLanes; ++lane) {
+        // Stopped, ended, or a scene that is not there: every lane at the bottom of its range.
+        const float value = scene >= 0 && scene < kMaxScenes ? level_[scene][lane] : 0.0f;
+        float *o = out(lane);
+        for (int32_t i = from; i < to; ++i) o[i] = value;
+    }
+}
+
+void ArrangerNode::process(int32_t frames) {
+    // Until the first tick, the song's first section: what it will play from.
+    if (lastCount_ < 0) section_ = sectionAt(0);
+    int32_t from = 0;
+    for (int32_t next = 0; next < pendingCount_; ++next) {
+        const int32_t to = std::clamp<int32_t>(pending_[next].offset, from, frames);
+        fill(from, to);
+        onTick(pending_[next].count);
+        from = to;
+    }
+    fill(from, frames);
+    pendingCount_ = 0;
+}
+
+void ArrangerNode::setParam(int32_t index, float value) {
+    switch (index) {
+        case 0: interval_ = intervalOf(value); break;
+        case 1: {
+            const auto version = static_cast<int32_t>(clampf(value, 0.0f, static_cast<float>(kMaxSongs)) + 0.5f);
+            if (version != version_) {
+                // Not the first value a new node is sent, as a Seq: one loaded on song 2 starts
+                // in step with everything else, at the transport's own top.
+                if (lastCount_ >= 0) restartPending_ = true;
+                version_ = version;
+                // What it will play from, at once rather than at the next tick: holding the old
+                // song's scene until then would send values from a song no longer chosen.
+                section_ = sectionAt(0);
+            }
+            break;
+        }
+        case 3: loop_ = value < 0.5f; break;
+        // 2 is how many songs there are and 4 how many lanes show, which only the interface needs.
+        default: break;
+    }
+}
+
+void ArrangerNode::setSlot(const SlotValue &slot) {
+    if (slot.kind == SlotKind::Segment) {
+        const int32_t scene = slot.index / kLanes;
+        const int32_t lane = slot.index % kLanes;
+        if (slot.index < 0 || scene >= kMaxScenes) return;
+        level_[scene][lane] = clampf(slot.segment.level, 0.0f, 1.0f);
+    } else if (slot.kind == SlotKind::Section) {
+        const int32_t song = slot.index / kMaxSections;
+        const int32_t at = slot.index % kMaxSections;
+        if (slot.index < 0 || song >= kMaxSongs) return;
+        scene_[song][at] = slot.section.scene;
+        length_[song][at] = slot.section.length > 0 ? slot.section.length : 0;
+    }
+}
+
 // ---------------------------------------------------------------- factory
 
 Node *makeNode(NodeType type) {
@@ -1430,6 +1538,7 @@ Node *makeNode(NodeType type) {
         case NodeType::Delay: return new DelayNode();
         case NodeType::Reverb: return new ReverbNode();
         case NodeType::ModSeq: return new ModSeqNode();
+        case NodeType::Arranger: return new ArrangerNode();
         case NodeType::PolyIn: return new PolyInNode();
         case NodeType::PolySum: return new PolySumNode();
         case NodeType::Osc: return new OscNode();

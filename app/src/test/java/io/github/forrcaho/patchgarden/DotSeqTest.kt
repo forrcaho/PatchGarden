@@ -116,7 +116,7 @@ class DotSeqTest {
         seq.addDot(Dot(0, 0, 4))
         seq.addDot(Dot(31, -3, 1, 0.25f))
         val json = patch.toJson()
-        assertTrue(json.contains("\"version\":21"))
+        assertTrue(json.contains("\"version\":22"))
         assertEquals(seq.dots.toList(), patchFromJson(json)!!.modules.first { it.type == Types.Seq }.dots.toList())
 
         // The fifth number is which versions the dot is in; bits past the eight there can be
@@ -150,7 +150,7 @@ class DotSeqTest {
         val current = patch.toJson()
         assertNotNull("the current version still opens", patchFromJson(current))
         (10..20).forEach { version ->
-            val older = current.replace("\"version\":21", "\"version\":$version")
+            val older = current.replace("\"version\":22", "\"version\":$version")
             assertNull("format $version must be refused", patchFromJson(older))
         }
     }

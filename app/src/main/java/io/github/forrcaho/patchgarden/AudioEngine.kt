@@ -92,8 +92,12 @@ object AudioEngine {
     ): Boolean =
         slot(SlotKind.SEGMENT, id, slot, f0 = time, f1 = level, f2 = curve, flag = sustain)
 
+    /** One section of an Arranger's song, by slot -- song * MAX_SECTIONS + section; a length of 0 ends the song. */
+    fun setSection(id: Long, slot: Int, scene: Int, length: Int): Boolean =
+        slot(SlotKind.SECTION, id, slot, i0 = scene, i1 = length)
+
     /**
-     * The one crossing every slot-indexed list uses. Private, because the three wrappers
+     * The one crossing every slot-indexed list uses. Private, because the typed wrappers
      * above are how it is meant to be called: the argument names here are the union of what
      * the kinds carry and say nothing on their own.
      */

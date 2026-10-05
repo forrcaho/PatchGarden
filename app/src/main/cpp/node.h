@@ -11,7 +11,7 @@
 constexpr int32_t kBlockSize = 32;
 
 /** Which of a node's slot-indexed lists an entry belongs to. Mirrored by SlotKind.kt side. */
-enum class SlotKind : int32_t { Step = 0, Dot = 1, Segment = 2 };
+enum class SlotKind : int32_t { Step = 0, Dot = 1, Segment = 2, Section = 3 };
 
 /** One step of a sequence: a degree of the sounding scale, and whether it sounds at all. */
 struct StepSlot {
@@ -50,6 +50,16 @@ struct SegmentSlot {
 };
 
 /**
+ * One section of an Arranger's song: play [scene] for [length] steps. A [length] of 0 is the
+ * end of the song -- sections are contiguous, so the first one empty is where it stops, as
+ * a segment's time of 0 ends an envelope.
+ */
+struct SectionSlot {
+    int32_t scene = 0;
+    int32_t length = 0;
+};
+
+/**
  * One entry of one of those lists, tagged, as it crosses to the graph.
  *
  * A union rather than the union of all their fields spread flat across Command, which is
@@ -65,12 +75,13 @@ struct SlotValue {
         StepSlot step;
         DotSlot dot;
         SegmentSlot segment;
+        SectionSlot section;
     };
 
     SlotValue() : step() {}
 };
 
-/** The three typed ways to build one. Packing by hand at a call site reads as noise. */
+/** The typed ways to build one. Packing by hand at a call site reads as noise. */
 inline SlotValue stepSlot(int32_t index, int32_t degree, bool gate) {
     SlotValue v;
     v.kind = SlotKind::Step;
@@ -91,6 +102,13 @@ inline SlotValue segmentSlot(int32_t index, float time, float level, float curve
     v.kind = SlotKind::Segment;
     v.index = index;
     v.segment = SegmentSlot{time, level, curve, sustain};
+    return v;
+}
+inline SlotValue sectionSlot(int32_t index, int32_t scene, int32_t length) {
+    SlotValue v;
+    v.kind = SlotKind::Section;
+    v.index = index;
+    v.section = SectionSlot{scene, length};
     return v;
 }
 /**

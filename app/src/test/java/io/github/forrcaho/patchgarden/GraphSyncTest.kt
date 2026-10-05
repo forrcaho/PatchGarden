@@ -34,6 +34,7 @@ private sealed interface Cmd {
         val id: Long, val slot: Int, val time: Float, val level: Float, val curve: Float,
         val sustain: Boolean,
     ) : Cmd
+    data class SetSection(val id: Long, val slot: Int, val scene: Int, val length: Int) : Cmd
 }
 
 private class Recorder : GraphCommands {
@@ -72,6 +73,9 @@ private class Recorder : GraphCommands {
     }
     override fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean) {
         log += Cmd.SetModRange(id, index, low, high, exponential, stepped)
+    }
+    override fun setSection(id: Long, slot: Int, scene: Int, length: Int) {
+        log += Cmd.SetSection(id, slot, scene, length)
     }
     override fun connectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int) {
         log += Cmd.ConnectMod(srcId, srcPort, dstId, index)

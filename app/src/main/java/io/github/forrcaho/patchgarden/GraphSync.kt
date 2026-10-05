@@ -12,6 +12,7 @@ enum class SlotKind(val id: Int) {
     STEP(0),
     DOT(1),
     SEGMENT(2),
+    SECTION(3),
 }
 
 /**
@@ -59,6 +60,7 @@ enum class NodeType(val id: Int) {
     Delay(25),
     Reverb(26),
     ModSeq(27),
+    Arranger(28),
 }
 
 /**
@@ -99,6 +101,11 @@ interface GraphCommands {
 
     /** Segment [slot] of envelope [id]; a time of 0 clears the slot. */
     fun setSegment(id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean)
+    /**
+     * Section [slot] of Arranger [id] -- song * MAX_SECTIONS + section -- plays [scene] for
+     * [length] steps; a length of 0 is the end of that song.
+     */
+    fun setSection(id: Long, slot: Int, scene: Int, length: Int)
     fun collectGarbage()
 }
 
@@ -187,6 +194,11 @@ object EngineCommands : GraphCommands {
         AudioEngine.setSegment(id, slot, time, level, curve, sustain)
     }
 
+    override fun setSection(id: Long, slot: Int, scene: Int, length: Int) {
+        trace { "section $id[$slot] = scene $scene for $length" }
+        AudioEngine.setSection(id, slot, scene, length)
+    }
+
     override fun setFont(id: Long, font: Long) {
         trace { "font $id = $font" }
         AudioEngine.setNodeFont(id, font)
@@ -235,6 +247,8 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
     private var syncedDots = emptyMap<Long, List<Dot>>()
     private var syncedSegments = emptyMap<Long, List<EnvSegment>>()
     private var syncedLevels = emptyMap<Long, List<Float>>()
+    private var syncedCells = emptyMap<Long, List<SceneCell>>()
+    private var syncedSections = emptyMap<Long, List<SectionEntry>>()
 
     /**
      * One slot-indexed list, diffed against what the engine was last told, and the new
@@ -274,6 +288,25 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         return now
     }
 
+    /** [diffSlots] for entries that say their own slot: compared by that, not by place in the list. */
+    private fun <T> diffKeyed(
+        sounding: List<EngineNode>,
+        fresh: Set<Long>,
+        previousAll: Map<Long, List<T>>,
+        applies: (ModuleType) -> Boolean,
+        read: (PatchModule) -> List<T>,
+        key: (T) -> Int,
+        send: (Long, T) -> Unit,
+    ): Map<Long, List<T>> {
+        val now = sounding.filter { it.module?.type?.let(applies) == true }
+            .associate { it.id to read(it.module!!) }
+        now.forEach { (id, list) ->
+            val previous = if (id in fresh) emptyMap() else previousAll[id].orEmpty().associateBy(key)
+            list.forEach { entry -> if (previous[key(entry)] != entry) send(id, entry) }
+        }
+        return now
+    }
+
     /** Forget what the engine has, so the next sync re-sends everything. */
     fun invalidate() {
         syncedNodes = emptyMap()
@@ -287,6 +320,9 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         syncedFonts = emptyMap()
         syncedDots = emptyMap()
         syncedSegments = emptyMap()
+        syncedLevels = emptyMap()
+        syncedCells = emptyMap()
+        syncedSections = emptyMap()
     }
 
     /**
@@ -435,6 +471,27 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
             clear = { id, slot -> commands.setSegment(id, slot, 0f, 0f, 0f, false) },
         )
 
+        // An Arranger's scenes as segment slots, a level a cell at scene * LANES_MAX + lane, as a
+        // ModSeq's steps; and its songs as section slots, each song at its own stride with a
+        // section of length 0 after its last. Compared by the slot each goes to rather than by
+        // where it sits in these flat lists, since a song growing moves every entry after it in
+        // the list and none of them in the engine. Nothing is ever cleared: scenes are only
+        // added, and every song's end is in the list, so what lies past one is never read.
+        val cells = diffKeyed(
+            sounding, fresh, syncedCells,
+            applies = { it.grid == GridKind.SONG },
+            read = { m -> sceneCells(m) },
+            key = { it.slot },
+            send = { id, cell -> commands.setSegment(id, cell.slot, 1f, cell.level, 0f, false) },
+        )
+        val sections = diffKeyed(
+            sounding, fresh, syncedSections,
+            applies = { it.grid == GridKind.SONG },
+            read = { m -> sectionEntries(m) },
+            key = { it.slot },
+            send = { id, entry -> commands.setSection(id, entry.slot, entry.scene, entry.length) },
+        )
+
         // The scale list, whole, when it or the bar length changes: entries last bars and
         // beats, and the engine counts only beats.
         if (syncedScales != patch.scales || syncedBeatsPerBar != patch.beatsPerBar) {
@@ -458,8 +515,35 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         syncedDots = dots
         syncedSegments = segments
         syncedLevels = levels
+        syncedCells = cells
+        syncedSections = sections
 
         // Whatever the audio thread retired during the last block is ours to free.
         commands.collectGarbage()
     }
 }
+
+/** One cell of an Arranger's scenes as the engine keeps it: its slot and its level. */
+internal data class SceneCell(val slot: Int, val level: Float)
+
+/** One section slot of an Arranger's songs as the engine keeps it; a [length] of 0 ends a song. */
+internal data class SectionEntry(val slot: Int, val scene: Int, val length: Int)
+
+/** Every cell of every scene, in slot order. */
+internal fun sceneCells(module: PatchModule): List<SceneCell> =
+    module.scenes.flatMapIndexed { scene, s ->
+        s.levels.mapIndexed { lane, level -> SceneCell(scene * LANES_MAX + lane, level) }
+    }
+
+/**
+ * Every song's sections, each song followed by the end that stops it, for every song there could
+ * be -- so a song deleted, or one never made, is an empty song in the engine rather than whatever
+ * was last there.
+ */
+internal fun sectionEntries(module: PatchModule): List<SectionEntry> =
+    (0 until MAX_SONGS).flatMap { song ->
+        val sections = module.songs.getOrNull(song)?.sections.orEmpty().take(MAX_SECTIONS)
+        val base = song * MAX_SECTIONS
+        sections.mapIndexed { at, section -> SectionEntry(base + at, section.scene, section.steps) } +
+            (if (sections.size < MAX_SECTIONS) listOf(SectionEntry(base + sections.size, 0, 0)) else emptyList())
+    }

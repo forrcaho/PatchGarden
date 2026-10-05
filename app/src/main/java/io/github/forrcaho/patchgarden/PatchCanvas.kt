@@ -520,6 +520,12 @@ enum class GridKind {
      * over a slider row per step, which sixteen of would not fit.
      */
     LEVELS,
+
+    /**
+     * An Arranger's table: lanes down, the sections of a song across, a cell a lane's value in
+     * the scene that section plays. See Arranger.kt.
+     */
+    SONG,
 }
 
 /**
@@ -790,6 +796,33 @@ object Types {
         ),
         grid = GridKind.LEVELS,
         engine = NodeType.ModSeq, category = Category.MOD,
+    )
+    /**
+     * What plays when: lanes of modulation, a scene's value each for as long as a section of the
+     * song plays it -- Bespoke's songbuilder, roadmap item 5, and see Arranger.kt. Its outputs are
+     * its lanes, as many as [PatchModule.laneCount] says of [LANES_MAX]. Its versions are songs,
+     * so its `version` knob says which plays and 0 stops it, as a Seq's says which phrase -- and
+     * that knob exposed is how one Arranger drives another in a box. Order mirrors
+     * ArrangerNode::setParam -- interval, version, versions, end, lanes.
+     */
+    val Arranger = ModuleType(
+        "Arranger", emptyList(), (1..LANES_MAX).map { Port("$it", M) },
+        // A plum, between ModSeq's blue violet and LFO's magenta: chosen by search, as the rest
+        // were, for the widest gap to every border on the canvas (21 against the test's 15) with
+        // the modulation cable clearly nearest, among violets bright enough to read on the fill.
+        Color(0xFF74309C),
+        params = listOf(
+            // A bar a step, as ModSeq's: a section's length is counted in these.
+            intervalParam(default = Interval(1, 1, bars = true).code),
+            Param("version", 0f, MAX_SONGS.toFloat(), 1f, "", STEP, short = "ver"),
+            Param("versions", 1f, MAX_SONGS.toFloat(), 1f, "", STEP, header = true),
+            // Loop (0) or stop (1) at the end of the song: a switch in the header.
+            Param("end", 0f, 1f, 0f, "", STEP, header = true),
+            // How many lanes show; the interface's, like versions.
+            Param("lanes", 1f, LANES_MAX.toFloat(), DEFAULT_LANES.toFloat(), "", STEP, header = true),
+        ),
+        grid = GridKind.SONG,
+        engine = NodeType.Arranger, category = Category.MOD,
     )
     val Lfo = ModuleType(
         "LFO", emptyList(), listOf(Port("out", M)),
@@ -1195,7 +1228,7 @@ object Types {
         Seq, Drone, Euclid,
         Arp, Chord, Chance,
         Filter, Delay, Reverb, Gain, Mix,
-        Env, Lfo, ModSeq,
+        Env, Lfo, ModSeq, Arranger,
         Steps, Out, In,
     )
 
@@ -1421,6 +1454,23 @@ class PatchModule(
         if (index in levels.indices) levels[index] = level.coerceIn(0f, 1f)
     }
 
+    /** An Arranger's scenes, shared by every song; empty on everything else. See Arranger.kt. */
+    val scenes: SnapshotStateList<Scene> = mutableStateListOf<Scene>().apply {
+        if (type.grid == GridKind.SONG) addAll(defaultScenes())
+    }
+
+    /** An Arranger's songs, its versions, in order; empty on everything else. */
+    val songs: SnapshotStateList<Song> = mutableStateListOf<Song>().apply {
+        if (type.grid == GridKind.SONG) addAll(defaultSongs())
+    }
+
+    /**
+     * How far an Arranger's table has scrolled: the first section and the first lane showing.
+     * View state, like [shownVersion]: not saved, not undone.
+     */
+    var sectionScroll by mutableIntStateOf(0)
+    var laneScroll by mutableIntStateOf(0)
+
     /** Where each node sits in time: the running sum of the segments before it. */
     val segmentTimes: List<Float>
         get() {
@@ -1507,7 +1557,7 @@ class PatchModule(
      * engine -- and it fails by *omission*, which is the failure a list cannot have.
      */
     val slotLists: List<List<Any>>
-        get() = listOf(steps.toList(), dots.toList(), segments.toList(), levels.toList())
+        get() = listOf(steps.toList(), dots.toList(), segments.toList(), levels.toList(), scenes.toList(), songs.toList())
 
     fun copyGridFrom(from: PatchModule) {
         dots.clear()
@@ -1519,6 +1569,12 @@ class PatchModule(
         if (type.grid == GridKind.LEVELS) {
             levels.clear()
             levels.addAll(from.levels)
+        }
+        if (type.grid == GridKind.SONG) {
+            scenes.clear()
+            scenes.addAll(from.scenes)
+            songs.clear()
+            songs.addAll(from.songs)
         }
     }
 
@@ -1585,6 +1641,14 @@ class PatchModule(
      */
     fun addVersion(): Boolean {
         val count = versionCount
+        if (type.grid == GridKind.SONG) {
+            // An Arranger's versions are songs over the same scenes: a new one copies the one shown.
+            if (count >= MAX_SONGS || type.versionsParam < 0) return false
+            songs.add(songs.getOrElse(shownSong) { defaultSongs().first() })
+            setParam(type.versionsParam, (count + 1).toFloat())
+            shownVersion = count + 1
+            return true
+        }
         if (count >= MAX_VERSIONS || type.versionsParam < 0) return false
         val bit = 1 shl count
         val shown = shownBits
@@ -1605,12 +1669,16 @@ class PatchModule(
     fun deleteVersion(version: Int): Boolean {
         val count = versionCount
         if (count <= 1 || version !in 1..count) return false
-        val below = (1 shl (version - 1)) - 1
-        val renumbered = dots.map { dot ->
-            dot.copy(versions = (dot.versions and below) or ((dot.versions ushr version) shl (version - 1)))
-        }.filter { it.versions != 0 }
-        dots.clear()
-        dots.addAll(renumbered)
+        if (type.grid == GridKind.SONG) {
+            songs.removeAt(version - 1)
+        } else {
+            val below = (1 shl (version - 1)) - 1
+            val renumbered = dots.map { dot ->
+                dot.copy(versions = (dot.versions and below) or ((dot.versions ushr version) shl (version - 1)))
+            }.filter { it.versions != 0 }
+            dots.clear()
+            dots.addAll(renumbered)
+        }
         setParam(type.versionsParam, (count - 1).toFloat())
         val knob = type.versionParam
         if (knob >= 0) {
@@ -1838,6 +1906,9 @@ class PatchModule(
         val shared = subpatchPorts
         return when {
             dir == PortDirection.MOD -> emptyList()
+            // An Arranger's lanes: the first laneCount of its outputs, so a lane added is a jack
+            // added under the others.
+            type.grid == GridKind.SONG && dir == PortDirection.OUTPUT -> type.outputs.take(laneCount)
             shared == null -> if (dir == PortDirection.INPUT) type.inputs else type.outputs
             type == Types.SubpatchIn -> if (dir == PortDirection.OUTPUT) shared.inputs else emptyList()
             type == Types.SubpatchOut -> if (dir == PortDirection.INPUT) shared.outputs else emptyList()
@@ -1896,7 +1967,8 @@ class PatchModule(
          * than a case to disambiguate.
          */
         fun portsBodyFor(type: ModuleType): Float {
-            val ports = maxOf(type.inputs.size, type.outputs.size, 1)
+            val outputs = if (type.grid == GridKind.SONG) DEFAULT_LANES else type.outputs.size
+            val ports = maxOf(type.inputs.size, outputs, 1)
             return maxOf(MIN_BODY, ports * PORT_PITCH)
         }
 
@@ -1988,7 +2060,7 @@ internal fun panelRect(frame: Frame): Rect {
     )
 }
 
-private fun panelBody(panel: Rect, d: Float) =
+internal fun panelBody(panel: Rect, d: Float) =
     Rect(panel.left, panel.top + PatchModule.PANEL_HEADER * d, panel.right, panel.bottom)
 
 /** Where a jack sits on the panel's edge, spread down the body. */
@@ -2090,6 +2162,11 @@ private fun panelSplit(panel: Rect, d: Float, type: ModuleType, count: Int): Pan
         // and the knobs that change it get the rest, at the fixed share they always had.
         type.grid == GridKind.PATTERN ->
             split(body * (1f - PATTERN_GRID_SHARE), body * (1f - PATTERN_GRID_SHARE))
+        // An Arranger's table needs every row it can get -- four lanes only just fit at the
+        // reference device's text size -- and its knob is one, the version: what that row needs,
+        // which as a row of buttons is a little more than a slider's floor. At the floor alone
+        // its label was drawn behind its buttons on the emulator at font scale 1.5.
+        type.grid == GridKind.SONG -> split(body * GRID_FLOOR, rows * (PANEL_ROW_MIN + 20f) * d)
         // A sequence or a drone grid is the thing being edited: the knobs take what they
         // need between the third they always had and half, and the grid keeps the rest.
         else -> split(body * GRID_FLOOR, body * (1f - GRID_SHARE))
@@ -2393,7 +2470,7 @@ private val MarkZero = Color(0xFFE4E7EC)
 
 internal val ChipFill = Color(0xFF1E232B)
 internal val ChipEdge = Color(0xFF3A424E)
-private val PanelScrim = Color(0xE6161A20)
+internal val PanelScrim = Color(0xE6161A20)
 private val TileFill = Color(0xFF1A1F27)
 
 /**
@@ -2454,7 +2531,7 @@ private fun DrawScope.drawLockChip(rect: Rect, d: Float, locked: Boolean, accent
 }
 
 /** A chip: a label in a rounded box, lit while whatever it opens is open. */
-private fun DrawScope.drawChip(
+internal fun DrawScope.drawChip(
     rect: Rect,
     d: Float,
     label: String,
@@ -2637,7 +2714,7 @@ private fun DrawScope.drawDropdown(rect: Rect, d: Float, label: String, open: Bo
     )
 }
 
-private fun DrawScope.drawIntervalTile(rect: Rect, d: Float, label: String, chosen: Boolean, measurer: TextMeasurer) {
+internal fun DrawScope.drawIntervalTile(rect: Rect, d: Float, label: String, chosen: Boolean, measurer: TextMeasurer) {
     drawRoundRect(
         color = if (chosen) scaleAccent else TileFill,
         topLeft = rect.topLeft,
@@ -2704,10 +2781,21 @@ internal fun panelLockChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
  * left half is under the canvas's tempo and scale chips. Forrest chose chips in the header;
  * this is the nearest that fits, opening as the step chooser's dropdowns do.
  */
-internal fun panelVersionChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
-    val lock = panelLockChip(panel, d, fontScale)
+internal fun panelVersionChip(panel: Rect, d: Float, fontScale: Float = 1f, type: ModuleType? = null): Rect {
+    // An Arranger has no lock; its end switch is where the lock would be.
+    val beside = if (type?.grid == GridKind.SONG) panelEndChip(panel, d, fontScale) else panelLockChip(panel, d, fontScale)
     val width = 44f * fontScale.coerceAtLeast(1f) * d
-    return Rect(Offset(lock.left - 10f * d - width, lock.top), Size(width, lock.height))
+    return Rect(Offset(beside.left - 10f * d - width, beside.top), Size(width, beside.height))
+}
+
+/**
+ * An Arranger's end switch, "loop" or "stop", where a Seq's lock is: the same kind of thing, a
+ * tap-only switch about what the module does rather than an edit to what it holds.
+ */
+internal fun panelEndChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
+    val interval = panelIntervalChip(panel, d, fontScale)
+    val width = 50f * fontScale.coerceAtLeast(1f) * d
+    return Rect(Offset(interval.left - 10f * d - width, interval.top), Size(width, interval.height))
 }
 
 /** What a tap on the version strip picks. */
@@ -2733,17 +2821,20 @@ internal class VersionStrip(val ground: Rect, val tiles: List<Pair<Rect, Version
  * "all", a tile per version and "+", in a row under the header ending at the chip's right, so
  * it opens where the finger already is. Tiles a finger wide, growing with the text.
  */
-internal fun versionStrip(panel: Rect, d: Float, fontScale: Float, count: Int): VersionStrip {
+internal fun versionStrip(panel: Rect, d: Float, fontScale: Float, count: Int, type: ModuleType? = null): VersionStrip {
     val body = panelBody(panel, d)
     val text = fontScale.coerceAtLeast(1f)
     val tileW = 43f * text * d
     val tileH = maxOf(44f, 29f * text) * d
     val gap = 6f * d
     val pad = 12f * d
-    val picks = listOf<VersionPick>(VersionPick.All) + (1..count).map { VersionPick.Version(it) } +
-        (if (count < MAX_VERSIONS) listOf(VersionPick.Add) else emptyList())
+    // An Arranger's versions are songs, and a table shows one song: there is no "all" to show.
+    val songs = type?.grid == GridKind.SONG
+    val picks = (if (songs) emptyList() else listOf<VersionPick>(VersionPick.All)) +
+        (1..count).map { VersionPick.Version(it) } +
+        (if (count < (if (songs) MAX_SONGS else MAX_VERSIONS)) listOf(VersionPick.Add) else emptyList())
     val width = picks.size * tileW + (picks.size - 1) * gap + 2f * pad
-    val chip = panelVersionChip(panel, d, fontScale)
+    val chip = panelVersionChip(panel, d, fontScale, type)
     val right = minOf(chip.right + pad, body.right - 8f * d)
     val left = (right - width).coerceAtLeast(body.left + 8f * d)
     val ground = Rect(left, body.top + 6f * d, left + width, body.top + 6f * d + tileH + 2f * pad)
@@ -3017,9 +3108,11 @@ internal fun panelCellAt(
 ): Pair<Int, Int>? {
     // An envelope has no cells: it is continuous in both axes, and its own hit testing is
     // envNodeAt and envSegmentAt. Excluded here so a tap on the shape cannot also read as a
-    // cell somewhere behind it. A ModSeq's bar graph neither: its columns are levelColumns.
+    // cell somewhere behind it. A ModSeq's bar graph neither: its columns are levelColumns. Nor
+    // an Arranger's table, whose cells are its own (arrangerTable).
     if (module.type.grid == GridKind.NONE || module.type.grid == GridKind.PATTERN ||
-        module.type.grid == GridKind.ENVELOPE || module.type.grid == GridKind.LEVELS
+        module.type.grid == GridKind.ENVELOPE || module.type.grid == GridKind.LEVELS ||
+        module.type.grid == GridKind.SONG
     ) {
         return null
     }
@@ -4401,6 +4494,10 @@ sealed interface Interaction {
         val scroll: Int = 0,
         /** A saved subpatch held down in Boxes, whose menu is its deletion. */
         val saved: String? = null,
+        /** An Arranger's section of [targetId], held down by its head: its deletion. */
+        val section: Int = -1,
+        /** An Arranger's lane of [targetId], held down by its name: its removal. */
+        val lane: Int = -1,
         /**
          * The menu this one was opened from, and so the one a tap away returns to. Set only for
          * a saved subpatch's menu, which is opened from inside the add menu and should hand the
@@ -4482,6 +4579,12 @@ sealed interface NumberTarget {
 
     /** One number of a step-length chooser's sentence, past the sixteen its grid offers. */
     data class IntervalCount(val moduleId: Long, val part: IntervalPart) : NumberTarget
+
+    /** An Arranger's lane [lane] in scene [scene], typed as its level from 0 to 1, as a ModSeq's step. */
+    data class ArrangerCell(val moduleId: Long, val scene: Int, val lane: Int) : NumberTarget
+
+    /** How many steps an Arranger's section [at] of the song shown lasts, past the tiles. */
+    data class SectionSteps(val moduleId: Long, val at: Int) : NumberTarget
 }
 
 sealed interface MenuItem {
@@ -4535,6 +4638,12 @@ sealed interface MenuItem {
 
     /** Takes envelope node [node] away, and the segment that ends at it. */
     data class RemoveNode(val moduleId: Long, val node: Int) : MenuItem
+
+    /** Takes section [at] out of the song an Arranger shows. */
+    data class DeleteSection(val moduleId: Long, val at: Int) : MenuItem
+
+    /** Takes an Arranger's lane [lane] away, its jack and its cables with it. */
+    data class RemoveLane(val moduleId: Long, val lane: Int) : MenuItem
 }
 
 /**
@@ -4569,8 +4678,13 @@ internal fun menuItems(
     node: Int = -1,
     /** A saved subpatch held down in the add menu's Boxes. */
     saved: String? = null,
+    /** An Arranger's section or lane of [targetId], held down. */
+    section: Int = -1,
+    lane: Int = -1,
 ): List<MenuItem> = when {
     saved != null -> listOf(MenuItem.DeleteSaved(saved))
+    section >= 0 && targetId != null -> listOf(MenuItem.DeleteSection(targetId, section))
+    lane >= 0 && targetId != null -> listOf(MenuItem.RemoveLane(targetId, lane))
     port != null -> patch.subpatchPortAt(port)
         ?.let { (subpatch, dir, index) -> listOf(MenuItem.RemovePort(subpatch.id, dir, index)) }
         .orEmpty()
@@ -5401,11 +5515,14 @@ fun PatchCanvas(
     // A Seq's version strip, and the version a long press on it has offered to delete.
     var versionMenu by remember { mutableStateOf(false) }
     var versionDelete by remember { mutableStateOf<Int?>(null) }
+    // An Arranger's chooser, over a cell or a section's head.
+    var arrangerPop by remember { mutableStateOf<ArrangerPop?>(null) }
     LaunchedEffect(openModule?.id) {
         intervalMenu = false
         intervalDropdown = null
         versionMenu = false
         versionDelete = null
+        arrangerPop = null
     }
 
     // An SF panel's page of instruments: whether it is open, how far it is scrolled in rows,
@@ -5454,7 +5571,8 @@ fun PatchCanvas(
         // frame for a -1 is a frame's work for nothing.
         val id = openModule?.takeIf {
             it.type.grid == GridKind.SEQUENCE || it.type.grid == GridKind.DOTS ||
-                it.type.grid == GridKind.PATTERN || it.type.grid == GridKind.LEVELS
+                it.type.grid == GridKind.PATTERN || it.type.grid == GridKind.LEVELS ||
+                it.type.grid == GridKind.SONG
         }?.id
         if (id == null) {
             playingStep = -1
@@ -5633,7 +5751,7 @@ fun PatchCanvas(
                             // "+" copies the one shown into a new one, and a long press on a version
                             // offers its Delete as a tile -- a destructive action is always a tile.
                             if (open.type.versionsParam >= 0 && versionMenu) {
-                                val strip = versionStrip(panel, frame.density, frame.fontScale, open.versionCount)
+                                val strip = versionStrip(panel, frame.density, frame.fontScale, open.versionCount, open.type)
                                 val pending = versionDelete
                                 if (pending != null) {
                                     waitForUpRelease()
@@ -5675,11 +5793,62 @@ fun PatchCanvas(
                                 return@awaitEachGesture
                             }
                             if (open.type.versionsParam >= 0 && !intervalMenu &&
-                                panelVersionChip(panel, frame.density, frame.fontScale).contains(down.position)
+                                panelVersionChip(panel, frame.density, frame.fontScale, open.type).contains(down.position)
                             ) {
                                 waitForUpRelease()
                                 versionDelete = null
                                 versionMenu = true
+                                arrangerPop = null
+                                return@awaitEachGesture
+                            }
+
+                            // An Arranger's chooser owns the panel while it is open, as the strip
+                            // does: a tap on a tile picks, a drag on the slider sets the cell and
+                            // follows the finger, the reading is typed, and a tap anywhere else
+                            // closes it -- one step back. A cell's options close it once one is
+                            // chosen; a head's stay open, since a section is two choices.
+                            val pop = arrangerPop
+                            if (open.type.grid == GridKind.SONG && pop != null) {
+                                val d = frame.density
+                                val table = arrangerTable(panelGrid(panel, d, open.type), d, frame.fontScale, open)
+                                val chooser = arrangerChooser(
+                                    patch, open, table, panelBody(panel, d), d, frame.fontScale, pop,
+                                )
+                                if (chooser == null || !chooser.ground.contains(down.position)) {
+                                    waitForUpRelease()
+                                    arrangerPop = null
+                                    return@awaitEachGesture
+                                }
+                                val at = when (pop) {
+                                    is ArrangerPop.Cell -> pop.at
+                                    is ArrangerPop.Head -> pop.at
+                                }
+                                val scene = open.shownSections.getOrNull(at)?.scene ?: 0
+                                if (pop is ArrangerPop.Cell && chooser.slider?.contains(down.position) == true) {
+                                    open.setCell(scene, pop.lane, chooser.levelAt(down.position.x))
+                                    while (true) {
+                                        val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                        open.setCell(scene, pop.lane, chooser.levelAt(change.position.x))
+                                        change.consume()
+                                    }
+                                    return@awaitEachGesture
+                                }
+                                waitForUpRelease()
+                                when (val pick = chooser.pickAt(down.position)) {
+                                    is ArrangerPick.Level -> if (pop is ArrangerPop.Cell) {
+                                        open.setCell(scene, pop.lane, pick.level)
+                                        arrangerPop = null
+                                    }
+                                    is ArrangerPick.Scene -> open.setSectionScene(at, pick.scene)
+                                    ArrangerPick.NewScene -> open.branchScene(at)
+                                    is ArrangerPick.Steps -> open.setSectionSteps(at, pick.steps)
+                                    ArrangerPick.OtherSteps ->
+                                        interaction = Interaction.Typing(NumberTarget.SectionSteps(open.id, at))
+                                    ArrangerPick.Type -> if (pop is ArrangerPop.Cell) {
+                                        interaction = Interaction.Typing(NumberTarget.ArrangerCell(open.id, scene, pop.lane))
+                                    }
+                                    null -> {}
+                                }
                                 return@awaitEachGesture
                             }
 
@@ -5760,6 +5929,14 @@ fun PatchCanvas(
                             // The lock, beside it. A tap-only target like the chips, and the
                             // one thing on this panel that changes what a drag means rather
                             // than changing the patch -- so it sends the engine nothing.
+                            // An Arranger's end switch: loop or stop, a tap each way.
+                            if (open.type.grid == GridKind.SONG &&
+                                panelEndChip(panel, frame.density, frame.fontScale).contains(down.position)
+                            ) {
+                                waitForUpRelease()
+                                open.toggleEnd()
+                                return@awaitEachGesture
+                            }
                             if (open.type.grid == GridKind.DOTS &&
                                 panelLockChip(panel, frame.density, frame.fontScale).contains(down.position)
                             ) {
@@ -5901,6 +6078,82 @@ fun PatchCanvas(
                                     val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
                                     open.setLevel(hit, column.levelAt(change.position.y))
                                     change.consume()
+                                }
+                                return@awaitEachGesture
+                            }
+
+                            // An Arranger's table. A tap opens a cell's or a head's chooser, or adds a
+                            // section or a lane; a drag along the heads scrolls the sections and one
+                            // down the names scrolls the lanes, in whole columns and rows from where
+                            // it began; a long press on a head or a name is its menu. A drag on the
+                            // cells does nothing, since a cell is tapped -- Forrest's choice, so the
+                            // two never compete. Behind the same gate as every editor.
+                            if (open.type.grid == GridKind.SONG && !onHistory && knob == null && inEditor) {
+                                val d = frame.density
+                                val table = arrangerTable(gridArea, d, frame.fontScale, open)
+                                val hit = table.hit(down.position)
+                                val inHeads = table.headBand.contains(down.position)
+                                val inNames = table.nameBand.contains(down.position)
+                                var moved = false
+                                var held = false
+                                try {
+                                    withTimeout(longPressMs) {
+                                        while (true) {
+                                            val change = awaitPointerEvent().changes.firstOrNull() ?: break
+                                            if (!change.pressed) break
+                                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                                moved = true
+                                                break
+                                            }
+                                        }
+                                    }
+                                } catch (_: PointerEventTimeoutCancellationException) {
+                                    // Compose's own timeout, not kotlinx's: see CLAUDE.md.
+                                    held = true
+                                }
+                                when {
+                                    moved && (inHeads || inNames) -> {
+                                        val fromSection = table.firstSection
+                                        val fromLane = table.firstLane
+                                        while (true) {
+                                            val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                            if (inHeads) {
+                                                val columns = ((change.position.x - down.position.x) / table.colW).roundToInt()
+                                                open.sectionScroll = (fromSection - columns).coerceIn(0, table.maxSectionScroll)
+                                            } else {
+                                                val rows = ((change.position.y - down.position.y) / table.laneH).roundToInt()
+                                                open.laneScroll = (fromLane - rows).coerceIn(0, table.maxLaneScroll)
+                                            }
+                                            change.consume()
+                                        }
+                                    }
+                                    moved -> waitForUpRelease()
+                                    held -> {
+                                        // What is done *to* a section or a lane: its menu, and a
+                                        // destructive action is a tile. Not offered for the last.
+                                        when (hit) {
+                                            is ArrangerHit.Head -> if (open.shownSections.size > 1) {
+                                                interaction = Interaction.Menu(down.position, open.id, section = hit.at)
+                                            }
+                                            is ArrangerHit.Lane -> if (open.laneCount > 1) {
+                                                interaction = Interaction.Menu(down.position, open.id, lane = hit.lane)
+                                            }
+                                            else -> {}
+                                        }
+                                        waitForUpRelease()
+                                    }
+                                    else -> when (hit) {
+                                        // Added, then scrolled to, so what was made is in view.
+                                        ArrangerHit.AddLane -> if (open.addLane()) {
+                                            open.laneScroll = arrangerTable(gridArea, d, frame.fontScale, open).maxLaneScroll
+                                        }
+                                        ArrangerHit.AddSection -> if (open.appendSection()) {
+                                            open.sectionScroll = arrangerTable(gridArea, d, frame.fontScale, open).maxSectionScroll
+                                        }
+                                        is ArrangerHit.Head -> arrangerPop = ArrangerPop.Head(hit.at)
+                                        is ArrangerHit.Cell -> arrangerPop = ArrangerPop.Cell(hit.lane, hit.at)
+                                        else -> {}
+                                    }
                                 }
                                 return@awaitEachGesture
                             }
@@ -6630,7 +6883,7 @@ fun PatchCanvas(
                     open, patch, panelRect(frame), d, screenMeasurer, playing, playingStep,
                     intervalMenu, intervalDropdown, VersionView(versionMenu, versionDelete), liveParams, sfView,
                     patch.scales.getOrElse(playingEntry) { patch.scales.first() }.rootCents,
-                    frame.fontScale,
+                    frame.fontScale, arrangerPop,
                 )
             }
 
@@ -7307,6 +7560,8 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         is NumberTarget.SegmentLevel -> patch.module(target.moduleId)
         is NumberTarget.IntervalCount -> patch.module(target.moduleId)
         is NumberTarget.Level -> patch.module(target.moduleId)
+        is NumberTarget.ArrangerCell -> patch.module(target.moduleId)
+        is NumberTarget.SectionSteps -> patch.module(target.moduleId)
         else -> null
     }
     val param = when (target) {
@@ -7320,6 +7575,8 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         is NumberTarget.Knob -> module?.takeIf { target.index in it.type.params.indices }?.rowView(target.index)?.param
         is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let { countParam(target.part, it.interval) }
         is NumberTarget.Level -> STEP_LEVEL.takeIf { module?.levels?.indices?.contains(target.index) == true }
+        is NumberTarget.ArrangerCell -> STEP_LEVEL.takeIf { module?.scenes?.indices?.contains(target.scene) == true }
+        is NumberTarget.SectionSteps -> SECTION_STEPS.takeIf { module?.shownSections?.indices?.contains(target.at) == true }
     } ?: run {
         // The module went away under the keypad, which only an undo could do.
         LaunchedEffect(Unit) { onDone() }
@@ -7337,6 +7594,9 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
             param.format(module?.segments?.get(target.index)?.level ?: 0f)
         target is NumberTarget.IntervalCount -> (module?.interval?.count(target.part) ?: 1).toString()
         target is NumberTarget.Level -> param.format(module?.levels?.getOrNull(target.index) ?: 0f)
+        target is NumberTarget.ArrangerCell ->
+            param.format(module?.scenes?.getOrNull(target.scene)?.levels?.getOrNull(target.lane) ?: 0f)
+        target is NumberTarget.SectionSteps -> (module?.shownSections?.getOrNull(target.at)?.steps ?: 1).toString()
         target is NumberTarget.Knob && target.end == ValueTarget.LOW && range != null ->
             param.format(shown(range.low))
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH && range != null ->
@@ -7352,6 +7612,9 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         target is NumberTarget.SegmentTime -> "segment ${target.index + 1} time"
         target is NumberTarget.SegmentLevel -> "node ${target.index + 1} level"
         target is NumberTarget.Level -> "step ${target.index + 1}"
+        target is NumberTarget.ArrangerCell ->
+            "lane ${target.lane + 1} in ${module?.scenes?.getOrNull(target.scene)?.name.orEmpty()}"
+        target is NumberTarget.SectionSteps -> "section ${target.at + 1}, in steps"
         target is NumberTarget.Knob && target.end == ValueTarget.LOW -> "${param.name} from"
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH -> "${param.name} to"
         else -> param.name
@@ -7359,7 +7622,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
     val accent = when (target) {
         is NumberTarget.Tempo -> TransportAccent
         is NumberTarget.SegmentTime, is NumberTarget.SegmentLevel, is NumberTarget.IntervalCount,
-        is NumberTarget.Level ->
+        is NumberTarget.Level, is NumberTarget.ArrangerCell, is NumberTarget.SectionSteps ->
             module?.type?.accent ?: TransportAccent
         is NumberTarget.Knob -> if (range != null) ModulationColor else module?.type?.accent ?: TransportAccent
     }
@@ -7383,6 +7646,8 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
                     m.setSegment(target.index, seg.copy(level = value))
                 }
                 is NumberTarget.Level -> module?.setLevel(target.index, value)
+                is NumberTarget.ArrangerCell -> module?.setCell(target.scene, target.lane, value)
+                is NumberTarget.SectionSteps -> module?.setSectionSteps(target.at, value.roundToInt())
                 is NumberTarget.IntervalCount -> {
                     val m = module ?: return
                     val index = m.type.intervalParam
@@ -8690,8 +8955,14 @@ internal val STEP_LEVEL = Param("level", 0f, 1f, 0.5f)
  * level, a gain -- names the jack, which is that knob's. Null for none, or for several, when a
  * step's number says 0 to 1 instead (Forrest, 2026-10-04).
  */
-internal fun Patch.modSeqTarget(module: PatchModule): ParamRow? {
-    val from = PortRef(module.id, PortDirection.OUTPUT, 0)
+internal fun Patch.modSeqTarget(module: PatchModule): ParamRow? = modulationTarget(module, 0)
+
+/**
+ * The knob output [port] of [module] drives, when it drives exactly one -- [modSeqTarget] for any
+ * modulation output, which is what names an Arranger's lanes and says each lane's cells.
+ */
+internal fun Patch.modulationTarget(module: PatchModule, port: Int): ParamRow? {
+    val from = PortRef(module.id, PortDirection.OUTPUT, port)
     val targets = engineConnections().filter { it.from == from }.mapNotNull { cable ->
         val owner = module(cable.to.moduleId) ?: return@mapNotNull null
         val index = when (cable.to.dir) {
@@ -8719,6 +8990,12 @@ internal fun Patch.levelLabel(target: ParamRow?, level: Float): String {
         range.low + level * (range.high - range.low)
     }
     if (param.curve == ParamCurve.STEPPED) {
+        // A Seq's or an Arranger's version as a lane or a step says it: 0 is silent, and the rest
+        // are the versions by name, as the mockup Forrest decided from had them.
+        if (target.index == target.owner.type.versionParam) {
+            val n = param.indexOf(value) + param.min.roundToInt()
+            return if (n <= 0) "silent" else "v$n"
+        }
         return choiceWord(param, param.indexOf(value)).ifEmpty { target.format(value) }
     }
     return target.format(value)
@@ -9451,6 +9728,8 @@ private fun handleTap(
                 if (env.segments.getOrNull(chosen.node)?.sustain == true) env.setSustain(chosen.node)
             }
             is MenuItem.RemoveNode -> patch.module(chosen.moduleId)?.removeSegment(chosen.node)
+            is MenuItem.DeleteSection -> patch.module(chosen.moduleId)?.deleteSection(chosen.at)
+            is MenuItem.RemoveLane -> patch.module(chosen.moduleId)?.let { patch.removeLane(it, chosen.lane) }
             is MenuItem.Settings -> return Interaction.Settings
             is MenuItem.SaveRecording -> return Interaction.SavingRecording
         }
@@ -10118,7 +10397,10 @@ internal fun menuLayoutOf(
     textScale: Float = 1f,
 ): MenuLayout = menu.category?.let {
     addMenuLayout(patch, it, saved, menu.scroll, menu.anchor, d, canvas, textScale)
-} ?: menuLayout(menuItems(patch, menu.targetId, menu.port, menu.node, menu.saved), menu.anchor, d, canvas, textScale)
+} ?: menuLayout(
+    menuItems(patch, menu.targetId, menu.port, menu.node, menu.saved, menu.section, menu.lane),
+    menu.anchor, d, canvas, textScale,
+)
 
 internal fun menuLayout(
     items: List<MenuItem>,
@@ -10183,6 +10465,8 @@ private fun MenuItem.label(): String = when (this) {
     is MenuItem.ReleaseAt -> "Release here"
     is MenuItem.NoRelease -> "No release"
     is MenuItem.RemoveNode -> "Remove"
+    is MenuItem.DeleteSection -> "Delete"
+    is MenuItem.RemoveLane -> "Remove lane"
     is MenuItem.Settings -> "Settings\u2026"
     is MenuItem.SaveRecording -> "Save recording\u2026"
 }
@@ -10202,6 +10486,7 @@ private fun MenuItem.tint(): Color = when (this) {
     // The release's own blue, so the tile is the color of the region it makes.
     is MenuItem.ReleaseAt, is MenuItem.NoRelease -> EnvReleaseMark
     is MenuItem.RemoveNode -> Color(0xFFE07A6B)
+    is MenuItem.DeleteSection, is MenuItem.RemoveLane -> Color(0xFFE07A6B)
     is MenuItem.Settings -> Color(0xFF8A93A3)
     is MenuItem.SaveRecording -> Types.Subpatch.accent
 }
@@ -10340,12 +10625,12 @@ private val PanelTitleStyle = TextStyle(
     color = Color(0xFFE4E7EC),
 )
 
-private val PanelParamStyle = TextStyle(
+internal val PanelParamStyle = TextStyle(
     fontSize = 14.sp,
     color = Color(0xFF98A0AD),
 )
 
-private val PanelValueStyle = TextStyle(
+internal val PanelValueStyle = TextStyle(
     fontSize = 16.sp,
     fontWeight = FontWeight.Medium,
     color = Color(0xFFE4E7EC),
@@ -10567,7 +10852,7 @@ private fun DrawScope.drawModuleBox(
 }
 
 /** The color of modulation, which now has a kind of its own to take it from. */
-private val ModulationColor = SignalKind.MODULATION.cable
+internal val ModulationColor = SignalKind.MODULATION.cable
 
 /**
  * The two ends of a modulation range, drawn as the glyphs that name them: `[` at the low end
@@ -10617,6 +10902,8 @@ private fun DrawScope.drawPanel(
     rootCents: Float = 0f,
     /** The text size setting, for anything sized to hold a label. See ENV_CELL_MIN. */
     fontScale: Float = 1f,
+    /** An Arranger's chooser, when one is open over its table. */
+    arrangerPop: ArrangerPop? = null,
 ) {
     val corner = CornerRadius(14f * d, 14f * d)
 
@@ -10706,7 +10993,10 @@ private fun DrawScope.drawPanel(
     }
     if (module.type.versionsParam >= 0) {
         val label = if (module.shownVersion == 0) "all" else "v${module.shownVersion}"
-        drawChip(panelVersionChip(panel, d, fontScale), d, label, versions.open, scaleAccent, measurer)
+        drawChip(panelVersionChip(panel, d, fontScale, module.type), d, label, versions.open, scaleAccent, measurer)
+    }
+    if (module.type.grid == GridKind.SONG) {
+        drawChip(panelEndChip(panel, d, fontScale), d, if (module.stopsAtEnd) "stop" else "loop", false, scaleAccent, measurer)
     }
 
     if (sf != null) {
@@ -10791,12 +11081,23 @@ private fun DrawScope.drawPanel(
                 patch.levelLabel(target, level)
             }
         }
+        GridKind.SONG -> {
+            // Underlined only while the song playing is the one shown: the engine's section is
+            // a section of the song its version knob chose.
+            val knob = module.type.versionParam
+            val song = (live[knob] ?: module.params.getOrElse(knob) { 1f }).roundToInt()
+            drawArranger(
+                patch, module, arrangerTable(gridArea, d, fontScale, module), d, measurer,
+                if (song == module.shownVersion) playingStep else -1, module.type.accent,
+            )
+        }
         GridKind.NONE -> {}
     }
     // Neither of these scrolls: a pattern is read-only and an envelope is capped to what
-    // fits, which is the whole reason MAX_SEGMENTS is a cap.
+    // fits, which is the whole reason MAX_SEGMENTS is a cap. An Arranger scrolls its own way.
     if (module.type.grid != GridKind.NONE && module.type.grid != GridKind.PATTERN &&
-        module.type.grid != GridKind.ENVELOPE && module.type.grid != GridKind.LEVELS
+        module.type.grid != GridKind.ENVELOPE && module.type.grid != GridKind.LEVELS &&
+        module.type.grid != GridKind.SONG
     ) {
         drawGridScrollBar(gridArea, d, gridWindow(module, gridArea, d, scale), module.type.accent)
     }
@@ -10855,6 +11156,34 @@ private fun DrawScope.drawPanel(
         drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents, patch.beatsPerBar)
     }
     if (versions.open && module.type.versionsParam >= 0) drawVersionStrip(panel, d, module, versions, measurer, fontScale)
+    if (arrangerPop != null && module.type.grid == GridKind.SONG) {
+        val table = arrangerTable(gridArea, d, fontScale, module)
+        arrangerChooser(patch, module, table, panelBody(panel, d), d, fontScale, arrangerPop)?.let { chooser ->
+            val at = when (arrangerPop) {
+                is ArrangerPop.Cell -> arrangerPop.at
+                is ArrangerPop.Head -> arrangerPop.at
+            }
+            val section = module.shownSections.getOrNull(at)
+            val lane = (arrangerPop as? ArrangerPop.Cell)?.lane ?: 0
+            val level = section?.let { module.scenes.getOrNull(it.scene)?.levels?.getOrNull(lane) } ?: 0f
+            val nearest = patch.laneOptions(module, lane)?.minByOrNull { kotlin.math.abs(it.first - level) }?.first
+            drawArrangerChooser(
+                chooser, d, measurer,
+                chosen = { pick ->
+                    when (pick) {
+                        is ArrangerPick.Level -> arrangerPop is ArrangerPop.Cell && pick.level == nearest
+                        is ArrangerPick.Scene -> arrangerPop is ArrangerPop.Head && section?.scene == pick.scene
+                        is ArrangerPick.Steps -> arrangerPop is ArrangerPop.Head && section?.steps == pick.steps
+                        ArrangerPick.OtherSteps -> arrangerPop is ArrangerPop.Head && section != null &&
+                            section.steps !in SECTION_LENGTHS
+                        else -> false
+                    }
+                },
+                level = level,
+                reading = patch.levelLabel(patch.laneTarget(module, lane), level),
+            )
+        }
+    }
 }
 
 /** Whether a Seq's version strip is open, and which version a long press offered to delete. */
@@ -10864,7 +11193,7 @@ internal data class VersionView(val open: Boolean = false, val deleting: Int? = 
 private fun DrawScope.drawVersionStrip(
     panel: Rect, d: Float, module: PatchModule, view: VersionView, measurer: TextMeasurer, fontScale: Float,
 ) {
-    val strip = versionStrip(panel, d, fontScale, module.versionCount)
+    val strip = versionStrip(panel, d, fontScale, module.versionCount, module.type)
     val corner = CornerRadius(10f * d, 10f * d)
     drawRoundRect(ChipFill, strip.ground.topLeft, strip.ground.size, corner)
     drawRoundRect(ChipEdge, strip.ground.topLeft, strip.ground.size, corner, style = Stroke(width = 1.5f * d))

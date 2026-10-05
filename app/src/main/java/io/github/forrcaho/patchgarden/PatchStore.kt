@@ -87,8 +87,11 @@ import java.io.File
  * each dot saying which as a fifth number, with `version` and `versions` knobs; and an Osc
  * has its `fm` port back, a third input, with an `index` knob. Reads nothing but 21, under
  * the same policy, one bump for everything that night.
+ * 22: the Arranger, roadmap item 5, a new module whose scenes are saved as `scenes` -- a name
+ * and a level a lane -- and whose songs as `songs`, a list each of [scene, steps]. Reads nothing
+ * but 22, under the same policy: an older build would read it as retired and autosave without it.
  */
-private const val FORMAT_VERSION = 21
+private const val FORMAT_VERSION = 22
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {
@@ -106,6 +109,10 @@ fun Patch.toJson(): String {
         if (m.type.grid == GridKind.ENVELOPE) entry.put("segments", segmentsOf(m))
         if (m.type.grid == GridKind.LEVELS) {
             entry.put("levels", JSONArray().apply { m.levels.forEach { put(it.toString().toDouble()) } })
+        }
+        if (m.type.grid == GridKind.SONG) {
+            entry.put("scenes", scenesOf(m))
+            entry.put("songs", songsOf(m))
         }
         // Absent at the top level, so a patch with no subpatches writes exactly what format 5 did.
         m.name?.let { entry.put("name", it) }
@@ -302,6 +309,64 @@ private fun segmentsOf(module: PatchModule): JSONArray {
     return out
 }
 
+/** An Arranger's scenes: each its name and a level a lane, as a ModSeq's levels are written. */
+private fun scenesOf(module: PatchModule): JSONArray = JSONArray().apply {
+    module.scenes.forEach { scene ->
+        put(
+            JSONObject()
+                .put("name", scene.name)
+                .put("levels", JSONArray().apply { scene.levels.forEach { put(it.toString().toDouble()) } }),
+        )
+    }
+}
+
+/** An Arranger's songs: each a list of its sections as [scene, steps]. */
+private fun songsOf(module: PatchModule): JSONArray = JSONArray().apply {
+    module.songs.forEach { song ->
+        put(JSONArray().apply { song.sections.forEach { put(JSONArray().put(it.scene).put(it.steps)) } })
+    }
+}
+
+/**
+ * An Arranger's scenes and songs. Anything that will not read is left out rather than guessed
+ * at -- a level keeps its middle, a section naming a scene there is not is dropped -- and an
+ * Arranger with nothing usable left keeps its default, so a song always has a section to play.
+ * The count of songs is the songs read, whatever the `versions` knob said.
+ */
+private fun restoreArranger(module: PatchModule, scenes: JSONArray?, songs: JSONArray?) {
+    if (module.type.grid != GridKind.SONG) return
+    val readScenes = mutableListOf<Scene>()
+    for (i in 0 until minOf(scenes?.length() ?: 0, MAX_SCENES)) {
+        val o = scenes!!.optJSONObject(i) ?: continue
+        val name = o.optString("name").take(MAX_NAME)
+        if (name.isEmpty()) continue
+        val stored = o.optJSONArray("levels")
+        val levels = List(LANES_MAX) { lane ->
+            val v = stored?.optDouble(lane, Double.NaN)?.toFloat() ?: Float.NaN
+            if (v.isFinite()) v.coerceIn(0f, 1f) else 0.5f
+        }
+        readScenes.add(Scene(name, levels))
+    }
+    if (readScenes.isEmpty()) return
+    val readSongs = mutableListOf<Song>()
+    for (i in 0 until minOf(songs?.length() ?: 0, MAX_SONGS)) {
+        val stored = songs!!.optJSONArray(i) ?: continue
+        val sections = (0 until minOf(stored.length(), MAX_SECTIONS)).mapNotNull { at ->
+            val pair = stored.optJSONArray(at) ?: return@mapNotNull null
+            val scene = pair.optInt(0, -1)
+            val steps = pair.optInt(1, 0)
+            if (scene !in readScenes.indices || steps !in 1..MAX_SECTION_STEPS) null else Section(scene, steps)
+        }
+        if (sections.isNotEmpty()) readSongs.add(Song(sections))
+    }
+    if (readSongs.isEmpty()) readSongs.add(Song(listOf(Section(0, 4))))
+    module.scenes.clear()
+    module.scenes.addAll(readScenes)
+    module.songs.clear()
+    module.songs.addAll(readSongs)
+    module.type.versionsParam.takeIf { it >= 0 }?.let { module.setParam(it, readSongs.size.toFloat()) }
+}
+
 /** A ModSeq's levels, in order: a level that will not read keeps the step's default. */
 private fun restoreLevels(module: PatchModule, stored: JSONArray?) {
     if (stored == null || module.type.grid != GridKind.LEVELS) return
@@ -464,6 +529,7 @@ fun patchFromJson(text: String, scales: ScaleLibrary = ScaleLibrary.of(null)): P
             restoreDots(module, m.optJSONArray("dots"))
             restoreSegments(module, m.optJSONArray("segments"))
             restoreLevels(module, m.optJSONArray("levels"))
+            restoreArranger(module, m.optJSONArray("scenes"), m.optJSONArray("songs"))
             // Before the cables, which can only land on a parameter already exposed.
             restoreMod(module, m.optJSONObject("mod"))
             patch.adopt(module)

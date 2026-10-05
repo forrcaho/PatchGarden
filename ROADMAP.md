@@ -395,8 +395,9 @@ third and the fourth -- which is why they go in the order they are numbered.
    grow, and the `Env` editor's reasons for refusing a scroll or a zoom apply here as well.
    *Decided:* it **stays 32** until a real phrase needs more.
 
-5. **The Arranger**, after Bespoke's songbuilder: what plays when. **Designed and mocked up
-   overnight 2026-10-04, not built** -- https://claude.ai/artifact/Jvc49sfazg9YqAt4oGURXc. *Proposed
+5. ~~**The Arranger**~~, after Bespoke's songbuilder: what plays when. **Built 2026-10-05**, as
+   decided below; on the emulator, **not yet on the phone or heard**. Designed and mocked up
+   overnight 2026-10-04 -- https://claude.ai/artifact/Jvc49sfazg9YqAt4oGURXc. *Proposed
    there:* lanes are modulation outputs (four, up to eight), each named by the knob its cable
    reaches and its cells said in that knob's terms -- ModSeq's lookup; **scenes and a song**, as
    both the songbuilder and Cubase have them, the table showing the song so it reads like the
@@ -487,12 +488,47 @@ third and the fourth -- which is why they go in the order they are numbered.
 
    A section's length is counted in **bars**, which item 1 now offers.
 
-   *Still open:*
-   - what happens on stop (the songbuilder's "off" scene is version 0 everywhere);
-   - whether a jump resets the transport, as the songbuilder's can;
-   - what the panel looks like on a phone. A table of lanes down and sections across, a value
-     in each cell and each section's length in a rail beneath, would be the `Env` editor's
-     problem of rails that must line up with what they label.
+   *Decided 2026-10-05*, as menus over the mockup, taking every proposal but one:
+   - **scenes and a song**, not a plain table: editing A edits every A, in every song;
+   - **four lanes, adding up to eight**;
+   - at the end of the song, **a switch for loop or stop** -- the one answer that was not the
+     proposal, which was to loop;
+   - on transport stop, **hold where it is**, as every sequencer does;
+   - **a jump to a section, later**: a tap on a head already opens its scene and length;
+   - a long song **scrolled sideways by dragging the row of heads**, since a drag on the cells
+     would compete with tapping them.
+
+   *As built* (`Arranger.kt`, `ArrangerNode`, format 22):
+   - Lanes are outputs, the first `laneCount` of eight, so a lane added is a jack under the others;
+     removing one renumbers the cables after it, as dropping a box's port does. The `lanes` and
+     `end` knobs live in the header, saved like any knob; `versions` counts the songs.
+   - Scenes cross as segment slots, a level a lane, as a ModSeq's steps; songs as a new slot kind,
+     `SectionSlot`, at song * 64 + section with an empty section ending each song -- every song
+     there could be, so a deleted one is empty in the engine. Compared by slot rather than by
+     place in the list (`diffKeyed`), which the first version did not and resent every later
+     song's end whenever one section was added.
+   - A version change restarts the new song at the next tick, as a Seq's does, and sends its
+     first scene at once rather than holding the old song's until then -- a node test caught
+     the version that held the old section's number, once the test put a different scene there.
+   - The panel: lane names down the left, each the knob its cable reaches; heads across the top,
+     each its scene and length in the interval's terms ("4 bars"); a cell its value in the
+     knob's terms with a bar for where it sits between the brackets, "silent" drawn faint. A tap
+     on a cell opens its chooser -- a stepped knob's options as tiles ("silent", "v1", "v2"),
+     anything else a slider and a reading to type -- and a tap on a head its scene (with "+" for
+     a primed copy, B′ from B) and length (1, 2, 4, 8, 16 bars, other…). The chooser owns the
+     panel until a tap off it; a cell's closes on a pick, a head's stays open, a section being
+     two choices. The "+" column adds a section of a new scene, the next letter, starting from
+     the last's values; the corner adds a lane. A long press on a head or a name is its Delete
+     or Remove lane, a tile.
+   - **Not asked, decided in building:** at font scale 1.5 only about four lanes fit under the
+     heads, so lanes past that **scroll by dragging their names**, as sections do by their
+     heads. The knob band is one row, the `version` knob's, and gets exactly what that row
+     needs: the first build gave it a slider's floor and its label drew behind its buttons.
+     Scenes cannot be deleted yet (sixteen at most); a Seq's version, wherever a modulator's
+     values are labeled -- an Arranger's cells, a ModSeq's steps -- reads "silent" and "v1".
+   - *On the emulator*, a song A B A B′ of a bar each driving two six-step Seqs: every A started
+     its phrase at C D E F where the transport alone would have played E F G A, B and B′ started
+     their versions from the top, the silent lanes were silent, and every note was on the beat.
 
    Sources for 4 and 5: [Elektron trig conditions](https://www.manualslib.com/manual/2952572/Elektron-Syntakt.html?page=42),
    [Bitwig 4 operators](https://www.soundonsound.com/reviews/bitwig-studio-4?page=2),
@@ -671,6 +707,8 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
 
 ### Still to be heard on the phone
 
+- **The Arranger** (item 5, 2026-10-05): ABAB′ by ear, the table by finger at the phone's own
+  size, and a song nested a level down -- an Arranger in a box driven by another's lane.
 - **The output limiter** (above, 2026-10-05): whether a patch that hits it now sounds turned
   down rather than squashed, and whether the 150ms release pumps. Measured, not heard.
 - **The overnight run of 2026-10-04**: LFO phase, ModSeq, Seq versions and the `fm` port. Measured

@@ -57,6 +57,7 @@ enum class NodeType : int32_t {
     Delay = 25,
     Reverb = 26,
     ModSeq = 27,
+    Arranger = 28,
 };
 
 /**
@@ -1024,6 +1025,82 @@ private:
     /** -1 until the first tick, while step one's level is what is sent. */
     int32_t step_ = -1;
     Interval interval_ = intervalOf(kDefaultInterval);
+};
+
+/**
+ * What plays when: lanes of modulation, each sending a scene's value for as long as the
+ * section playing that scene lasts, through the sections of a song in order -- Bespoke's
+ * songbuilder, and Cubase's arranger, roadmap item 5.
+ *
+ * A scene is a value for every lane, 0 to 1 between whatever brackets the knob a lane drives
+ * has; a song is a list of sections, each a scene for some steps of the interval. Scenes are
+ * shared by every song, so editing A edits every A, in every song. Songs are this module's
+ * versions, chosen by its `version` knob as a Seq's are, and 0 is stopped -- every lane at 0,
+ * which silences any Seq a lane drives through its version. A change of version starts the
+ * new song from its top at the next tick, which is the whole of nesting one Arranger inside
+ * another: the song's Arranger drives a verse's version, and the verse starts from its top.
+ *
+ * Positioned like a Seq: steps counted from where the song last started, so a section starts
+ * where the one before it ended, whatever lengths the phrases under it have. At the end of the
+ * song it loops or stops, as its `end` knob says; stopped, every lane is 0 until the transport
+ * goes back to the top or the version changes. Transport stopped, it holds where it is.
+ *
+ * Knobs, mirroring PatchCanvas.kt: interval, version, versions (the interface's), end, lanes
+ * (the interface's).
+ */
+class ArrangerNode : public Node {
+public:
+    /** Mirrored by LANES_MAX in PatchCanvas.kt: an output each. */
+    static constexpr int32_t kLanes = 8;
+    /** Mirrored by MAX_SCENES. */
+    static constexpr int32_t kMaxScenes = 16;
+    /** Mirrored by MAX_SECTIONS: a song's sections, and the stride of a section slot's song. */
+    static constexpr int32_t kMaxSections = 64;
+    /** Mirrored by MAX_SONGS. */
+    static constexpr int32_t kMaxSongs = 8;
+
+    ArrangerNode();
+
+    int32_t inputCount() const override { return 0; }
+    int32_t outputCount() const override { return kLanes; }
+    void process(int32_t frames) override;
+    void setParam(int32_t index, float value) override;
+    /**
+     * A scene's value as a segment slot's level, at scene * kLanes + lane, as a ModSeq's steps
+     * are; a song's section as a section slot, at song * kMaxSections + section.
+     */
+    void setSlot(const SlotValue &slot) override;
+    /** The section playing in the song playing, or -1: stopped, ended, or a song with none. */
+    int32_t position() const override { return section_; }
+    Interval interval() const override { return interval_; }
+    void tick(int32_t offset, int64_t count) override;
+
+private:
+    static constexpr int32_t kMaxPending = 4;
+
+    /** The section [at] steps into the song playing, or -1 for none. */
+    int32_t sectionAt(int64_t at) const;
+    void onTick(int64_t count);
+    /** Writes what each lane sends over [from, to) of this block. */
+    void fill(int32_t from, int32_t to);
+
+    Tick pending_[kMaxPending] = {};
+    int32_t pendingCount_ = 0;
+
+    float level_[kMaxScenes][kLanes] = {};
+    int32_t scene_[kMaxSongs][kMaxSections] = {};
+    /** In steps; 0 is the end of the song. */
+    int32_t length_[kMaxSongs][kMaxSections] = {};
+
+    Interval interval_ = intervalOf(kDefaultInterval);
+    /** The song playing, from 1, or 0 for stopped. */
+    int32_t version_ = 1;
+    bool loop_ = true;
+    /** The tick the song playing started on; see SeqNode::origin_. */
+    int64_t origin_ = 0;
+    int64_t lastCount_ = -1;
+    bool restartPending_ = false;
+    int32_t section_ = 0;
 };
 
 /**

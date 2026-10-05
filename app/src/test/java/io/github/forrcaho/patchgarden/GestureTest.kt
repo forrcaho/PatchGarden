@@ -939,6 +939,140 @@ class GestureTest {
         assertTrue("the panel it was typed into is still open", seq.expanded)
     }
 
+    // ------------------------------------------------------------------ the Arranger
+
+    /** An Arranger with its panel open, and its table and choosers as the panel lays them out. */
+    private inner class ArrangerRig(prepare: (Host, PatchModule) -> Unit = { _, _ -> }) {
+        val host = Host()
+        val arranger = host.patch.add(Types.Arranger, Offset(40f, 40f))!!
+
+        init {
+            prepare(host, arranger)
+            compose.waitForIdle()
+            host.tap(host.body(arranger))
+            check(arranger.expanded)
+        }
+
+        val panel get() = panelRect(host.frame)
+        val table get() = arrangerTable(panelGrid(panel, host.d, Types.Arranger), host.d, host.frame.fontScale, arranger)
+        fun chooser(pop: ArrangerPop) =
+            arrangerChooser(host.patch, arranger, table, panelBody(panel, host.d), host.d, host.frame.fontScale, pop)!!
+        fun tile(pop: ArrangerPop, pick: ArrangerPick) = chooser(pop).tiles.single { it.second == pick }.first.center
+
+        /** Somewhere on the panel with nothing under it: the middle of its header. */
+        val nowhere get() = Offset(panel.center.x, panel.top + PatchModule.PANEL_HEADER * host.d / 2f)
+    }
+
+    @Test
+    fun `a section's head opens its chooser, which sets the length and the scene and stays open`() {
+        val rig = ArrangerRig { _, arranger -> arranger.appendSection() }
+        rig.host.tap(rig.table.headOf(0)!!.center)
+        rig.host.tap(rig.tile(ArrangerPop.Head(0), ArrangerPick.Steps(8)))
+        assertEquals(8, rig.arranger.shownSections[0].steps)
+        rig.host.tap(rig.tile(ArrangerPop.Head(0), ArrangerPick.Scene(1)))
+        assertEquals("still open after the length: a section is two choices", 1, rig.arranger.shownSections[0].scene)
+        rig.host.tap(rig.tile(ArrangerPop.Head(0), ArrangerPick.NewScene))
+        assertEquals("+ is a new scene, primed from the one it copied", "B\u2032", rig.arranger.scenes.last().name)
+
+        // A tap off the chooser closes it, and changes nothing: where a length was is the table again.
+        val oneStep = rig.tile(ArrangerPop.Head(0), ArrangerPick.Steps(1))
+        rig.host.tap(rig.nowhere)
+        rig.host.tap(oneStep)
+        assertEquals(8, rig.arranger.shownSections[0].steps)
+    }
+
+    @Test
+    fun `a cell of a lane on a Seq's version offers silent and the versions, and a pick sets the scene`() {
+        val rig = ArrangerRig { host, arranger ->
+            val seq = host.patch.add(Types.Seq, Offset(300f, 40f))!!
+            seq.addVersion()
+            check(host.patch.expose(seq, Types.Seq.versionParam, ModRange(0f, 2f)))
+            check(host.patch.connect(out(arranger), PortRef(seq.id, PortDirection.MOD, Types.Seq.versionParam)))
+        }
+        rig.host.tap(rig.table.cellOf(0, 0)!!.center)
+        assertEquals(listOf("silent", "v1", "v2"), rig.chooser(ArrangerPop.Cell(0, 0)).tiles.map { it.third })
+        rig.host.tap(rig.tile(ArrangerPop.Cell(0, 0), ArrangerPick.Level(1f)))
+        assertEquals(1f, rig.arranger.scenes[0].levels[0])
+    }
+
+    @Test
+    fun `a cell with nothing patched is a slider that follows the finger, and its reading is typed`() {
+        val rig = ArrangerRig()
+        rig.host.tap(rig.table.cellOf(1, 0)!!.center)
+        val slider = rig.chooser(ArrangerPop.Cell(1, 0)).slider!!
+        rig.host.drag(
+            Offset(slider.left + slider.width * 0.1f, slider.center.y),
+            Offset(slider.left + slider.width * 0.8f, slider.center.y),
+        )
+        assertEquals("where the finger stopped", 0.8f, rig.arranger.scenes[0].levels[1], 0.02f)
+        rig.host.tap(rig.chooser(ArrangerPop.Cell(1, 0)).reading!!.center)
+        listOf("0", ".", "2", "5", KEY_OK).forEach(rig.host::key)
+        assertEquals(0.25f, rig.arranger.scenes[0].levels[1], 1e-4f)
+    }
+
+    @Test
+    fun `the plus column adds sections, and a drag along the heads scrolls them where one on the cells does not`() {
+        val rig = ArrangerRig()
+        // Until there are two columns more than the screen shows, however wide it is.
+        while (rig.table.maxSectionScroll < 2) rig.host.tap(rig.table.plus!!.center)
+        assertEquals("each a new scene", ('A' until 'A' + rig.arranger.shownSections.size).map { "$it" },
+            rig.arranger.scenes.map { it.name })
+        val scrolled = rig.arranger.sectionScroll
+        assertEquals("adding scrolled to the end, to show what was added", rig.table.maxSectionScroll, scrolled)
+
+        val table = rig.table
+        val cell = table.cells.first().third
+        rig.host.drag(cell.center, cell.center + Offset(table.colW * 2f, 0f))
+        assertEquals("a drag on the cells scrolls nothing", scrolled, rig.arranger.sectionScroll)
+        val head = table.heads.first().second
+        rig.host.drag(head.center, head.center + Offset(table.colW * 2f, 0f))
+        assertEquals("along the heads, a column at a time", scrolled - 2, rig.arranger.sectionScroll)
+    }
+
+    @Test
+    fun `a long press on a section's head offers its Delete as a tile`() {
+        val rig = ArrangerRig { _, arranger -> arranger.appendSection() }
+        val head = rig.table.headOf(1)!!.center
+        rig.host.hold(head)
+        assertEquals("a long press alone deletes nothing", 2, rig.arranger.shownSections.size)
+        val menu = menuLayout(
+            menuItems(rig.host.patch, rig.arranger.id, section = 1), head, rig.host.d,
+            rig.host.frame.canvas, rig.host.frame.fontScale,
+        )
+        rig.host.tap(menu.tiles.single { it.second == MenuItem.DeleteSection(rig.arranger.id, 1) }.first.center)
+        assertEquals(listOf(0), rig.arranger.shownSections.map { it.scene })
+    }
+
+    @Test
+    fun `the corner adds a lane, and a long press on a lane's name removes it`() {
+        val rig = ArrangerRig()
+        rig.host.tap(rig.table.corner.center)
+        assertEquals("a jack under the others", 5, rig.arranger.laneCount)
+        val name = rig.table.names.first().second.center
+        rig.host.hold(name)
+        val menu = menuLayout(
+            menuItems(rig.host.patch, rig.arranger.id, lane = rig.table.names.first().first), name, rig.host.d,
+            rig.host.frame.canvas, rig.host.frame.fontScale,
+        )
+        rig.host.tap(menu.tiles.single { it.second is MenuItem.RemoveLane }.first.center)
+        assertEquals(4, rig.arranger.laneCount)
+    }
+
+    @Test
+    fun `the end switch flips loop and stop, and the song strip has no all`() {
+        val rig = ArrangerRig()
+        val d = rig.host.d
+        val text = rig.host.frame.fontScale
+        rig.host.tap(panelEndChip(rig.panel, d, text).center)
+        assertTrue(rig.arranger.stopsAtEnd)
+        rig.host.tap(panelVersionChip(rig.panel, d, text, Types.Arranger).center)
+        val strip = versionStrip(rig.panel, d, text, rig.arranger.versionCount, Types.Arranger)
+        assertTrue("a table shows one song", strip.tiles.none { it.second == VersionPick.All })
+        rig.host.tap(strip.tiles.single { it.second == VersionPick.Add }.first.center)
+        assertEquals(2, rig.arranger.versionCount)
+        assertEquals("the new song is shown", 2, rig.arranger.shownVersion)
+    }
+
     // ------------------------------------------------------------------ subpatch controls
 
     @Test
