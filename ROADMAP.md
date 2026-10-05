@@ -628,6 +628,15 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
     Reverb, placed level: every cable between them straight. A box input added from inside
     through the rail's slot, then the screen diffed against the one before it -- the new jack
     and the undo button changed, and nothing else by a pixel.
+  - *Then closer, 2026-10-05.* Hung from the top, the jacks looked too far apart to Forrest,
+    who asked for two thirds or three quarters of the 44dp pitch. All three were built and
+    screenshotted on the phone over one patch: 44 ran a Mix off the bottom of the screen, and
+    both smaller ones fit with labels clear at font scale 1.5. The cost is the touch target,
+    which reaches half a pitch either way -- 7.0mm at 44, 5.2mm at 33, 4.7mm at 29, against a
+    fingertip of 8 to 10mm. **Forrest chose 33dp**, three quarters, and the rails' jacks follow.
+    `PORT_PITCH` is one constant: the minimum body is now defined as one pitch, so a module with
+    one jack still centers it, and the modulation band's rows were already a pitch each. No file
+    changes, since jack positions are worked out when drawn. Not yet tried by finger.
   - *Left alone, decided 2026-10-04:* the **open panel's** jacks (`panelPort`) stay spread
     down its edge by their count and centered, so one added while the panel is open -- a box's
     Controls panel and its `[ ]` -- re-spaces the others (31dp and 38dp, measured on the

@@ -1851,9 +1851,16 @@ class PatchModule(
         const val RAIL_WIDTH = 64f
         /** Title band above the ports. */
         const val HEADER = 22f
-        /** Center-to-center spacing of adjacent ports on one edge. */
-        const val PORT_PITCH = 44f
-        const val MIN_BODY = 44f
+        /**
+         * Center-to-center spacing of adjacent ports on one edge, and so how far a jack's touch
+         * reaches (half of it, either way). 44dp until 2026-10-05, when hanging every jack from
+         * the top left them looking too far apart and Forrest chose three quarters of that,
+         * from screenshots of 44, 33 and 29 on the phone: the 29 was a 4.7mm target against a
+         * fingertip twice that. The rails' jacks keep the same pitch.
+         */
+        const val PORT_PITCH = 33f
+        /** One jack's worth, so a module with one centers it. */
+        const val MIN_BODY = PORT_PITCH
         const val CORNER = 8f
         const val PORT_RADIUS = 6f
         const val PORT_RADIUS_ARMED = 9f
@@ -5236,8 +5243,8 @@ internal fun railDirFor(source: PortRef): PortDirection =
 /**
  * Where a subpatch's next port would land on [rail], and so where the slot for it is drawn.
  *
- * A rail is 64dp wide and its jacks answer to a 22dp touch radius, so nearly every tap on a
- * rail lands on a jack already there -- which is why "tap the rail to add a port" could not
+ * A rail is 64dp wide and its jacks answer to a touch radius of half a pitch, so nearly every
+ * tap on a rail lands on a jack already there -- which is why "tap the rail to add a port" could not
  * be made to happen at all on the phone. The slot is a target of its own, a whole port pitch
  * from the last jack, so it can be hit.
  */
