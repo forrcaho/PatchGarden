@@ -1906,6 +1906,8 @@ class PatchModule(
         /** Modulation ports per row of the bottom band, and the height of each row. */
         const val MOD_COLUMNS = 3
         const val MOD_ROW = PORT_PITCH
+        /** Between neighbors in a row of the band: the nearest two jacks side by side. */
+        const val MOD_SPACING = (WIDTH - 2f * LABEL_INSET) / (MOD_COLUMNS - 1)
 
         /**
          * Which slot of the band a parameter's port takes: its position among the rows.
@@ -1961,7 +1963,7 @@ internal fun modPortIn(rect: Rect, unit: Float, type: ModuleType, index: Int, bo
     val slot = PatchModule.modSlot(type, index).coerceAtLeast(0)
     val column = slot % PatchModule.MOD_COLUMNS
     val row = slot / PatchModule.MOD_COLUMNS
-    val pitch = (PatchModule.WIDTH - 2f * PatchModule.LABEL_INSET) / (PatchModule.MOD_COLUMNS - 1)
+    val pitch = PatchModule.MOD_SPACING
     val bandTop = rect.top + PatchModule.HEADER * unit + bodyHeight
     return Offset(
         rect.left + (PatchModule.LABEL_INSET + column * pitch) * unit,
@@ -6578,13 +6580,16 @@ fun PatchCanvas(
                 }
             }
 
-            // Halo on the armed port, drawn unscaled so it always reads as a real target.
+            // Halo on the armed port: exactly how far it reaches, an oval since the pitch went
+            // to 33dp, so what reads as the target is the target.
             (interaction as? Interaction.Connecting)?.let { state ->
                 portScreen(patch, state.source, camera, frame)?.let { at ->
-                    drawCircle(
+                    val pinned = patch.module(state.source.moduleId)?.isPinned == true
+                    val reach = portReach(touchPx, if (pinned) d else camera.worldToScreen)
+                    drawOval(
                         color = Color(0xFF7FD1C1).copy(alpha = 0.28f),
-                        radius = effectiveTouchRadius(camera, touchPx),
-                        center = at,
+                        topLeft = at - Offset(reach.width, reach.height),
+                        size = reach * 2f,
                     )
                 }
                 // The empty slot after a subpatch rail's last jack: where a port for the armed
@@ -7496,57 +7501,101 @@ private data class TwoFinger(val centroid: Offset, val spread: Float)
 // ---------------------------------------------------------------- hit testing
 
 /**
- * A port never grabs past the midpoint to its neighbor.
+ * How far a jack reaches for a touch, across and down: an oval, never past the midpoint to its
+ * nearest neighbor along either axis.
  *
- * The screen-space radius is the right idea — a port should be a fixed amount of glass —
- * but it cannot exceed half the on-screen port pitch, or zooming out would let one port's
- * grab area swallow the next and hand the tap to whichever happened to be marginally
- * nearer. Capping keeps the generous target wherever there is room for it, and degrades
- * to "you have to aim" only when the ports really are that close together on the glass.
+ * The screen-space radius is the right idea -- a port should be a fixed amount of glass -- but
+ * it cannot exceed half the distance to the next jack, or zooming out would let one port's grab
+ * area swallow the next and hand the tap to whichever happened to be marginally nearer. Capping
+ * keeps the generous target wherever there is room for it, and degrades to "you have to aim"
+ * only when the ports really are that close together on the glass.
  *
- * Rails are exempt: their pitch is fixed in screen space and never shrinks.
+ * Down, the next jack is a pitch away. Across, the nearest is in the modulation band, the band's
+ * spacing apart -- the side jacks face each other a module's width apart. It was one radius,
+ * capped by the pitch, until the pitch went from 44dp to 33 on 2026-10-05: the circle shrank
+ * from 22dp to 16.5, and a finger aimed at a jack, landing a little inside the module as one
+ * does, opened the module instead. Only the pitch had a reason to shrink it, and the pitch is
+ * vertical.
+ *
+ * [scale] is px per dp at the jack: the camera's for a free module, the density for a rail,
+ * whose jacks are fixed in screen space and never shrink.
  */
-private fun effectiveTouchRadius(camera: Camera, radiusPx: Float): Float =
-    min(radiusPx, PatchModule.PORT_PITCH * camera.worldToScreen * 0.5f)
+internal fun portReach(radiusPx: Float, scale: Float): Size = Size(
+    min(radiusPx, PatchModule.MOD_SPACING * scale * 0.5f),
+    min(radiusPx, PatchModule.PORT_PITCH * scale * 0.5f),
+)
 
-private fun Patch.hitPort(
-    camera: Camera,
-    frame: Frame,
-    screen: Offset,
-    radiusPx: Float,
-): PortRef? {
-    var best: PortRef? = null
-    var bestDist = Float.MAX_VALUE
-    val worldRadius = effectiveTouchRadius(camera, radiusPx)
-    val railRadius = min(radiusPx, PatchModule.PORT_PITCH * frame.density * 0.5f)
+/** Inside [reach] of [port] at or below 1; the nearer of two jacks is the smaller. */
+internal fun reachOf(port: Offset, touch: Offset, reach: Size): Float {
+    val x = (touch.x - port.x) / reach.width
+    val y = (touch.y - port.y) / reach.height
+    return x * x + y * y
+}
 
+/** A jack a touch could take: which, where on the glass, and how far it reaches. */
+private data class Jack(val ref: PortRef, val at: Offset, val reach: Size)
+
+/** Every jack in the scope shown that a touch could take. */
+private fun Patch.jacksShown(camera: Camera, frame: Frame, radiusPx: Float): List<Jack> {
+    val worldReach = portReach(radiusPx, camera.worldToScreen)
+    val railReach = portReach(radiusPx, frame.density)
+    val jacks = mutableListOf<Jack>()
     val at = scopeOrTop
     modules.filter { it.parent == at }.forEach { module ->
-        val limit = if (module.isPinned) railRadius else worldRadius
+        val reach = if (module.isPinned) railReach else worldReach
         PortDirection.entries.forEach { dir ->
             module.ports(dir).indices.forEach { i ->
                 val ref = PortRef(module.id, dir, i)
                 if (!portUsable(ref)) return@forEach
-                val at = portScreen(this, ref, camera, frame) ?: return@forEach
-                val dist = (at - screen).getDistance()
-                if (dist <= limit && dist < bestDist) {
-                    bestDist = dist
-                    best = ref
-                }
+                portScreen(this, ref, camera, frame)?.let { jacks += Jack(ref, it, reach) }
             }
         }
         // The bottom band's jacks, which ports() does not list -- see PortDirection.MOD.
         module.exposed.forEach { index ->
             val ref = PortRef(module.id, PortDirection.MOD, index)
-            val at = portScreen(this, ref, camera, frame) ?: return@forEach
-            val dist = (at - screen).getDistance()
-            if (dist <= limit && dist < bestDist) {
-                bestDist = dist
-                best = ref
-            }
+            portScreen(this, ref, camera, frame)?.let { jacks += Jack(ref, it, reach) }
         }
     }
-    return best
+    return jacks
+}
+
+/** The jack [screen] is within reach of, the nearest if several, or null. */
+private fun Patch.hitPort(
+    camera: Camera,
+    frame: Frame,
+    screen: Offset,
+    radiusPx: Float,
+): PortRef? = jacksShown(camera, frame, radiusPx)
+    .map { it.ref to reachOf(it.at, screen, it.reach) }
+    .filter { it.second <= 1f }
+    .minByOrNull { it.second }
+    ?.first
+
+/**
+ * What a canvas tap landed nearest, for a debug build's logcat (`PatchGesture`, beside the
+ * envelope editor's touches): the nearest jack, how far off it the finger was across and down
+ * in dp of glass, how far that jack reaches, and what the tap became. Added when the 33dp pitch
+ * sent taps meant for jacks into the modules behind them, and the report could say that it
+ * happened but not by how much.
+ */
+private fun Patch.traceCanvasTap(
+    camera: Camera, frame: Frame, screen: Offset, radiusPx: Float, port: PortRef?, current: Interaction,
+): String {
+    val d = frame.density
+    val nearest = jacksShown(camera, frame, radiusPx).minByOrNull { reachOf(it.at, screen, it.reach) }
+    val near = nearest?.let { jack ->
+        val owner = module(jack.ref.moduleId)?.title ?: "?"
+        "nearest $owner ${jack.ref.dir.name.lowercase()} ${jack.ref.index}" +
+            " off by %+.1f across, %+.1f down; reaches %.1f x %.1f (%.2f)".format(
+                (screen.x - jack.at.x) / d, (screen.y - jack.at.y) / d,
+                jack.reach.width / d, jack.reach.height / d, reachOf(jack.at, screen, jack.reach),
+            )
+    } ?: "no jack in view"
+    val became = when {
+        port != null -> "jack"
+        else -> hitModule(camera, frame, screen)?.let { "module ${it.title}" } ?: "canvas"
+    }
+    return "tap while ${current::class.simpleName}: $near -> $became"
 }
 
 private fun Patch.hitModule(camera: Camera, frame: Frame, screen: Offset): PatchModule? {
@@ -9444,6 +9493,9 @@ private fun handleTap(
     }
 
     val port = patch.hitPort(camera, frame, screen, touchPx)
+    if (BuildConfig.DEBUG) {
+        android.util.Log.d("PatchGesture", patch.traceCanvasTap(camera, frame, screen, touchPx, port, current))
+    }
 
     // A rail's body is its switch. Only while idle, so it never eats the tap that
     // cancels an armed connection.

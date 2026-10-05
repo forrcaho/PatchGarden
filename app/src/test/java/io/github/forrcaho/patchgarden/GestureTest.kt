@@ -196,6 +196,35 @@ class GestureTest {
         assertFalse(host.patch.connections.any { it.to == into(filter, 1) })
     }
 
+    /**
+     * A finger aimed at a jack lands a little inside its module as often as not, and a jack sits
+     * on its module's edge. When the pitch went from 44dp to 33 the round target shrank with it,
+     * from 22dp to 16.5, and those taps opened the module -- on the phone, every module that
+     * opened during a round of re-patching. A jack reaches further across than down now: the
+     * pitch is the only thing that ever needed it smaller, and the pitch is vertical.
+     */
+    @Test
+    fun `a tap just inside a module beside its jack is the jack, and below it is the module`() {
+        val host = Host()
+        val osc = host.patch.add(Types.Osc, Offset(40f, 40f))!!
+        val filter = host.patch.add(Types.Filter, Offset(300f, 40f))!!
+        compose.waitForIdle()
+        assertEquals("aimed at zoom 1, where the reach is 22.5dp across", host.d, host.camera.worldToScreen, 1e-4f)
+
+        // 20dp in from the out jack, toward the middle of the module: past how far a jack
+        // reaches down, inside how far it reaches across.
+        host.tap(host.port(out(osc)) - Offset(20f * host.d, 0f))
+        assertFalse("the module did not open", osc.expanded)
+        host.tap(host.port(into(filter)))
+        assertTrue("the jack was armed", Connection(out(osc), into(filter)) in host.patch.connections)
+
+        // Down is as it was, so a neighbor a pitch below is never reached for: 20dp under the
+        // jack is the module. 5dp in as well, since the jack is on the module's edge and a point
+        // straight below it is on that edge, which a module's bounds do not include.
+        host.tap(host.port(out(osc)) + Offset(-5f * host.d, 20f * host.d))
+        assertTrue("20dp below the jack opens the module", osc.expanded)
+    }
+
     @Test
     fun `a module follows the finger, in dp, at a density that is not one`() {
         val host = Host()

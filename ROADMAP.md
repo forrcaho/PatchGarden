@@ -636,7 +636,16 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
     fingertip of 8 to 10mm. **Forrest chose 33dp**, three quarters, and the rails' jacks follow.
     `PORT_PITCH` is one constant: the minimum body is now defined as one pitch, so a module with
     one jack still centers it, and the modulation band's rows were already a pitch each. No file
-    changes, since jack positions are worked out when drawn. Not yet tried by finger.
+    changes, since jack positions are worked out when drawn.
+  - *Then wider to the touch, the same day.* By finger, taps meant for jacks opened their
+    modules -- every module that opened in a round of re-patching was an accident, and one
+    tap that landed in the opened Drone's grid added a note. The touch area had been a circle
+    capped at half the pitch, so it shrank with it from 22dp to 16.5, and a jack is on its
+    module's edge, half its circle inside. **Asked for: wider across, the same down.** It is an
+    oval now, half a pitch down and half the modulation band's spacing across (22.5dp, what it
+    was before), scaled with the zoom as the pitch is; the armed jack's halo draws the same oval.
+    The log had shown only the cables changing, so canvas taps now log to `PatchGesture`: the
+    nearest jack, how far off across and down in dp, its reach, and what the tap became.
   - *Left alone, decided 2026-10-04:* the **open panel's** jacks (`panelPort`) stay spread
     down its edge by their count and centered, so one added while the panel is open -- a box's
     Controls panel and its `[ ]` -- re-spaces the others (31dp and 38dp, measured on the

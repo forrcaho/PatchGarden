@@ -63,7 +63,7 @@ adb shell am force-stop io.github.forrcaho.patchgarden
 adb shell am start -n io.github.forrcaho.patchgarden/.MainActivity
 adb logcat -d -s PatchAudio:V      # engine: stream state, latency, xruns
 adb logcat -d -s PatchSync:V       # every command crossing to the graph (debug builds)
-adb logcat -d -s PatchGesture:V    # what the envelope editor made of each touch (debug builds)
+adb logcat -d -s PatchGesture:V    # what the canvas and the envelope editor made of each touch (debug builds)
 adb shell run-as io.github.forrcaho.patchgarden cat files/patch.json
 # The PatchGarden folder: wherever Settings says it is once one is chosen (the emulator's is
 # /sdcard/Music/PatchGarden), app storage until then
@@ -427,7 +427,18 @@ the two nearest nodes and how far off the curve it was. The same habit as `Patch
 every command: "what did my finger actually hit" is otherwise answered by guessing, and it is
 what finally located a fault that two rounds of reading the code and one device pass had
 missed -- three touches logged at 200 to 300px below a line the user believed they were on.
-**Ask for the trace before theorising about a gesture.**
+**Ask for the trace before theorising about a gesture.** The canvas logs its taps there too:
+the nearest jack, how far off it the finger was across and down in dp of glass, how far that
+jack reaches, and whether the tap became the jack, a module or the canvas -- added when taps
+meant for jacks opened modules and the log could show the cables changing but not the misses.
+
+**A jack reaches further across than down.** Its touch area is an oval (`portReach`): down, half
+the pitch, so a jack never takes a tap from the one below it; across, half the spacing of the
+nearest jacks side by side, the modulation band's (22.5dp). It was one circle capped by the
+pitch, and when the pitch went from 44dp to 33 the circle shrank from 22dp to 16.5 -- and a
+finger aimed at a jack on a module's edge lands a little inside the module as often as not, so
+it opened the module. Nearest is judged in each jack's own reach (`reachOf`), and the armed
+jack's halo is drawn as the same oval, so the target is what is shown.
 
 **Up bends the line up, whichever way the segment travels.** Curvature's sign is a fact
 about *shape* -- leaves fast, arrives slow -- not about the screen: that shape puts a rising
