@@ -128,6 +128,7 @@ being edited out from under it.
 | `reverb.h` | Reverb's two algorithms, a Freeverb room and a Dattorro plate, header-only |
 | `processors.{h,cpp}` | notes in, notes out: Chance, Chord, Arp, Euclid |
 | `Arranger.kt` | the Arranger's model, and its table's layout, choosers and drawing |
+| `Activity.kt` | what the sequencers on the canvas are doing: versions, playheads, an Arranger's place |
 | `soundfont.{h,cpp}` | the SF node over TinySoundFont; a SoundFont loaded once and shared |
 | `synth.h` | `MonoSynth` and `GateRamp`: one note's pitch, glide and declick |
 | `audio_engine.{h,cpp}` | Oboe streams, ADPF, debug capture |
@@ -719,6 +720,14 @@ modulator's values are labeled, reads "silent" and "v1". The panel is a table: a
 opens a chooser that owns the panel until a tap off it, a drag along the heads scrolls the
 sections and one down the names scrolls the lanes (past four at font scale 1.5), and a drag on the
 cells does nothing, since cells are tapped -- Forrest's choice, so the two never compete.
+
+**The canvas shows what the sequencers are doing** (`Activity.kt`), so an Arranger can be followed
+without opening anything: a Seq says its version and is dimmed while silent, every sequencer has a
+playhead along its foot, and a closed Arranger says its scene, "bar 2 of 4" and how far through the
+song. Polled once a frame for the modules in view, as an open panel polls its own. An Arranger's
+`position()` is two numbers in one -- section * 4096 + steps into it (`kStepStride` /
+`SECTION_STEP_STRIDE`) -- and the graph goes on publishing a node's position once it has published
+one, -1 included, so an Arranger that stops at the end of its song is seen to stop.
 
 **A knob that means nothing is faint, not gone.** `Param.liveWhen` names another knob and the
 value it must hold -- a Delay's time is live only while its interval is "free" -- and such a

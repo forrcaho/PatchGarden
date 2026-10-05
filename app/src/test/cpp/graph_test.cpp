@@ -386,6 +386,20 @@ void theGraphReportsWhereASequencerHasGot() {
     graph.postRemove(2);
     graph.applyCommands();
     check(graph.stepOf(2) == -1, "a removed sequencer stops being reported");
+
+    // An Arranger told to stop at the end of its song has no position once it gets there, and
+    // that is reported -- not the last section it was on, which is what a closed Arranger would
+    // otherwise go on showing after the song had ended.
+    graph.postAdd(4, NodeType::Arranger);
+    graph.postSetSlot(4, sectionSlot(0, 0, 1));  // song 1: one step of scene A
+    graph.postSetSlot(4, sectionSlot(1, 0, 0));
+    graph.postSetParam(4, 0, 1027.0f);  // two beats in three: a step every two thirds of a beat
+    graph.postSetParam(4, 3, 1.0f);     // end: stop
+    graph.applyCommands();
+    graph.process(kBlockSize);
+    check(graph.stepOf(4) == 0, "it starts on its first section");
+    for (int i = 0; i < 600; ++i) graph.process(kBlockSize);
+    check(graph.stepOf(4) == -1, "and once the song has ended, it says so");
 }
 
 /**

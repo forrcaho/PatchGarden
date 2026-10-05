@@ -536,6 +536,16 @@ third and the fourth -- which is why they go in the order they are numbered.
      at exactly four sections, which the gesture tests' wider screen never reached. It is narrow
      now, laid out in the space after the last whole column, and `ArrangerTest` pins it at the
      phone's proportions.
+   - **Following it from the canvas** (Forrest, the same evening: "some visual indication of which
+     Seq(s) are playing"). Chosen from sketches: a Seq says the version it plays and is dimmed while
+     silent, with a playhead along its foot -- over a flash on each note, which says something is
+     playing but not which version; and a closed Arranger says its scene, the bar into the section
+     and how far through the song. Every sequencer got the playhead, for consistency. The Arranger
+     reported only its section, so its position now packs the step into it as well; and the graph
+     published a position only while there was one, so an Arranger that stopped at the end of its
+     song would have gone on showing its last section -- a graph test now runs one to its end.
+     Seen on the emulator through an A B A B′ song: the Seqs light and dim with the sections, and
+     Seq 1's playhead jumps back to its start at the second A.
 
    Sources for 4 and 5: [Elektron trig conditions](https://www.manualslib.com/manual/2952572/Elektron-Syntakt.html?page=42),
    [Bitwig 4 operators](https://www.soundonsound.com/reviews/bitwig-studio-4?page=2),

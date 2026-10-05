@@ -1058,6 +1058,12 @@ public:
     static constexpr int32_t kMaxSections = 64;
     /** Mirrored by MAX_SONGS. */
     static constexpr int32_t kMaxSongs = 8;
+    /**
+     * position() is the section playing times this, plus how many steps into it -- two numbers in
+     * the one the graph publishes, so a closed Arranger can say "bar 2 of 4" as well as which
+     * section. Mirrored by SECTION_STEP_STRIDE; past any length a section is given.
+     */
+    static constexpr int32_t kStepStride = 4096;
 
     ArrangerNode();
 
@@ -1070,16 +1076,22 @@ public:
      * are; a song's section as a section slot, at song * kMaxSections + section.
      */
     void setSlot(const SlotValue &slot) override;
-    /** The section playing in the song playing, or -1: stopped, ended, or a song with none. */
-    int32_t position() const override { return section_; }
+    /**
+     * The section playing in the song playing, times kStepStride, plus the steps into it; or -1:
+     * stopped, ended, or a song with none.
+     */
+    int32_t position() const override {
+        if (section_ < 0) return -1;
+        return section_ * kStepStride + (stepIn_ < kStepStride ? stepIn_ : kStepStride - 1);
+    }
     Interval interval() const override { return interval_; }
     void tick(int32_t offset, int64_t count) override;
 
 private:
     static constexpr int32_t kMaxPending = 4;
 
-    /** The section [at] steps into the song playing, or -1 for none. */
-    int32_t sectionAt(int64_t at) const;
+    /** The section [at] steps into the song playing, or -1 for none; [stepIn] is how far into it. */
+    int32_t sectionAt(int64_t at, int32_t &stepIn) const;
     void onTick(int64_t count);
     /** Writes what each lane sends over [from, to) of this block. */
     void fill(int32_t from, int32_t to);
@@ -1101,6 +1113,7 @@ private:
     int64_t lastCount_ = -1;
     bool restartPending_ = false;
     int32_t section_ = 0;
+    int32_t stepIn_ = 0;
 };
 
 /**

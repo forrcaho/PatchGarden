@@ -5581,6 +5581,30 @@ fun PatchCanvas(
         pollEachFrame { playingStep = AudioEngine.stepOf(id) }
     }
 
+    // What the sequencers on screen are doing -- where each has got to, and the version a Seq or an
+    // Arranger plays when something drives it -- so an Arranger can be followed from the canvas
+    // without opening anything. Polled per frame like the open panel's step, for the modules in
+    // the scope shown, and set only when something changed so a still patch draws nothing new.
+    val watched = patch.shownFree.filter { it.reportsPosition }.map {
+        Watch(it.id, if (patch.versionDriven(it)) it.type.versionParam else -1)
+    }
+    var activities by remember { mutableStateOf(emptyMap<Long, Activity>()) }
+    LaunchedEffect(watched) {
+        if (watched.isEmpty()) {
+            activities = emptyMap()
+            return@LaunchedEffect
+        }
+        pollEachFrame {
+            val now = watched.associate { w ->
+                w.id to Activity(
+                    AudioEngine.stepOf(w.id),
+                    if (w.versionKnob >= 0) AudioEngine.paramOf(w.id, w.versionKnob)?.roundToInt() else null,
+                )
+            }
+            if (now != activities) activities = now
+        }
+    }
+
     // Where each modulated parameter of the open module has got to, polled per frame for the
     // same reasons as the playing step. Only the parameters with a cable in them: an exposed
     // one with nothing patched is simply its knob, and needs nothing from the engine.
@@ -6732,6 +6756,12 @@ fun PatchCanvas(
                         alpha = 1f,
                         stacked = module.type.stacked,
                     )
+                    if (module.reportsPosition) {
+                        drawActivity(
+                            module, module.bounds, 1f, activities[module.id], worldMeasurer,
+                            showLabels = camera.zoom >= Camera.LABEL_ZOOM, alpha = 1f,
+                        )
+                    }
                     if (module.id in flash.ids && pulse.value > 0f) {
                         drawFlash(module.bounds, 1f, pulse.value, 3f / camera.zoom)
                     }
@@ -11088,7 +11118,8 @@ private fun DrawScope.drawPanel(
             val song = (live[knob] ?: module.params.getOrElse(knob) { 1f }).roundToInt()
             drawArranger(
                 patch, module, arrangerTable(gridArea, d, fontScale, module), d, measurer,
-                if (song == module.shownVersion) playingStep else -1, module.type.accent,
+                // Its position is the section and the step into it, packed; the table wants the section.
+                if (song == module.shownVersion) sectionOfPosition(playingStep) else -1, module.type.accent,
             )
         }
         GridKind.NONE -> {}

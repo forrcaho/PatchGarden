@@ -125,6 +125,64 @@ class ArrangerTest {
         assertNotNull("and scrolled to the end the plus is there again", arrangerTable(area, 1f, 1f, arranger).plus)
     }
 
+    /**
+     * The Arranger's limits and the packing of its position cross the boundary as numbers on
+     * both sides; a disagreement drops slots or misreads where it is, silently. Read out of the
+     * header, as the node types and slot kinds are.
+     */
+    @Test
+    fun `the Arranger's limits and position packing are the engine's`() {
+        val header = java.io.File("src/main/cpp/nodes.h").readText()
+            .substringAfter("class ArrangerNode").substringBefore("ArrangerNode();")
+        fun engine(name: String) =
+            Regex("""$name\s*=\s*(\d+)""").find(header)!!.groupValues[1].toInt()
+        assertEquals(LANES_MAX, engine("kLanes"))
+        assertEquals(MAX_SCENES, engine("kMaxScenes"))
+        assertEquals(MAX_SECTIONS, engine("kMaxSections"))
+        assertEquals(MAX_SONGS, engine("kMaxSongs"))
+        assertEquals(SECTION_STEP_STRIDE, engine("kStepStride"))
+        assertTrue("a section's longest length fits in the stride", MAX_SECTION_STEPS < SECTION_STEP_STRIDE)
+    }
+
+    /** What a closed Arranger says: the scene, the bar into the section, and how far into the song. */
+    @Test
+    fun `a closed Arranger says its scene, its bar and how far through the song`() {
+        val patch = Patch()
+        val arranger = patch.add(Types.Arranger, Offset.Zero)!!
+        arranger.setSectionSteps(0, 2)
+        arranger.appendSection()
+        arranger.setSectionSteps(1, 1)
+        val playing = arranger.arrangerWhere(0 * SECTION_STEP_STRIDE + 1, 1)!!
+        assertEquals("A", playing.scene)
+        assertEquals("bar 2 of 2", playing.within)
+        assertEquals("two of the song's three bars", 2f / 3f, playing.song, 1e-6f)
+        assertEquals("B", arranger.arrangerWhere(1 * SECTION_STEP_STRIDE, 1)!!.scene)
+        assertEquals("stopped or ended says nothing", null, arranger.arrangerWhere(-1, 1))
+        assertEquals("nor does version 0", null, arranger.arrangerWhere(0, 0))
+        arranger.setParam(Types.Arranger.intervalParam, Interval(1, 2).code.toFloat())
+        assertEquals("at an interval other than a bar it counts steps", "step 2 of 2",
+            arranger.arrangerWhere(1, 1)!!.within)
+        assertEquals(1, sectionOfPosition(SECTION_STEP_STRIDE + 3))
+        assertEquals(-1, sectionOfPosition(-1))
+    }
+
+    /** A Seq's version is the engine's while something drives the knob, and the knob's otherwise. */
+    @Test
+    fun `the version a Seq plays is the engine's when driven and its knob's when not`() {
+        val patch = Patch()
+        val arranger = patch.add(Types.Arranger, Offset.Zero)!!
+        val seq = patch.add(Types.Seq, Offset(200f, 0f))!!
+        assertFalse(patch.versionDriven(seq))
+        assertEquals(1, seq.playingVersion(Activity(3)))
+        seq.setParam(Types.Seq.versionParam, 0f)
+        assertEquals(0, seq.playingVersion(null))
+        assertTrue(patch.expose(seq, Types.Seq.versionParam, ModRange(0f, 2f)))
+        assertTrue(patch.connect(out(arranger), knob(seq, Types.Seq.versionParam)))
+        assertTrue(patch.versionDriven(seq))
+        assertEquals(2, seq.playingVersion(Activity(3, version = 2)))
+        assertEquals("a filter has no version", null, patch.add(Types.Filter, Offset.Zero)!!.playingVersion(null))
+    }
+
     @Test
     fun `a lane is named by its knob and says a Seq's versions as silent and v1`() {
         val patch = Patch()

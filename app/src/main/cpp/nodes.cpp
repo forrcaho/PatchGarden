@@ -1433,7 +1433,8 @@ void ArrangerNode::tick(int32_t offset, int64_t count) {
     }
 }
 
-int32_t ArrangerNode::sectionAt(int64_t at) const {
+int32_t ArrangerNode::sectionAt(int64_t at, int32_t &stepIn) const {
+    stepIn = 0;
     if (version_ <= 0 || version_ > kMaxSongs) return -1;
     const int32_t song = version_ - 1;
     int64_t total = 0;
@@ -1445,7 +1446,10 @@ int32_t ArrangerNode::sectionAt(int64_t at) const {
         at %= total;
     }
     for (int32_t i = 0; i < kMaxSections; ++i) {
-        if (at < length_[song][i]) return i;
+        if (at < length_[song][i]) {
+            stepIn = static_cast<int32_t>(at);
+            return i;
+        }
         at -= length_[song][i];
     }
     return -1;
@@ -1460,7 +1464,7 @@ void ArrangerNode::onTick(int64_t count) {
     }
     if (count < origin_) origin_ = 0;
     lastCount_ = count;
-    section_ = sectionAt(count - origin_);
+    section_ = sectionAt(count - origin_, stepIn_);
 }
 
 void ArrangerNode::fill(int32_t from, int32_t to) {
@@ -1476,7 +1480,7 @@ void ArrangerNode::fill(int32_t from, int32_t to) {
 
 void ArrangerNode::process(int32_t frames) {
     // Until the first tick, the song's first section: what it will play from.
-    if (lastCount_ < 0) section_ = sectionAt(0);
+    if (lastCount_ < 0) section_ = sectionAt(0, stepIn_);
     int32_t from = 0;
     for (int32_t next = 0; next < pendingCount_; ++next) {
         const int32_t to = std::clamp<int32_t>(pending_[next].offset, from, frames);
@@ -1500,7 +1504,7 @@ void ArrangerNode::setParam(int32_t index, float value) {
                 version_ = version;
                 // What it will play from, at once rather than at the next tick: holding the old
                 // song's scene until then would send values from a song no longer chosen.
-                section_ = sectionAt(0);
+                section_ = sectionAt(0, stepIn_);
             }
             break;
         }

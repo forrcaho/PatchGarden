@@ -1114,6 +1114,14 @@ void setSection(ArrangerNode &arranger, int32_t song, int32_t at, int32_t scene,
     arranger.setSlot(sectionSlot(song * ArrangerNode::kMaxSections + at, scene, length));
 }
 
+/** The section an Arranger's position names, or -1; and how many steps into it. */
+int32_t sectionOf(const ArrangerNode &arranger) {
+    return arranger.position() < 0 ? -1 : arranger.position() / ArrangerNode::kStepStride;
+}
+int32_t stepInOf(const ArrangerNode &arranger) {
+    return arranger.position() < 0 ? -1 : arranger.position() % ArrangerNode::kStepStride;
+}
+
 /** Ticks [count] at the top of a block and processes it. */
 void stepTo(ArrangerNode &arranger, int64_t count) {
     arranger.tick(0, count);
@@ -1140,22 +1148,24 @@ void anArrangerPlaysItsSongSectionBySection() {
     check(laneAt(arranger, 2) == 0.5f, "a lane no scene has been given sends its middle");
 
     stepTo(arranger, 0);
+    check(sectionOf(arranger) == 0 && stepInOf(arranger) == 0, "it says the section and the step into it");
     stepTo(arranger, 1);
-    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "A lasts its two steps");
+    check(laneAt(arranger, 0) == 0.2f && sectionOf(arranger) == 0, "A lasts its two steps");
+    check(stepInOf(arranger) == 1, "and its second step is its second");
     arranger.tick(10, 2);
     arranger.process(kBlockSize);
     check(laneAt(arranger, 0, 9) == 0.2f, "held until the tick");
     check(laneAt(arranger, 0, 10) == 0.9f && laneAt(arranger, 1, 10) == 0.1f, "and B from its sample, every lane");
-    check(arranger.position() == 1, "and says which section it is on");
+    check(sectionOf(arranger) == 1 && stepInOf(arranger) == 0, "and says which section it is on, from its start");
     stepTo(arranger, 3);
-    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "past the end it loops to the first section");
+    check(laneAt(arranger, 0) == 0.2f && sectionOf(arranger) == 0, "past the end it loops to the first section");
 
     // B's slot emptied with a section still standing in the slot after it: the empty one is
     // the end, and what is past it is not part of the song.
     setSection(arranger, 0, 2, 1, 3);
     setSection(arranger, 0, 1, 1, 0);
     stepTo(arranger, 4);
-    check(arranger.position() == 0, "a length of 0 ends the song, whatever is past it");
+    check(sectionOf(arranger) == 0, "a length of 0 ends the song, whatever is past it");
     arranger.setSlot(segmentSlot(ArrangerNode::kMaxScenes * ArrangerNode::kLanes, 1.0f, 1.0f, 0.0f, false));
     arranger.setSlot(sectionSlot(ArrangerNode::kMaxSongs * ArrangerNode::kMaxSections, 0, 1));
     check(true, "a scene or a song past the end is ignored rather than written");
@@ -1178,7 +1188,7 @@ void anArrangerStopsAtTheEndWhenToldTo() {
     stepTo(arranger, 9);
     check(laneAt(arranger, 0) == 0.0f, "and stays there");
     stepTo(arranger, 0);
-    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 0, "the transport back at the top starts it again");
+    check(laneAt(arranger, 0) == 0.2f && sectionOf(arranger) == 0, "the transport back at the top starts it again");
 }
 
 /**
@@ -1199,7 +1209,7 @@ void anArrangersVersionIsASongAndZeroIsStopped() {
     setSection(arranger, 1, 0, 2, 1);   // song 2: C, then A
     setSection(arranger, 1, 1, 0, 1);
     for (int64_t count = 0; count < 3; ++count) stepTo(arranger, count);
-    check(arranger.position() == 1, "song 1 is in its second section");
+    check(sectionOf(arranger) == 1, "song 1 is in its second section");
 
     // Song 2's second section is A, so holding the section number across the change would
     // send A here: the new song's first scene is C.
@@ -1207,9 +1217,9 @@ void anArrangersVersionIsASongAndZeroIsStopped() {
     arranger.process(kBlockSize);
     check(laneAt(arranger, 0) == 0.4f, "a new song sends its first scene at once");
     stepTo(arranger, 3);
-    check(laneAt(arranger, 0) == 0.4f && arranger.position() == 0, "and starts from its top on the next tick");
+    check(laneAt(arranger, 0) == 0.4f && sectionOf(arranger) == 0, "and starts from its top on the next tick");
     stepTo(arranger, 4);
-    check(laneAt(arranger, 0) == 0.2f && arranger.position() == 1, "counting from there, not from the transport");
+    check(laneAt(arranger, 0) == 0.2f && sectionOf(arranger) == 1, "counting from there, not from the transport");
 
     arranger.setParam(1, 0.0f);
     stepTo(arranger, 5);
@@ -1224,7 +1234,7 @@ void anArrangersVersionIsASongAndZeroIsStopped() {
     setSection(loaded, 1, 1, 0, 1);
     loaded.setParam(1, 2.0f);
     stepTo(loaded, 3);
-    check(loaded.position() == 1, "a node made on song 2 is in step with the transport, not restarted");
+    check(sectionOf(loaded) == 1, "a node made on song 2 is in step with the transport, not restarted");
 }
 
 void mixSumsRatherThanAverages() {

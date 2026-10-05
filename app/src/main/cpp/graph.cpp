@@ -840,9 +840,11 @@ void Graph::process(int32_t frames) {
 
         // Publish where a sequencer has got to. One relaxed store each, for the only
         // thing that travels back up: nothing reads it but a repaint, so a torn read is
-        // a frame that draws the previous step and the next frame corrects it.
+        // a frame that draws the previous step and the next frame corrects it. A node that
+        // has published goes on publishing when it has no position -- an Arranger at the end
+        // of a song it stops at -- so the interface sees it stop rather than its last place.
         const int32_t at = node->position();
-        if (at >= 0) {
+        if (at >= 0 || telemetry_[order_[i]].id.load(std::memory_order_relaxed) == record.id) {
             telemetry_[order_[i]].id.store(record.id, std::memory_order_relaxed);
             telemetry_[order_[i]].step.store(at, std::memory_order_relaxed);
         }
