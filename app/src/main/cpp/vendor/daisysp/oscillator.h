@@ -104,6 +104,12 @@ class Oscillator
     */
     float Process();
 
+    /** PatchGarden: one sample read [offset] cycles further on -- phase modulation -- while
+        the phase advances exactly as Process advances it. Process(0) and ProcessPm(0.0f)
+        are the same sample.
+    */
+    float ProcessPm(float offset);
+
 
     /** Adds a value 0.0-1.0 (equivalent to 0.0-TWO_PI) to the current phase. Useful for PM and "FM" synthesis.
     */
@@ -114,6 +120,10 @@ class Oscillator
 
   private:
     float   CalcPhaseInc(float f);
+    /** PatchGarden: the waveform at [phase], which Process and ProcessPm share. */
+    float   Shape(float phase);
+    /** PatchGarden: the advance that ends both. */
+    void    Advance();
     uint8_t waveform_;
     float   amp_, freq_, pw_;
     float   sr_, sr_recip_, phase_, phase_inc_;

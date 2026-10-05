@@ -511,8 +511,14 @@ emulator -- the phone cuts USB data when it locks -- so nothing audible is judge
 
 ### Still from 2026-09-25
 
-- **The `fm` port on `Osc`, then the ladder filter** -- the eighth item of that list, after the
-  five above. The port is designed (*The fm port comes back to Osc*, Phase 11). *Decided
+- ~~**The `fm` port on `Osc`**~~ **built overnight 2026-10-04**, then the ladder filter -- the
+  eighth item of that list, after the five above. The port as designed (*The fm port comes back
+  to Osc*, Phase 11): an audio input and an `index` knob in FM's radians, phase modulation through
+  a `ProcessPm` added to the vendored oscillator, which with nothing patched is the old `Process`
+  sample for sample. **Measured on the emulator's capture**, a sine carrier at middle C modulated
+  by a sine a fifth up at index 2: the sidebands stand at -8.2, -4.2/-4.4 and -13.0dB against
+  the first pair, which are J0, J2 and J3 of 2 against J1 to the tenth of a decibel -- the index
+  is radians end to end. Not heard. *Decided
   2026-10-04:* the ladder is **another type in `Filter`**, not a module of its own -- the same
   cutoff, resonance, tracking and jacks, so changing type keeps every cable. Its design beyond
   that is still to do.

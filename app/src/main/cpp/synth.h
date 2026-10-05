@@ -130,13 +130,25 @@ private:
  *
  * A template rather than a virtual call, since render() runs once per sample.
  */
+/**
+ * What every voice has, so MonoSynth can call it on any: the sample of the synth's own audio
+ * input, for the one voice that takes one -- an Osc's `fm`. A no-op here; a voice that hides it
+ * with its own hears the input. A base rather than a check, since C++17 has no `requires`.
+ */
+struct VoiceBase {
+    void modulate(float sample) { (void) sample; }
+};
+
 template <typename Voice>
 class MonoSynth : public Node {
 public:
-    /** [level] is the knob the level port drives, which is the subclass's to place. */
-    explicit MonoSynth(int32_t level) : level_(level) {}
+    /**
+     * [level] is the knob the level port drives, which is the subclass's to place. [audio] is
+     * a third input of audio handed to the voice a sample at a time, or -1 for none.
+     */
+    explicit MonoSynth(int32_t level, int32_t audio = -1) : level_(level), audio_(audio) {}
 
-    int32_t inputCount() const override { return 2; }  // notes, level
+    int32_t inputCount() const override { return audio_ >= 0 ? 3 : 2; }  // notes, level, [audio]
     int32_t outputCount() const override { return 1; }
     uint32_t noteInputs() const override { return 1u << 0; }
     int32_t drivenParam(int32_t port) const override { return port == 1 ? level_ : -1; }
@@ -161,6 +173,8 @@ public:
         int32_t next = 0;
         // A graph always hands one over. Unity for a node driven by hand, as the tests do.
         const float *level = input(1);
+        // Silence with nothing patched, from the graph; nothing at all from a test's hand.
+        const float *audio = audio_ >= 0 ? input(audio_) : nullptr;
         const bool envelope = envelopeOn(1);
 
         for (int32_t i = 0; i < frames; ++i) {
@@ -194,6 +208,7 @@ public:
             // cannot reopen a note that has already started to close.
             if (lingering_ && !envelope) lingering_ = false;
             bool finished = false;
+            if (audio != nullptr) voice_.modulate(audio[i]);
             const float sample = voice_.render(gate_ || lingering_, finished);
             if (finished) {
                 // Free rather than merely quiet, and said by the voice -- see above.
@@ -276,6 +291,8 @@ private:
     Voice voice_;
     /** Which knob the level port drives. */
     int32_t level_;
+    /** The port whose audio the voice is handed, or -1; see VoiceBase. */
+    int32_t audio_ = -1;
     /**
      * Let go, and kept open for as long as an envelope on the level runs. Set by every Off,
      * and dropped at once where nothing of the kind is patched, which is what keeps a synth

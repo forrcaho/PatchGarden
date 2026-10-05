@@ -31,7 +31,7 @@ The cost is that updating is a manual re-copy. That is the right trade for a doz
 `Utility/dsp.h` includes `custom_dsp.h` behind `#ifdef DSY_CUSTOM_DSP`, which we do
 not define, so that missing file is not a problem.
 
-Edits to upstream source (the second is marked `PatchGarden:` where it is made):
+Edits to upstream source (all but the first are marked `PatchGarden:` where they are made):
 
 - Includes flattened (`"Utility/dsp.h"` to `"dsp.h"`, and so on), so one include
   directory suffices.
@@ -39,3 +39,7 @@ Edits to upstream source (the second is marked `PatchGarden:` where it is made):
   Android's `rand()` takes a mutex. The string keeps its own linear congruential
   generator instead (`rng_`). Anything else vendored later that calls `rand()` --
   `Dust`, `WhiteNoise`, `StringVoice` -- needs the same change.
+- `oscillator.*`: `Process` is split into `Shape` (the waveform at a phase) and `Advance`, and
+  `ProcessPm(offset)` reads the waveform `offset` cycles on while advancing as `Process` does --
+  phase modulation for Osc's `fm` port. Upstream's `PhaseAdd` moves the phase itself, and
+  undoing it after a sample breaks the wrap, which only handles a phase above 1.

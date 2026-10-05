@@ -470,7 +470,7 @@ copying dots and none knew about a second kind of grid. An undone envelope, a du
 and one loaded from the library each came back as the default, silently, and only for the
 module you had just been editing.
 
-**No synth has an envelope.** `Osc` has three knobs and `FM` four, a level among them; what is left of the ADSR
+**No synth has an envelope.** `Osc` has four knobs and `FM` four, a level among them; what is left of the ADSR
 is a 5ms gate ramp (`GateRamp` in `synth.h`) that keeps a note from starting or stopping
 with a step in it. **A note's velocity rides that ramp, and must**: a voice taken by a
 second note keeps its ramp open on purpose, so a velocity applied straight to the
@@ -482,6 +482,12 @@ and could be patched to nothing else -- which is why an `Env` on FM's modulation
 impossible, and why this redesign happened. Shaping is an `Env` inside a poly subpatch,
 where there is one per note. `FM` lost Chowning's brightness-follows-loudness with it:
 expose `index`, patch an `Env`, and the two envelopes no longer have to be one envelope.
+
+**An `Osc` takes audio in one place: `fm`, phase modulation.** Its `index` is radians for a
+full-scale input, FM's own units, so the timbre holds across the keyboard; the vendored
+oscillator gained `ProcessPm` for it (see its README), and an Osc with nothing in `fm` runs the
+old `Process` sample for sample. `CatalogTest` holds a synth's audio input to being that and
+nothing else -- audio that is the sound would make it an effect.
 
 **Every sound source has a level with its own jack, and an `Env` there is heard through its
 release.** `levelParam()` builds it for Osc, Pluck, FM, SF and Noise: a driven knob, 0 to 2, so

@@ -159,6 +159,56 @@ void oscPlaysTheRequestedPitch() {
  * The tune knob moves the note it is on by cents -- the note sounding, not only the next, so
  * a modulator on it is a vibrato rather than a pitch that changes between notes.
  */
+/**
+ * The `fm` port: phase modulation, read [offset] cycles on while the phase advances as it
+ * always has. With nothing in the port an Osc is, sample for sample, what it was before; a
+ * sine read a quarter cycle on is a cosine; and a modulator patched in changes the sound.
+ */
+void anOscsFmPortIsPhaseModulation() {
+    std::printf("an osc's fm port is phase modulation\n");
+    for (const uint8_t wave : {daisysp::Oscillator::WAVE_POLYBLEP_SAW, daisysp::Oscillator::WAVE_POLYBLEP_SQUARE,
+                               daisysp::Oscillator::WAVE_POLYBLEP_TRI, daisysp::Oscillator::WAVE_SIN}) {
+        daisysp::Oscillator a, b;
+        for (auto *o : {&a, &b}) {
+            o->Init(static_cast<float>(kRate));
+            o->SetWaveform(wave);
+            o->SetFreq(440.0f);
+        }
+        bool same = true;
+        for (int i = 0; i < 4000; ++i) same = same && a.Process() == b.ProcessPm(0.0f);
+        check(same, "no offset is exactly Process, wave " + std::to_string(wave));
+    }
+    daisysp::Oscillator sine, shifted;
+    for (auto *o : {&sine, &shifted}) {
+        o->Init(static_cast<float>(kRate));
+        o->SetAmp(1.0f);  // Init's is 0.5; the Osc voice sets 1, as here
+        o->SetWaveform(daisysp::Oscillator::WAVE_SIN);
+        o->SetFreq(440.0f);
+    }
+    float worst = 0.0f;
+    for (int i = 0; i < 4000; ++i) {
+        const float s = sine.Process();
+        const float c = shifted.ProcessPm(0.25f);
+        worst = std::max(worst, std::fabs(s * s + c * c - 1.0f));
+    }
+    check(worst < 1e-3f, "a sine a quarter cycle on is its cosine");
+
+    // On the node: silence in the port is the old sound exactly, and a modulator is not.
+    const std::array<float, kBlockSize> quiet{};
+    auto played = [&](const float *fm) {
+        OscNode osc;
+        osc.setParam(0, 3.0f);  // sine
+        osc.setParam(3, 2.0f);  // index
+        if (fm != nullptr) osc.setInput(OscNode::kFm, fm);
+        holdDegree(osc, 0, noteAt(NoteKind::On, 1, 0, 0));
+        return run(osc, 40);
+    };
+    const auto plain = played(nullptr);
+    check(played(quiet.data()) == plain, "silence in fm is the Osc it was");
+    const auto pushed = constantBuffer(0.5f);
+    check(played(pushed.data()) != plain, "and something in it moves the phase");
+}
+
 void anOscsTuneMovesItsPitchByCents() {
     std::printf("an osc's tune moves its pitch by cents\n");
     OscNode osc;
@@ -3659,6 +3709,7 @@ void aReverbsTailEndsInTrueSilence() {
 }
 
 int main() {
+    anOscsFmPortIsPhaseModulation();
     aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange();
     aModSeqStepsThroughItsLevels();
     oscPlaysTheRequestedPitch();

@@ -170,7 +170,12 @@ class CatalogTest {
         fun takes(type: ModuleType) = type.inputs.map { it.kind }.toSet()
         Types.offered(Category.SYNTHS).forEach {
             assertEquals("${it.name} sounds", setOf(SignalKind.AUDIO), sends(it))
-            assertTrue("${it.name} is sounded by notes, or by nothing", takes(it) - SignalKind.NOTE - SignalKind.MODULATION == emptySet<SignalKind>())
+            assertTrue("${it.name} is sounded by notes, or by nothing", takes(it) - SignalKind.NOTE - SignalKind.MODULATION - SignalKind.AUDIO == emptySet<SignalKind>())
+            // Audio comes in only as a modulator -- Osc's fm, phase modulation -- never as the
+            // sound a synth makes, which is what would make it an effect.
+            it.inputs.filter { input -> input.kind == SignalKind.AUDIO }.forEach { input ->
+                assertEquals("${it.name}'s ${input.name} is a way in for sound", "fm", input.name)
+            }
             // And the one modulation it takes is its level's own jack, not a way in for sound.
             it.inputs.forEachIndexed { port, input ->
                 if (input.kind == SignalKind.MODULATION) {

@@ -950,7 +950,7 @@ object Types {
      * again now that there are no slots inside this for the word to also mean.
      */
     val Osc = ModuleType(
-        "Osc", listOf(Port("notes", N), Port("level", M)), listOf(Port("out", A)),
+        "Osc", listOf(Port("notes", N), Port("level", M), Port("fm", A)), listOf(Port("out", A)),
         Color(0xFF6090C3),
         // Three knobs, where there were five. The envelope went to Env, which inside a poly
         // subpatch is one per note and can be patched anywhere -- an envelope built into a
@@ -968,6 +968,9 @@ object Types {
             Param("wave", 0f, 3f, 0f, "", STEP, Choice.WAVE),
             Param("tune", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true),
             levelParam(port = 1),
+            // The fm port's depth: radians of phase for a full-scale input, as FM's index is, so
+            // one oscillator can phase-modulate another and the timbre holds across the keyboard.
+            Param("index", 0f, 10f, 2f, "", LIN, short = "idx"),
         ),
         engine = NodeType.Osc, category = Category.SYNTHS,
     )

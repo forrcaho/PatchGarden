@@ -84,7 +84,8 @@ import java.io.File
  * never a conversion.
  * 21: the overnight build of 2026-10-04 -- an LFO has a phase, and ModSeq, a loop of levels
  * sent as modulation, is a new module whose levels are saved as `levels`; a Seq has versions,
- * each dot saying which as a fifth number, with `version` and `versions` knobs. Reads nothing but 21, under
+ * each dot saying which as a fifth number, with `version` and `versions` knobs; and an Osc
+ * has its `fm` port back, a third input, with an `index` knob. Reads nothing but 21, under
  * the same policy, one bump for everything that night.
  */
 private const val FORMAT_VERSION = 21

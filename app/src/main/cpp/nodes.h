@@ -646,8 +646,18 @@ private:
  * inside a poly subpatch is per note and can be sent wherever you like. What is left is
  * the click, which the gate ramp takes off; see GateRamp.
  */
-struct OscVoice {
+struct OscVoice : VoiceBase {
     daisysp::Oscillator osc;
+    /**
+     * Phase modulation from the `fm` port: [index] radians for a full-scale input, the same
+     * radians as FM's index, so a modulator at half amplitude is half the index and an Amp in
+     * front of it reads as one. Pitch-invariant for free, which is why it is phase rather than
+     * hertz per unit -- the old port's welded-shut 100Hz, which made the timbre drift with the
+     * note. In cycles for the oscillator: radians over 2 pi.
+     */
+    float index = 2.0f;
+    float offset = 0.0f;
+    void modulate(float sample) { offset = sample * index * 0.15915494f; }
     GateRamp gate;
     /** How hard this note was struck. Applied by [gate], which glides to it; see GateRamp. */
     float velocity = 1.0f;
@@ -688,7 +698,9 @@ public:
     // One note at a time, and three knobs: the waveform, a tune in cents, and the level its
     // second port drives. Polyphony is a Poly subpatch around it -- see MonoSynth.
     static constexpr int32_t kLevel = 2;
-    OscNode() : MonoSynth(kLevel) {}
+    /** Its third input: audio, phase-modulating the oscillator by the index knob. */
+    static constexpr int32_t kFm = 2;
+    OscNode() : MonoSynth(kLevel, kFm) {}
     void setParam(int32_t index, float value) override;
 };
 
@@ -701,7 +713,7 @@ public:
  * the note was struck. StringVoice itself is not vendored because its sustain mode draws
  * on Dust, which calls rand() -- a mutex, on Android -- for a mode nothing here uses.
  */
-struct PluckVoice {
+struct PluckVoice : VoiceBase {
     daisysp::String string;
     daisysp::Svf excitation;
 
@@ -775,7 +787,7 @@ private:
  * [fall], which is the bell and the electric piano: brightness dying faster than loudness.
  * Velocity scales both loudness and index, so a harder note is a brighter one.
  */
-struct FmVoice {
+struct FmVoice : VoiceBase {
     GateRamp gate;
 
     void init(float sampleRate);

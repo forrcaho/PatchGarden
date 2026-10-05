@@ -756,7 +756,9 @@ void OscVoice::strike(float note, float strength, bool stolen) {
 float OscVoice::render(bool open, bool &finished) {
     const float amplitude = gate.process(open, velocity, finished);
     if (finished) return 0.0f;
-    return osc.Process() * amplitude;
+    // The unmodulated path exactly as it always was, so an Osc with nothing in `fm` is
+    // sample for sample what it was before the port came back.
+    return (offset != 0.0f ? osc.ProcessPm(offset) : osc.Process()) * amplitude;
 }
 
 void OscNode::setParam(int32_t index, float value) {
@@ -781,6 +783,8 @@ void OscNode::setParam(int32_t index, float value) {
             // other cents knob here (TUNE_RANGE).
             voice().setTune(clampf(value, -2400.0f, 2400.0f));
             break;
+        // 2 is the level, which the graph hands over as the port it drives.
+        case 3: voice().index = clampf(value, 0.0f, 10.0f); break;
         default: break;
     }
 }

@@ -4,7 +4,9 @@
 using namespace daisysp;
 static inline float Polyblep(float phase_inc, float t);
 
-float Oscillator::Process()
+// PatchGarden: Process split into the waveform at a phase and the advance, so ProcessPm
+// can read the waveform somewhere else without moving the phase anywhere else.
+float Oscillator::Shape(float phase_)
 {
     float out, t;
     switch(waveform_)
@@ -43,6 +45,11 @@ float Oscillator::Process()
             break;
         default: out = 0.0f; break;
     }
+    return out * amp_;
+}
+
+void Oscillator::Advance()
+{
     phase_ += phase_inc_;
     if(phase_ > 1.0f)
     {
@@ -55,7 +62,22 @@ float Oscillator::Process()
     }
     eor_ = (phase_ - phase_inc_ < 0.5f && phase_ >= 0.5f);
 
-    return out * amp_;
+}
+
+float Oscillator::Process()
+{
+    const float out = Shape(phase_);
+    Advance();
+    return out;
+}
+
+float Oscillator::ProcessPm(float offset)
+{
+    float at = phase_ + offset;
+    at -= floorf(at);
+    const float out = Shape(at);
+    Advance();
+    return out;
 }
 
 float Oscillator::CalcPhaseInc(float f)
