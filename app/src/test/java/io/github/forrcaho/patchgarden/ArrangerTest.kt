@@ -100,6 +100,31 @@ class ArrangerTest {
         assertEquals("a lane added is a jack under the others", 4, arranger.ports(PortDirection.OUTPUT).size)
     }
 
+    /**
+     * Four sections and the "+" fit together, as on the phone at font scale 1.5: the "+" is narrow,
+     * and the first build, which laid out only whole columns, scrolled it out of view at exactly
+     * four -- seen on the phone, where the gesture tests' wider screen never reached that width.
+     */
+    @Test
+    fun `the plus after the last section is in view beside four sections where a fifth would not fit`() {
+        val patch = Patch()
+        val arranger = patch.add(Types.Arranger, Offset.Zero)!!
+        repeat(3) { arranger.appendSection() }
+        // At d = 1 and text 1: names 96, columns 76, the "+" 40 -- room for four and the "+", not five.
+        val area = androidx.compose.ui.geometry.Rect(0f, 0f, 96f + 4 * 76f + 40f + 2f, 300f)
+        val table = arrangerTable(area, 1f, 1f, arranger)
+        assertEquals(4, table.heads.size)
+        assertEquals("nothing to scroll", 0, table.maxSectionScroll)
+        assertNotNull("and the plus in view", table.plus)
+        assertTrue("inside the table", table.plus!!.right <= area.right)
+
+        arranger.appendSection()
+        val longer = arrangerTable(area, 1f, 1f, arranger)
+        assertTrue("a fifth section scrolls", longer.maxSectionScroll > 0)
+        arranger.sectionScroll = longer.maxSectionScroll
+        assertNotNull("and scrolled to the end the plus is there again", arrangerTable(area, 1f, 1f, arranger).plus)
+    }
+
     @Test
     fun `a lane is named by its knob and says a Seq's versions as silent and v1`() {
         val patch = Patch()

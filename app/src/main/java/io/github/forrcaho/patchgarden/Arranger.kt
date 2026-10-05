@@ -296,6 +296,7 @@ private const val ARRANGER_NAME_W = 96f
 private const val ARRANGER_HEAD_H = 32f
 private const val ARRANGER_LANE_H = 29f
 private const val ARRANGER_COL_W = 76f
+private const val ARRANGER_PLUS_W = 40f
 
 internal fun arrangerTable(area: Rect, d: Float, fontScale: Float, module: PatchModule): ArrangerTable {
     val text = fontScale.coerceAtLeast(1f)
@@ -305,11 +306,16 @@ internal fun arrangerTable(area: Rect, d: Float, fontScale: Float, module: Patch
     val colW = ARRANGER_COL_W * text * d
     val gap = 3f * d
 
+    // The "+" after the last section is narrow -- it holds a "+" and nothing else -- so that four
+    // sections and it fit together on the phone. A full column for it, the first build, scrolled
+    // it out of view at exactly four, which left adding a section hidden behind a drag.
+    val plusW = ARRANGER_PLUS_W * minOf(text, 1.25f) * d
     val sections = module.shownSections
     val canAddSection = sections.size < MAX_SECTIONS
-    val columns = sections.size + if (canAddSection) 1 else 0
     val fitCols = ((area.width - nameW) / colW).toInt().coerceAtLeast(1)
-    val maxSectionScroll = (columns - fitCols).coerceAtLeast(0)
+    // Scrolled to the end, the last sections and the "+" after them are all in view.
+    val fitBeforePlus = ((area.width - nameW - (if (canAddSection) plusW else 0f)) / colW).toInt().coerceAtLeast(1)
+    val maxSectionScroll = (sections.size - fitBeforePlus).coerceAtLeast(0)
     val firstSection = module.sectionScroll.coerceIn(0, maxSectionScroll)
 
     val lanes = module.laneCount
@@ -320,13 +326,18 @@ internal fun arrangerTable(area: Rect, d: Float, fontScale: Float, module: Patch
     val corner = Rect(area.left, area.top, area.left + nameW, area.top + headH)
     val heads = mutableListOf<Pair<Int, Rect>>()
     var plus: Rect? = null
-    for (k in 0 until fitCols) {
+    // One more than the full columns that fit, since the "+" after them is narrower than one.
+    for (k in 0..fitCols) {
         val at = firstSection + k
         val left = area.left + nameW + k * colW
-        val rect = Rect(left + gap, area.top + gap, left + colW - gap, area.top + headH - gap)
-        when {
-            at < sections.size -> heads += at to rect
-            at == sections.size && canAddSection -> plus = rect
+        if (at < sections.size) {
+            if (k == fitCols) break
+            heads += at to Rect(left + gap, area.top + gap, left + colW - gap, area.top + headH - gap)
+        } else {
+            if (canAddSection && left + plusW <= area.right + 0.5f) {
+                plus = Rect(left + gap, area.top + gap, left + plusW - gap, area.top + headH - gap)
+            }
+            break
         }
     }
     val names = mutableListOf<Pair<Int, Rect>>()
@@ -614,7 +625,7 @@ internal fun DrawScope.drawArranger(
     // clear of the line under the section playing.
     fun thumb(track: Rect, first: Int, max: Int, shown: Int, across: Boolean) {
         if (max <= 0) return
-        val total = max + shown
+        val total = (max + shown).coerceAtLeast(first + shown)
         val start = first / total.toFloat()
         val length = shown / total.toFloat()
         if (across) {
@@ -628,7 +639,7 @@ internal fun DrawScope.drawArranger(
     val area = table.area
     thumb(
         Rect(table.headBand.left, area.top, table.headBand.right, area.bottom),
-        table.firstSection, table.maxSectionScroll, table.heads.size + (if (table.plus != null) 1 else 0), true,
+        table.firstSection, table.maxSectionScroll, table.heads.size, true,
     )
     thumb(
         Rect(area.left, table.nameBand.top, area.right, area.bottom),

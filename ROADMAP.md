@@ -396,7 +396,7 @@ third and the fourth -- which is why they go in the order they are numbered.
    *Decided:* it **stays 32** until a real phrase needs more.
 
 5. ~~**The Arranger**~~, after Bespoke's songbuilder: what plays when. **Built 2026-10-05**, as
-   decided below; on the emulator, **not yet on the phone or heard**. Designed and mocked up
+   decided below; measured on the phone the same evening, **not yet heard or played by Forrest**. Designed and mocked up
    overnight 2026-10-04 -- https://claude.ai/artifact/Jvc49sfazg9YqAt4oGURXc. *Proposed
    there:* lanes are modulation outputs (four, up to eight), each named by the knob its cable
    reaches and its cells said in that knob's terms -- ModSeq's lookup; **scenes and a song**, as
@@ -529,6 +529,13 @@ third and the fourth -- which is why they go in the order they are numbered.
    - *On the emulator*, a song A B A B′ of a bar each driving two six-step Seqs: every A started
      its phrase at C D E F where the transport alone would have played E F G A, B and B′ started
      their versions from the top, the silent lanes were silent, and every note was on the beat.
+   - *On the phone*, the same song gave the same notes, every onset within half a millisecond of
+     the beat, the largest sample step on each channel exactly a sine's own at its highest note --
+     no clicks at a version change or a restart -- and no xruns. The table fits four lanes and four
+     sections there. It did not fit the "+" after them: a full column for it scrolled it out of view
+     at exactly four sections, which the gesture tests' wider screen never reached. It is narrow
+     now, laid out in the space after the last whole column, and `ArrangerTest` pins it at the
+     phone's proportions.
 
    Sources for 4 and 5: [Elektron trig conditions](https://www.manualslib.com/manual/2952572/Elektron-Syntakt.html?page=42),
    [Bitwig 4 operators](https://www.soundonsound.com/reviews/bitwig-studio-4?page=2),
