@@ -168,6 +168,7 @@ JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetSlot(JNIEnv *, jobject, jlong id,
                                                               jint kind, jint index,
                                                               jint i0, jint i1, jint i2,
+                                                              jint i3,
                                                               jfloat f0, jfloat f1, jfloat f2,
                                                               jboolean flag) {
     SlotValue slot;
@@ -176,7 +177,7 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetSlot(JNIEnv *, jobject,
             slot = stepSlot(index, i0, flag == JNI_TRUE);
             break;
         case SlotKind::Dot:
-            slot = dotSlot(index, i0, i1, i2, f0);
+            slot = dotSlot(index, i0, i1, i2, f0, static_cast<uint32_t>(i3));
             break;
         case SlotKind::Segment:
             slot = segmentSlot(index, f0, f1, f2, flag == JNI_TRUE);

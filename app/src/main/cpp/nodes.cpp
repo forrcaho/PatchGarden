@@ -583,6 +583,7 @@ void SeqNode::setSlot(const SlotValue &slot) {
     dotDegree_[i] = d.degree;
     dotLength_[i] = std::max(0, std::min(d.length, kSteps * kDotSubsteps));
     dotVelocity_[i] = clampf(d.velocity, 0.0f, 1.0f);
+    dotVersions_[i] = d.versions;
 }
 
 void SeqNode::tick(int32_t offset, int64_t count) {
@@ -625,12 +626,23 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
         }
     }
 
+    // A version change restarts the loop from this tick. A transport rewound past where it
+    // restarted -- stopped and played from the top -- is back at its own top.
+    if (restartPending_) {
+        origin_ = count;
+        restartPending_ = false;
+    }
+    if (count < origin_) origin_ = 0;
     const int64_t length = length_ > 0 ? length_ : 1;
-    step_ = static_cast<int32_t>(((count % length) + length) % length);
+    const int64_t at = count - origin_;
+    step_ = static_cast<int32_t>(((at % length) + length) % length);
+    // Version 0 is silence; past that, a dot plays in the versions its bits say.
+    const uint32_t playing = version_ > 0 ? 1u << static_cast<uint32_t>(version_ - 1) : 0u;
     // The beat the boundary falls on, in integers, which decides the scale -- as Steps.
     const int64_t beat = floorDiv(count * interval.num, interval.den);
     for (int32_t d = 0; d < kMaxDots; ++d) {
         if (dotLength_[d] <= 0 || dotStep_[d] != step_) continue;
+        if ((dotVersions_[d] & playing) == 0) continue;
         if (heldCount_ >= kMaxHeld) break;
         NoteEvent on;
         on.id = nextNoteId_++;
@@ -708,6 +720,15 @@ void SeqNode::setParam(int32_t index, float value) {
         case 0: length_ = static_cast<int32_t>(clampf(value, 1.0f, static_cast<float>(kSteps)) + 0.5f); break;
         case 1: transposeCents_ = clampf(value, -kTuneRange, kTuneRange); break;
         case 2: interval_ = intervalOf(value); break;
+        case 3: {
+            const auto version = static_cast<int32_t>(clampf(value, 0.0f, static_cast<float>(kMaxVersions)) + 0.5f);
+            // Only a change restarts, and not the first value a new node is sent: one loaded
+            // on version 2 starts in step with everything else, at the transport's own top.
+            if (version != version_ && lastCount_ >= 0) restartPending_ = true;
+            version_ = version;
+            break;
+        }
+        // 4 is how many versions there are, which only the interface needs.
         default: break;
     }
 }

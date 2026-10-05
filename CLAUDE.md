@@ -367,7 +367,8 @@ apply case, one JNI shim and one `GraphSync.diffSlots`. **The payload stays type
 reads `slot.dot.velocity`, because `nodes.cpp` is where the DSP is read and clarity there
 beats the packing it would save. What is *not* typed is the JNI shim, whose ten arguments are
 the union of all three kinds -- the one place in the crossing that is not self-describing, and
-the reason `AudioEngine`'s three typed wrappers are the only callers. `SlotKind` is a
+the reason `AudioEngine`'s three typed wrappers are the only callers. A dot's versions made
+it eleven. `SlotKind` is a
 cross-boundary contract like `NodeType` and is asserted against `node.h` the same way; a
 disagreement there would read a segment as a dot rather than merely dropping it.
 
@@ -647,6 +648,16 @@ dot move" is a fact about the dots, where "what does a vertical drag mean" is a 
 the tool, and only the first is something a finger is already asking. A long-press per note
 was the alternative and was rejected on the arithmetic -- sixteen notes is sixteen
 long-presses, six seconds of waiting before any of the drags.
+
+**A Seq's notes belong to versions, and a version knob chooses.** A dot carries the versions
+it is in as bits (`Dot.versions`); `version` plays one, **0 is silence**, so one knob says
+whether and which; `versions` in the header counts them. **A change of version restarts the
+loop** at the next tick (`SeqNode`), so the cable that says "play B'" also says "from the top" --
+not on the first value a new node is sent, and back to the top with the transport. The grid
+edits the version shown (`shownVersion`, view state; 0 is **all**): a new note is that
+version's, a shared note tapped leaves it alone, one dragged is split first (`ownDot`) so the
+others keep theirs, a faint note is taken in by a tap. Overlap is judged only among notes that
+share a version, since they never sound together otherwise.
 
 **A dot's length is its duration, in quarter steps.** `Seq` had a `gate` knob for one day:
 it took Steps' place in the Add menu, a dot's length was whole steps, nothing could be

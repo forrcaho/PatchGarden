@@ -679,6 +679,53 @@ class GestureTest {
         assertTrue("softer: ${dot.velocity} -> ${after.velocity}", after.velocity < dot.velocity)
     }
 
+    // ------------------------------------------------------------------ Seq versions
+
+    /** Opens the version strip from its chip and taps [pick] on it. */
+    private fun SeqRig.pickVersion(pick: VersionPick) {
+        host.tap(panelVersionChip(panel, host.d, host.frame.fontScale).center)
+        val strip = versionStrip(panel, host.d, host.frame.fontScale, seq.versionCount)
+        host.tap(strip.tiles.single { it.second == pick }.first.center)
+    }
+
+    @Test
+    fun `plus makes a version, and a tap there takes a common note out of it alone`() {
+        val rig = SeqRig()
+        val at = rig.cell(3, 2)
+        rig.host.tap(at)
+        rig.pickVersion(VersionPick.Add)
+        assertEquals(2, rig.seq.versionCount)
+        assertEquals(2, rig.seq.shownVersion)
+        rig.host.tap(at)
+        assertEquals("still there, in version 1", 0b01, rig.seq.dots.single().versions)
+        rig.host.tap(at)
+        assertEquals("and a tap on the faint note takes it back into version 2", 0b11, rig.seq.dots.single().versions)
+    }
+
+    @Test
+    fun `a drag on a shared note lengthens this version's copy and leaves the other`() {
+        val rig = SeqRig()
+        val at = rig.cell(1, 2)
+        rig.host.tap(at)
+        rig.pickVersion(VersionPick.Add)
+        rig.host.drag(at, rig.cell(4, 2))
+        val (v1, v2) = rig.seq.dots.partition { it.versions == 0b01 }
+        assertEquals("version 1 keeps a note one step long", DOT_SUBSTEPS, v1.single().length)
+        assertTrue("version 2's is longer", v2.single().length > DOT_SUBSTEPS)
+    }
+
+    @Test
+    fun `a long press on a version offers its delete, as a tile`() {
+        val rig = SeqRig()
+        rig.pickVersion(VersionPick.Add)
+        rig.host.tap(panelVersionChip(rig.panel, rig.host.d, rig.host.frame.fontScale).center)
+        val strip = versionStrip(rig.panel, rig.host.d, rig.host.frame.fontScale, rig.seq.versionCount)
+        rig.host.hold(strip.tiles.single { it.second == VersionPick.Version(2) }.first.center)
+        assertEquals("a long press alone deletes nothing", 2, rig.seq.versionCount)
+        rig.host.tap(strip.delete.center)
+        assertEquals(1, rig.seq.versionCount)
+    }
+
     // ------------------------------------------------------------------ the interval chooser
 
     /**

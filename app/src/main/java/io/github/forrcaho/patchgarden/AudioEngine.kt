@@ -82,9 +82,9 @@ object AudioEngine {
     fun setStep(id: Long, index: Int, degree: Int, gate: Boolean): Boolean =
         slot(SlotKind.STEP, id, index, i0 = degree, flag = gate)
 
-    /** One dot of a dot sequencer, by slot; a length of 0 clears it. */
-    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float): Boolean =
-        slot(SlotKind.DOT, id, slot, i0 = step, i1 = degree, i2 = length, f0 = velocity)
+    /** One dot of a dot sequencer, by slot, with the versions it is in as bits; a length of 0 clears it. */
+    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int): Boolean =
+        slot(SlotKind.DOT, id, slot, i0 = step, i1 = degree, i2 = length, i3 = versions, f0 = velocity)
 
     /** One segment of an envelope, by slot; a time of 0 clears it. */
     fun setSegment(
@@ -100,11 +100,11 @@ object AudioEngine {
     @Suppress("LongParameterList")
     private fun slot(
         kind: SlotKind, id: Long, index: Int,
-        i0: Int = 0, i1: Int = 0, i2: Int = 0,
+        i0: Int = 0, i1: Int = 0, i2: Int = 0, i3: Int = 0,
         f0: Float = 0f, f1: Float = 0f, f2: Float = 0f,
         flag: Boolean = false,
     ): Boolean = available && started &&
-        nativeSetSlot(id, kind.id, index, i0, i1, i2, f0, f1, f2, flag)
+        nativeSetSlot(id, kind.id, index, i0, i1, i2, i3, f0, f1, f2, flag)
 
     /**
      * Parses a SoundFont and returns its handle, or 0 if it is not one this build reads.
@@ -292,7 +292,7 @@ object AudioEngine {
     private external fun nativeScaleEntry(): Int
     private external fun nativeSetSlot(
         id: Long, kind: Int, index: Int,
-        i0: Int, i1: Int, i2: Int,
+        i0: Int, i1: Int, i2: Int, i3: Int,
         f0: Float, f1: Float, f2: Float,
         flag: Boolean,
     ): Boolean

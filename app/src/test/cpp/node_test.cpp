@@ -2513,6 +2513,48 @@ void aDotEndsPartwayThroughAStep() {
     check(countKind(tickAt(legato, 1), NoteKind::Off) == 1, "and ends on the tick after");
 }
 
+/**
+ * Seq versions (roadmap item 4): a dot plays in the versions its bits name, version 0 is
+ * silence, and a change of version restarts the loop from the next tick -- the cable that
+ * says "play B'" also says "from the top". Not the first value a new node is sent, though:
+ * one loaded on version 2 is in step with everything else.
+ */
+void aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange() {
+    std::printf("a seq plays only the version chosen, and restarts on a change\n");
+    auto ons = [](SeqNode &seq, int64_t count) {
+        seq.tick(0, count);
+        seq.process(kBlockSize);
+        return countKind(*seq.noteOutput(0), NoteKind::On);
+    };
+    SeqNode seq;
+    seq.setParam(0, 4.0f);  // four steps
+    seq.setSlot(dotSlot(0, 0, 0, 1, 1.0f, 0b01));  // version 1 only, on step one
+    seq.setSlot(dotSlot(1, 0, 7, 1, 1.0f, 0b10));  // version 2 only, on step one too
+    seq.setSlot(dotSlot(2, 2, 3, 1, 1.0f, 0b11));  // both, on step three
+    check(ons(seq, 0) == 1, "version 1 plays its own note on step one, not version 2's");
+    check(ons(seq, 1) == 0, "nothing on step two");
+    check(ons(seq, 2) == 1, "a note in both plays in either");
+
+    seq.setParam(3, 2.0f);  // at step three: the next tick is the top of the loop again
+    check(ons(seq, 3) == 1, "version 2 restarts its loop, so count 3 is step one: its own note");
+    check(seq.position() == 0, "and the step says so");
+    check(ons(seq, 5) == 1, "count 5 is two past the restart, its step three");
+
+    seq.setParam(3, 0.0f);
+    check(ons(seq, 6) == 0 && ons(seq, 8) == 0, "version 0 is silence");
+
+    seq.setParam(3, 1.0f);
+    ons(seq, 9);
+    check(seq.position() == 0, "back to a version, it restarts again");
+    check(ons(seq, 0) == 1 && seq.position() == 0, "and a transport back at its top is at the loop's top");
+
+    SeqNode loaded;
+    loaded.setParam(0, 4.0f);
+    loaded.setParam(3, 2.0f);  // before any tick: how the file left it, not a change
+    loaded.setSlot(dotSlot(0, 1, 7, 1, 1.0f, 0b10));
+    check(ons(loaded, 5) == 1 && loaded.position() == 1, "a node made on version 2 counts from the transport, not a restart");
+}
+
 void aDroneTransposeMovesWhatItHolds() {
     std::printf("a drone's transpose moves what it holds\n");
     DroneNode drone;
@@ -3617,6 +3659,7 @@ void aReverbsTailEndsInTrueSilence() {
 }
 
 int main() {
+    aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange();
     aModSeqStepsThroughItsLevels();
     oscPlaysTheRequestedPitch();
     anOscsTuneMovesItsPitchByCents();

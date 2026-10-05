@@ -80,7 +80,8 @@ class DotSeqTest {
         assertEquals(1, seq.dots[0].length)
 
         assertTrue("and Seq has no gate knob to do it globally", Types.Seq.params.none { it.name == "gate" })
-        assertEquals("three knobs, one of them the header's interval", 3, Types.Seq.params.size)
+        assertEquals("five knobs: two of them in the header, the interval and how many versions",
+            listOf("len", "transp", "interval", "version", "versions"), Types.Seq.params.map { it.name })
     }
 
     /** Where a stretch measures to: quarter steps across the grid, clamped to it. */
@@ -118,7 +119,9 @@ class DotSeqTest {
         assertTrue(json.contains("\"version\":21"))
         assertEquals(seq.dots.toList(), patchFromJson(json)!!.modules.first { it.type == Types.Seq }.dots.toList())
 
-        val wild = json.replace("[31,-3,1,0.25]", "[99,-3,500,7]")
+        // The fifth number is which versions the dot is in; bits past the eight there can be
+        // are dropped, and a dot left in none is put in the first rather than lost.
+        val wild = json.replace("[31,-3,1,0.25,1]", "[99,-3,500,7,512]")
         assertEquals(
             Dot(DOT_STEPS - 1, -3, DOT_STEPS * DOT_SUBSTEPS, 1f),
             patchFromJson(wild)!!.modules.first { it.type == Types.Seq }.dots[1],

@@ -315,7 +315,23 @@ third and the fourth -- which is why they go in the order they are numbered.
    **a bar graph** -- a bar per step dragged up or down, its number tapped to type it, and each
    step labeled in the target's terms when one knob is patched.
 
-4. **A `Seq` with versions.** A phrase is often played ABAB', where B' is B with a few notes
+4. ~~**A `Seq` with versions.**~~ **Done overnight 2026-10-04**, on the emulator only. Each dot
+   carries the versions it is in as bits (an eleventh slot argument); a `version` knob plays one,
+   0 for silence, and a change restarts the loop at the next tick -- not the first value a new
+   node is sent, so a Seq loaded on version 2 is in step with everything else, and a transport
+   back at its top puts the loop there too. The editing rules as decided: a new note is the
+   version shown's, a shared note tapped leaves that version alone, one dragged is split first so
+   the others keep theirs, a faint note from another version is taken in by a tap, and **all**
+   edits a note in every version it is in. **+** copies the version shown; a long press on a
+   version offers its Delete as a tile, and versions above it move down. Colored as Forrest
+   described against the version shown -- common in the Seq's green, a version's own in its color,
+   another version's faint in that version's color. **One deviation:** the picker is **one chip**
+   in the header ("all", "v1", "v2"), opening a strip of "all 1 2 … +", not a chip per version --
+   at font scale 1.5 the header has about 190dp between the title and the lock, against 230dp for
+   "all 1 2 +" and far more for eight, and its left half is under the canvas's tempo and scale
+   chips. Mutation-checked: a restart on a new node's first value, every dot in every version,
+   kotlinx's timeout caught for the long press, a drag without the split, and a tap that deleted
+   outright were each caught. The idea: A phrase is often played ABAB', where B' is B with a few notes
    changed -- like first and second endings in notation. The first phrase entered is version 1.
    Making a new version makes every note common to both; from then on, a note changed is
    changed in the new version only, so the old note stays in 1 and the new one is in 2. Color

@@ -28,6 +28,8 @@ struct DotSlot {
     int32_t degree = 0;
     int32_t length = 0;
     float velocity = 1.0f;
+    /** Which of a Seq's versions it is in, as bits: bit 0 is version 1. */
+    uint32_t versions = 1;
 };
 
 /**
@@ -77,11 +79,11 @@ inline SlotValue stepSlot(int32_t index, int32_t degree, bool gate) {
     return v;
 }
 inline SlotValue dotSlot(int32_t index, int32_t step, int32_t degree, int32_t length,
-                         float velocity) {
+                         float velocity, uint32_t versions = 1) {
     SlotValue v;
     v.kind = SlotKind::Dot;
     v.index = index;
-    v.dot = DotSlot{step, degree, length, velocity};
+    v.dot = DotSlot{step, degree, length, velocity, versions};
     return v;
 }
 inline SlotValue segmentSlot(int32_t index, float time, float level, float curve, bool sustain) {

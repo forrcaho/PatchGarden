@@ -28,6 +28,7 @@ private sealed interface Cmd {
     data class SetDot(
         val id: Long, val slot: Int, val step: Int, val degree: Int, val length: Int,
         val velocity: Float = 1f,
+        val versions: Int = 1,
     ) : Cmd
     data class SetSegment(
         val id: Long, val slot: Int, val time: Float, val level: Float, val curve: Float,
@@ -61,8 +62,8 @@ private class Recorder : GraphCommands {
     }
     override fun setTempo(bpm: Float) { log += Cmd.SetTempo(bpm) }
     override fun setFont(id: Long, font: Long) { log += Cmd.SetFont(id, font) }
-    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float) {
-        log += Cmd.SetDot(id, slot, step, degree, length, velocity)
+    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
+        log += Cmd.SetDot(id, slot, step, degree, length, velocity, versions)
     }
     override fun setSegment(
         id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean,
@@ -1417,7 +1418,8 @@ class DotSyncTest {
         seq.removeDot(0)
         sync.sync(patch)
         assertEquals(
-            listOf(Cmd.SetDot(seq.id, 0, 4, 7, 3, 0.4f), Cmd.SetDot(seq.id, 1, 0, 0, 0)),
+            // A cleared slot is in no version, which is what its length of 0 already says.
+            listOf(Cmd.SetDot(seq.id, 0, 4, 7, 3, 0.4f), Cmd.SetDot(seq.id, 1, 0, 0, 0, versions = 0)),
             rec.log.filterIsInstance<Cmd.SetDot>(),
         )
 

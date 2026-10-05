@@ -368,6 +368,12 @@ data class Dot(
     val degree: Int,
     val length: Int = DOT_SUBSTEPS,
     val velocity: Float = 1f,
+    /**
+     * Which of the Seq's versions it is in, as bits: bit 0 is version 1. "Common" is in all of
+     * them. The model every per-note variation found shares -- Elektron's conditions, Bitwig's
+     * Recurrence -- with a version knob choosing where they count loops (roadmap item 4).
+     */
+    val versions: Int = 1,
 )
 
 /**
@@ -623,6 +629,12 @@ data class ModuleType(
     /** The parameter choosing a clocked module's interval, or -1 for one the transport does not drive. */
     val intervalParam: Int get() = params.indexOfFirst { it.choice == Choice.DIVISION }
 
+    /** A Seq's version knob -- the one playing -- or -1. */
+    val versionParam: Int get() = params.indexOfFirst { !it.header && it.name == "version" }
+
+    /** A Seq's count of versions, in the header, or -1. */
+    val versionsParam: Int get() = params.indexOfFirst { it.header && it.name == "versions" }
+
     /** The header knob saying how this module's fixed time is shown, or -1; see [periodParam]. */
     val periodParam: Int get() = params.indexOfFirst { it.header && it.name == "period" }
 
@@ -839,6 +851,13 @@ object Types {
             Param("len", 1f, DOT_STEPS.toFloat(), 16f, "", STEP),
             Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
             intervalParam(),
+            // The version playing, from 1, or 0 for silence -- so one knob says whether and which,
+            // and an Arranger lane of version numbers is a whole song's worth of this Seq. A change
+            // restarts the loop at the next tick (SeqNode). Exposable like any knob, and whole
+            // options, so a modulator's step lands on a version rather than between two.
+            Param("version", 0f, MAX_VERSIONS.toFloat(), 1f, "", STEP, short = "ver"),
+            // How many versions there are, in the header; the engine has no use for it.
+            Param("versions", 1f, MAX_VERSIONS.toFloat(), 1f, "", STEP, header = true),
         ),
         grid = GridKind.DOTS,
         engine = NodeType.Seq, category = Category.NOTES,
@@ -1500,6 +1519,105 @@ class PatchModule(
         }
     }
 
+    // ---------------------------------------------------------------- versions
+
+    /**
+     * Which version the dot grid shows and edits: 1 and up, or 0 for **all**, where an edit
+     * applies to a dot in every version it is in. View state, like [dotsLocked]: not saved,
+     * not undone -- and independent of the version knob, which is the one playing.
+     */
+    var shownVersion by mutableIntStateOf(1)
+
+    /** How many versions this Seq has. */
+    val versionCount: Int get() {
+        val index = type.versionsParam
+        if (index < 0) return 1
+        return params.getOrElse(index) { type.params[index].default }.roundToInt().coerceIn(1, MAX_VERSIONS)
+    }
+
+    /** The bits of every version there is: what "in all of them" means now. */
+    val everyVersion: Int get() = (1 shl versionCount) - 1
+
+    /** The bit of the version shown, or every version's in the all view. */
+    val shownBits: Int get() = if (shownVersion == 0) everyVersion else 1 shl (shownVersion - 1)
+
+    /** Whether [dot] is in the version shown. Everything is, in the all view. */
+    fun shows(dot: Dot): Boolean = (dot.versions and shownBits) != 0
+
+    /**
+     * Dot [index], made the version shown's own before it is edited: a dot that version shares
+     * with others is split, the old one keeping the others and an unchanged copy going to this
+     * version -- so the edit that follows changes this version's note and no one else's.
+     * Returns the index to edit, which after a split is the copy's. In the all view, or for a
+     * dot already this version's alone, it is the dot itself: an edit there is meant for every
+     * version it is in.
+     */
+    fun ownDot(index: Int): Int {
+        val dot = dots.getOrNull(index) ?: return index
+        if (shownVersion == 0 || dot.versions == shownBits || dots.size >= MAX_DOTS) return index
+        dots[index] = dot.copy(versions = dot.versions and shownBits.inv())
+        dots.add(dot.copy(versions = shownBits))
+        return dots.size - 1
+    }
+
+    /**
+     * Takes dot [index] out of the version shown: out of that version alone where others share
+     * it, and away entirely where none do -- or from every version, in the all view.
+     */
+    fun removeShownDot(index: Int) {
+        val dot = dots.getOrNull(index) ?: return
+        val rest = dot.versions and shownBits.inv()
+        if (shownVersion == 0 || rest == 0) removeDot(index) else dots[index] = dot.copy(versions = rest)
+    }
+
+    /** Puts a dot another version has into the version shown too: a tap on a faint dot. */
+    fun adoptDot(index: Int) {
+        val dot = dots.getOrNull(index) ?: return
+        dots[index] = dot.copy(versions = dot.versions or shownBits)
+    }
+
+    /**
+     * A new version holding everything in the one shown, every note common to both to start --
+     * Forrest's "+ copies". Shown at once, since it is the one about to be edited.
+     */
+    fun addVersion(): Boolean {
+        val count = versionCount
+        if (count >= MAX_VERSIONS || type.versionsParam < 0) return false
+        val bit = 1 shl count
+        val shown = shownBits
+        dots.indices.forEach { i ->
+            val dot = dots[i]
+            if ((dot.versions and shown) != 0) dots[i] = dot.copy(versions = dot.versions or bit)
+        }
+        setParam(type.versionsParam, (count + 1).toFloat())
+        shownVersion = count + 1
+        return true
+    }
+
+    /**
+     * Version [version] gone: its bit taken out of every dot and the ones above it moved down,
+     * so the versions stay numbered 1 to n; a dot in no version is removed. The knob playing it
+     * plays the version that takes its number, or the last; the last version cannot go.
+     */
+    fun deleteVersion(version: Int): Boolean {
+        val count = versionCount
+        if (count <= 1 || version !in 1..count) return false
+        val below = (1 shl (version - 1)) - 1
+        val renumbered = dots.map { dot ->
+            dot.copy(versions = (dot.versions and below) or ((dot.versions ushr version) shl (version - 1)))
+        }.filter { it.versions != 0 }
+        dots.clear()
+        dots.addAll(renumbered)
+        setParam(type.versionsParam, (count - 1).toFloat())
+        val knob = type.versionParam
+        if (knob >= 0) {
+            val playing = params.getOrElse(knob) { 1f }.roundToInt()
+            if (playing > version || playing > count - 1) setParam(knob, (playing - 1).toFloat())
+        }
+        if (shownVersion > count - 1 || shownVersion > version) shownVersion = (shownVersion - 1).coerceAtLeast(1)
+        return true
+    }
+
     /** Adds [dot] unless the sequencer is full. */
     fun addDot(dot: Dot): Boolean {
         if (dots.size >= MAX_DOTS) return false
@@ -1538,7 +1656,7 @@ class PatchModule(
         val column = step.coerceIn(0, dotColumns(this) - 1)
         if (dot.step == column && dot.degree == degree) return true
         val blocked = dots.withIndex().any { (other, it) ->
-            other != index && it.degree == degree &&
+            other != index && it.degree == degree && (it.versions and dot.versions) != 0 &&
                 column < it.step + it.stepsSpanned && it.step < column + dot.stepsSpanned
         }
         if (blocked) return false
@@ -2567,6 +2685,63 @@ internal fun panelLockChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
 }
 
 /**
+ * A Seq's version chip, left of the lock: which version the grid shows -- "all", "v1", "v2" --
+ * and the strip of them it opens. One chip rather than a chip per version, because they did
+ * not fit: at the reference device's font scale of 1.5 the header has about 190dp between the
+ * title and the lock, against 230dp for "all 1 2 +" and far more for eight versions, and its
+ * left half is under the canvas's tempo and scale chips. Forrest chose chips in the header;
+ * this is the nearest that fits, opening as the step chooser's dropdowns do.
+ */
+internal fun panelVersionChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
+    val lock = panelLockChip(panel, d, fontScale)
+    val width = 44f * fontScale.coerceAtLeast(1f) * d
+    return Rect(Offset(lock.left - 10f * d - width, lock.top), Size(width, lock.height))
+}
+
+/** What a tap on the version strip picks. */
+internal sealed interface VersionPick {
+    /** The all view, where an edit applies to a dot in every version it is in. */
+    data object All : VersionPick
+    data class Version(val n: Int) : VersionPick
+    /** A new version, copying the one shown. */
+    data object Add : VersionPick
+}
+
+/** The version strip, laid out: its ground and its tiles, for the drawing and the hit test alike. */
+internal class VersionStrip(val ground: Rect, val tiles: List<Pair<Rect, VersionPick>>) {
+    fun pickAt(at: Offset): VersionPick? = tiles.firstOrNull { it.first.contains(at) }?.second
+
+    /** The one tile a long press on a version offers: its Delete, the width of the strip. */
+    val delete: Rect get() = tiles.first().first.let { first ->
+        Rect(first.left, first.top, tiles.last().first.right, first.bottom)
+    }
+}
+
+/**
+ * "all", a tile per version and "+", in a row under the header ending at the chip's right, so
+ * it opens where the finger already is. Tiles a finger wide, growing with the text.
+ */
+internal fun versionStrip(panel: Rect, d: Float, fontScale: Float, count: Int): VersionStrip {
+    val body = panelBody(panel, d)
+    val text = fontScale.coerceAtLeast(1f)
+    val tileW = 43f * text * d
+    val tileH = maxOf(44f, 29f * text) * d
+    val gap = 6f * d
+    val pad = 12f * d
+    val picks = listOf<VersionPick>(VersionPick.All) + (1..count).map { VersionPick.Version(it) } +
+        (if (count < MAX_VERSIONS) listOf(VersionPick.Add) else emptyList())
+    val width = picks.size * tileW + (picks.size - 1) * gap + 2f * pad
+    val chip = panelVersionChip(panel, d, fontScale)
+    val right = minOf(chip.right + pad, body.right - 8f * d)
+    val left = (right - width).coerceAtLeast(body.left + 8f * d)
+    val ground = Rect(left, body.top + 6f * d, left + width, body.top + 6f * d + tileH + 2f * pad)
+    val tiles = picks.mapIndexed { i, pick ->
+        Rect(Offset(left + pad + i * (tileW + gap), ground.top + pad), Size(tileW, tileH)) to pick
+    }
+    return VersionStrip(ground, tiles)
+}
+
+/**
  * The chip in an SF panel's header that names its instrument and opens the page of them.
  * Where a sequencer's interval chip sits, and wider: it holds a name, not "1/2 beat".
  */
@@ -2877,7 +3052,11 @@ internal val Dot.stepsSpanned: Int get() = (length + DOT_SUBSTEPS - 1) / DOT_SUB
 
 /** The dot covering [column] at [degree], or -1. A dot covers every step it reaches into. */
 internal fun PatchModule.dotAt(column: Int, degree: Int): Int =
-    dots.indexOfFirst { it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
+    dots.indexOfFirst { shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
+
+/** A dot covering [column] at [degree] in a version other than the one shown, or -1: a faint one. */
+internal fun PatchModule.faintDotAt(column: Int, degree: Int): Int =
+    dots.indexOfFirst { !shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
 
 /**
  * How long dot [index] may grow, in quarter steps: to the end of the grid, or to the next
@@ -2886,7 +3065,9 @@ internal fun PatchModule.dotAt(column: Int, degree: Int): Int =
  */
 internal fun PatchModule.dotRoom(index: Int): Int {
     val dot = dots[index]
-    val next = dots.filter { it !== dot && it.degree == dot.degree && it.step > dot.step }
+    val next = dots.filter {
+        it !== dot && it.degree == dot.degree && it.step > dot.step && (it.versions and dot.versions) != 0
+    }
         .minOfOrNull { it.step } ?: dotColumns(this)
     return ((minOf(next, dotColumns(this)) - dot.step) * DOT_SUBSTEPS).coerceAtLeast(1)
 }
@@ -5205,9 +5386,14 @@ fun PatchCanvas(
     var intervalMenu by remember { mutableStateOf(false) }
     // Which of the chooser's two numbers has its grid open, if either.
     var intervalDropdown by remember { mutableStateOf<IntervalPart?>(null) }
+    // A Seq's version strip, and the version a long press on it has offered to delete.
+    var versionMenu by remember { mutableStateOf(false) }
+    var versionDelete by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(openModule?.id) {
         intervalMenu = false
         intervalDropdown = null
+        versionMenu = false
+        versionDelete = null
     }
 
     // An SF panel's page of instruments: whether it is open, how far it is scrolled in rows,
@@ -5428,6 +5614,61 @@ fun PatchCanvas(
                                     presetMenu = true
                                     return@awaitEachGesture
                                 }
+                            }
+
+                            // A Seq's version strip owns the panel while it is open, like the step
+                            // chooser below: a tap on a version shows it, "all" shows every one,
+                            // "+" copies the one shown into a new one, and a long press on a version
+                            // offers its Delete as a tile -- a destructive action is always a tile.
+                            if (open.type.versionsParam >= 0 && versionMenu) {
+                                val strip = versionStrip(panel, frame.density, frame.fontScale, open.versionCount)
+                                val pending = versionDelete
+                                if (pending != null) {
+                                    waitForUpRelease()
+                                    if (strip.delete.contains(down.position)) open.deleteVersion(pending)
+                                    versionDelete = null
+                                    versionMenu = false
+                                    return@awaitEachGesture
+                                }
+                                val pick = strip.pickAt(down.position)
+                                if (pick is VersionPick.Version) {
+                                    var held = false
+                                    try {
+                                        withTimeout(longPressMs) {
+                                            while (true) {
+                                                val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                                change.consume()
+                                            }
+                                        }
+                                    } catch (_: PointerEventTimeoutCancellationException) {
+                                        // Compose's own timeout, not kotlinx's: see CLAUDE.md.
+                                        held = true
+                                    }
+                                    if (held) {
+                                        if (open.versionCount > 1) versionDelete = pick.n
+                                        waitForUpRelease()
+                                    } else {
+                                        open.shownVersion = pick.n
+                                        versionMenu = false
+                                    }
+                                    return@awaitEachGesture
+                                }
+                                waitForUpRelease()
+                                when (pick) {
+                                    VersionPick.All -> open.shownVersion = 0
+                                    VersionPick.Add -> open.addVersion()
+                                    else -> {}
+                                }
+                                versionMenu = false
+                                return@awaitEachGesture
+                            }
+                            if (open.type.versionsParam >= 0 && !intervalMenu &&
+                                panelVersionChip(panel, frame.density, frame.fontScale).contains(down.position)
+                            ) {
+                                waitForUpRelease()
+                                versionDelete = null
+                                versionMenu = true
+                                return@awaitEachGesture
                             }
 
                             // The step-length chooser owns the panel while it is open: nothing
@@ -5864,7 +6105,10 @@ fun PatchCanvas(
                             // vertical drag sets how hard the note is struck instead.
                             if (cell != null && inEditor && open.type.grid == GridKind.DOTS) {
                                 val (column, degree) = cell
-                                val hit = open.dotAt(column, degree)
+                                // A dot in the version shown; failing that, a faint one another
+                                // version has, which only a tap can take -- into this version.
+                                var hit = open.dotAt(column, degree)
+                                val faint = if (hit < 0) open.faintDotAt(column, degree) else -1
                                 val columns = dotColumns(open)
                                 val startVelocity = open.dots.getOrNull(hit)?.velocity ?: 1f
                                 // Where in the dot the finger landed, so a long one carried
@@ -5879,6 +6123,9 @@ fun PatchCanvas(
                                     if (!moved && travel.getDistance() > slop) {
                                         moved = true
                                         lengthwise = abs(travel.x) >= abs(travel.y)
+                                        // A drag edits the version shown's own note: one it shares
+                                        // with others is split first, so they keep the old one.
+                                        if (hit >= 0) hit = open.ownDot(hit)
                                     }
                                     if (moved && hit >= 0 && lengthwise) {
                                         // In quarter steps, so a drag can end a note partway
@@ -5912,7 +6159,11 @@ fun PatchCanvas(
                                     change.consume()
                                 }
                                 if (!moved) {
-                                    if (hit >= 0) open.removeDot(hit) else open.addDot(Dot(column, degree))
+                                    when {
+                                        hit >= 0 -> open.removeShownDot(hit)
+                                        faint >= 0 -> open.adoptDot(faint)
+                                        else -> open.addDot(Dot(column, degree, versions = open.shownBits))
+                                    }
                                 }
                                 return@awaitEachGesture
                             }
@@ -6362,7 +6613,7 @@ fun PatchCanvas(
                 }
                 drawPanel(
                     open, patch, panelRect(frame), d, screenMeasurer, playing, playingStep,
-                    intervalMenu, intervalDropdown, liveParams, sfView,
+                    intervalMenu, intervalDropdown, VersionView(versionMenu, versionDelete), liveParams, sfView,
                     patch.scales.getOrElse(playingEntry) { patch.scales.first() }.rootCents,
                     frame.fontScale,
                 )
@@ -8081,10 +8332,32 @@ private fun DrawScope.drawDotGrid(
             // full outline, so a quiet note is still a note at that step rather than a
             // smaller thing that has to be aimed at. Filled from the bottom, because that is
             // the direction the drag that sets it goes.
-            drawRoundRect(accent.copy(alpha = 0.3f), rect.topLeft, rect.size, corner)
+            // Versions: a note in every version is the Seq's color; one in the version shown
+            // and not every version is that version's color, outlined where others share it;
+            // one in another version only is faint, an outline a tap can take into this one.
+            // With two versions, Forrest's three colors exactly.
+            val shown = module.shows(dot)
+            val color = when {
+                module.versionCount <= 1 || dot.versions == module.everyVersion -> accent
+                module.shownVersion == 0 -> versionColor(Integer.numberOfTrailingZeros(dot.versions) + 1)
+                else -> versionColor(module.shownVersion)
+            }
+            if (!shown) {
+                // In the color of the version it is in, so a faint note says whose it is.
+                val whose = if (dot.versions == module.everyVersion) accent
+                    else versionColor(Integer.numberOfTrailingZeros(dot.versions) + 1)
+                drawRoundRect(
+                    whose.copy(alpha = 0.45f), rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d),
+                )
+                return@forEach
+            }
+            drawRoundRect(color.copy(alpha = 0.3f), rect.topLeft, rect.size, corner)
             val fill = rect.height * dot.velocity.coerceIn(0f, 1f)
             clipRect(rect.left, rect.bottom - fill, rect.right, rect.bottom) {
-                drawRoundRect(accent, rect.topLeft, rect.size, corner)
+                drawRoundRect(color, rect.topLeft, rect.size, corner)
+            }
+            if (color != accent && dot.versions != module.shownBits && module.shownVersion != 0) {
+                drawRoundRect(accent, rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d))
             }
             if (sounding) {
                 drawRoundRect(
@@ -8097,14 +8370,31 @@ private fun DrawScope.drawDotGrid(
             // a stretch of grid is never silently empty -- as a sequence's scrolled notes.
             val above = dot.degree > window.top
             val y = if (above) area.top else area.bottom - 3f * d
+            // Another version's, faint here as on the grid.
+            val alpha = when {
+                !module.shows(dot) -> 0.2f
+                sounding -> 1f
+                else -> 0.6f
+            }
             drawRect(
-                accent.copy(alpha = if (sounding) 1f else 0.6f),
+                accent.copy(alpha = alpha),
                 Offset(left + inset, y),
                 Size(maxOf(right - left - inset * 2f, substep / 2f), 3f * d),
             )
         }
     }
 }
+
+/**
+ * Version [version]'s color on a Seq's grid, from 1: hues clear of the greens a Seq's own notes
+ * are, so a version's own note never reads as a common one.
+ */
+internal fun versionColor(version: Int): Color = VERSION_COLORS[(version - 1).mod(VERSION_COLORS.size)]
+
+private val VERSION_COLORS = listOf(
+    Color(0xFFE8B04A), Color(0xFF6FB6F0), Color(0xFFF08A9A), Color(0xFFB79CF0),
+    Color(0xFF5ED6D0), Color(0xFFF0A060), Color(0xFFD8E070), Color(0xFFE0E0E0),
+)
 
 private fun DrawScope.drawStepGrid(
     area: Rect,
@@ -9430,6 +9720,12 @@ internal const val INTERVAL_CODE = 1
 internal const val INTERVAL_RADIX = 1024
 internal const val MAX_COUNT = 1023
 
+/** How many versions a Seq can have. Mirrors SeqNode::kMaxVersions. */
+internal const val MAX_VERSIONS = 8
+
+/** The bits of every version a Seq can have. */
+internal const val ALL_VERSIONS = (1 shl MAX_VERSIONS) - 1
+
 /** How many steps a ModSeq holds. Mirrors ModSeqNode::kSteps. */
 internal const val MODSEQ_STEPS = 16
 
@@ -10250,6 +10546,7 @@ private fun DrawScope.drawPanel(
     playingStep: Int,
     intervalMenu: Boolean,
     intervalDropdown: IntervalPart?,
+    versions: VersionView,
     /** Where each modulated parameter has got to, from the engine. A missing one shows its knob. */
     live: Map<Int, Float> = emptyMap(),
     /** An SF panel's font and its page of instruments; null for every other module. */
@@ -10344,6 +10641,10 @@ private fun DrawScope.drawPanel(
     // ornament, and no other grid has anything for it to mean.
     if (module.type.grid == GridKind.DOTS) {
         drawLockChip(panelLockChip(panel, d, fontScale), d, module.dotsLocked, scaleAccent)
+    }
+    if (module.type.versionsParam >= 0) {
+        val label = if (module.shownVersion == 0) "all" else "v${module.shownVersion}"
+        drawChip(panelVersionChip(panel, d, fontScale), d, label, versions.open, scaleAccent, measurer)
     }
 
     if (sf != null) {
@@ -10490,6 +10791,44 @@ private fun DrawScope.drawPanel(
         drawText(name, topLeft = Offset(row.left, row.top + 4f * d), alpha = faint)
 
         drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents, patch.beatsPerBar)
+    }
+    if (versions.open && module.type.versionsParam >= 0) drawVersionStrip(panel, d, module, versions, measurer, fontScale)
+}
+
+/** Whether a Seq's version strip is open, and which version a long press offered to delete. */
+internal data class VersionView(val open: Boolean = false, val deleting: Int? = null)
+
+/** The version strip; see [versionStrip]. The version playing is underlined. */
+private fun DrawScope.drawVersionStrip(
+    panel: Rect, d: Float, module: PatchModule, view: VersionView, measurer: TextMeasurer, fontScale: Float,
+) {
+    val strip = versionStrip(panel, d, fontScale, module.versionCount)
+    val corner = CornerRadius(10f * d, 10f * d)
+    drawRoundRect(ChipFill, strip.ground.topLeft, strip.ground.size, corner)
+    drawRoundRect(ChipEdge, strip.ground.topLeft, strip.ground.size, corner, style = Stroke(width = 1.5f * d))
+    val deleting = view.deleting
+    if (deleting != null) {
+        val tile = strip.delete
+        drawRoundRect(Color(0xFF8A3030), tile.topLeft, tile.size, CornerRadius(7f * d, 7f * d))
+        val text = measurer.measure("Delete version $deleting", PanelChipStyle)
+        drawText(text, topLeft = Offset(tile.center.x - text.size.width / 2f, tile.center.y - text.size.height / 2f))
+        return
+    }
+    val playing = module.type.versionParam.takeIf { it >= 0 }
+        ?.let { module.params.getOrElse(it) { 1f }.roundToInt() } ?: 1
+    strip.tiles.forEach { (rect, pick) ->
+        val (label, lit) = when (pick) {
+            VersionPick.All -> "all" to (module.shownVersion == 0)
+            is VersionPick.Version -> pick.n.toString() to (module.shownVersion == pick.n)
+            VersionPick.Add -> "+" to false
+        }
+        drawIntervalTile(rect, d, label, lit, measurer)
+        if (pick is VersionPick.Version) {
+            drawRect(versionColor(pick.n), Offset(rect.left + 8f * d, rect.bottom - 6f * d), Size(rect.width - 16f * d, 2f * d))
+            if (pick.n == playing) {
+                drawRect(GridPlaying, Offset(rect.left + 8f * d, rect.bottom - 10f * d), Size(rect.width - 16f * d, 3f * d))
+            }
+        }
     }
 }
 

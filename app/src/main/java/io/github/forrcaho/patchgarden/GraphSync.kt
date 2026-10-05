@@ -95,7 +95,7 @@ interface GraphCommands {
     /** Gives SF node [id] a synth over the loaded font [font], a native handle. */
     fun setFont(id: Long, font: Long)
     /** Dot [slot] of dot sequencer [id]; a length of 0 clears the slot. */
-    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float)
+    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int)
 
     /** Segment [slot] of envelope [id]; a time of 0 clears the slot. */
     fun setSegment(id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean)
@@ -175,9 +175,9 @@ object EngineCommands : GraphCommands {
         AudioEngine.setTempo(bpm)
     }
 
-    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float) {
+    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
         trace { "dot $id[$slot] = step $step degree $degree for $length at $velocity" }
-        AudioEngine.setDot(id, slot, step, degree, length, velocity)
+        AudioEngine.setDot(id, slot, step, degree, length, velocity, versions)
     }
 
     override fun setSegment(
@@ -409,9 +409,9 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
             applies = { it.grid == GridKind.DOTS },
             read = { it.dots.toList() },
             send = { id, slot, dot ->
-                commands.setDot(id, slot, dot.step, dot.degree, dot.length, dot.velocity)
+                commands.setDot(id, slot, dot.step, dot.degree, dot.length, dot.velocity, dot.versions)
             },
-            clear = { id, slot -> commands.setDot(id, slot, 0, 0, 0, 1f) },
+            clear = { id, slot -> commands.setDot(id, slot, 0, 0, 0, 1f, 0) },
         )
         // A ModSeq's steps go as segment slots -- a level, and one day a curve, without the time
         // a step already is -- through the same pass; the time only says the slot is in use.

@@ -484,6 +484,8 @@ public:
     static constexpr int32_t kDotSubsteps = 4;
     /** Notes sounding at once. Two chords of eight overlapping, which no voice here can play anyway. */
     static constexpr int32_t kMaxHeld = 16;
+    /** Mirrored by MAX_VERSIONS in PatchCanvas.kt: the bits a dot's versions are. */
+    static constexpr int32_t kMaxVersions = 8;
 
     int32_t inputCount() const override { return 0; }
     int32_t outputCount() const override { return 1; } // notes
@@ -533,6 +535,21 @@ private:
     int32_t dotLength_[kMaxDots] = {};
     /** 0 to 1, how hard the note is struck. */
     float dotVelocity_[kMaxDots] = {};
+    /** Which versions each dot is in, as bits; see the version knob. */
+    uint32_t dotVersions_[kMaxDots] = {};
+
+    /**
+     * The version playing, from 1, or 0 for silence -- so one knob says whether and which,
+     * and an Arranger lane of versions is a whole song's worth of that Seq (roadmap item 5).
+     */
+    int32_t version_ = 1;
+    /**
+     * A sequencer restarts when its version changes: the cable that says "play B'" also says
+     * "from the top", which is how a phrase of one length follows a section of another without
+     * starting halfway through its loop. [origin_] is the tick its step 0 now falls on.
+     */
+    int64_t origin_ = 0;
+    bool restartPending_ = false;
 
     Held held_[kMaxHeld] = {};
     int32_t heldCount_ = 0;

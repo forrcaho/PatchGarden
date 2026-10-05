@@ -83,7 +83,8 @@ import java.io.File
  * same policy: a 19 code read with the new radix is a different step, and that is a refusal,
  * never a conversion.
  * 21: the overnight build of 2026-10-04 -- an LFO has a phase, and ModSeq, a loop of levels
- * sent as modulation, is a new module whose levels are saved as `levels`. Reads nothing but 21, under
+ * sent as modulation, is a new module whose levels are saved as `levels`; a Seq has versions,
+ * each dot saying which as a fifth number, with `version` and `versions` knobs. Reads nothing but 21, under
  * the same policy, one bump for everything that night.
  */
 private const val FORMAT_VERSION = 21
@@ -236,7 +237,7 @@ private fun stepsOf(module: PatchModule): JSONArray {
 }
 
 /**
- * A dot sequencer's dots, each as [step, degree, length, velocity]: positional.
+ * A dot sequencer's dots, each as [step, degree, length, velocity, versions]: positional.
  *
  * The velocity is written even when it is full, so the file says what it means rather than
  * leaving a reader to know the default -- and so a byte-for-byte round trip holds, which is
@@ -250,7 +251,7 @@ private fun dotsOf(module: PatchModule): JSONArray {
         // the same float; only one of them is legible.
         out.put(
             JSONArray().put(it.step).put(it.degree).put(it.length)
-                .put(it.velocity.toString().toDouble()),
+                .put(it.velocity.toString().toDouble()).put(it.versions),
         )
     }
     return out
@@ -271,6 +272,8 @@ private fun restoreDots(module: PatchModule, stored: JSONArray?) {
                 // Absent in a format 10 file, where every note was struck at full.
                 d.optDouble(3, 1.0).toFloat().takeIf { it.isFinite() }
                     ?.coerceIn(MIN_VELOCITY, 1f) ?: 1f,
+                // Which versions it is in, as bits; a dot in none would never be seen again.
+                (d.optInt(4, 1) and ALL_VERSIONS).takeIf { it != 0 } ?: 1,
             ),
         )
     }
