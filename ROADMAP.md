@@ -207,6 +207,17 @@ third and the fourth -- which is why they go in the order they are numbered.
    the old radix -- two beats was 17, four was 49 -- and one failed outright; the others now say
    1025 and 3073.
 
+   *The tempo side, second:* the switch, the sentence, a dropdown per number opening as a grid
+   under it, beats | bars, and **other…** typing on the keypad. **The grid is nine to a row,
+   not the mockup's six**: three rows ran off the bottom of the Pixel 8 emulator's panel at font
+   scale 1, which is 38dp shorter than the reference device's, and two rows fit both --
+   `IntervalTest` checks both frames at both text sizes. A tap on nothing closes the open grid
+   if there is one and the chooser if not, one step back at a time, so a finger that misses a
+   tile keeps the rest of what it was choosing. Mutation-checked in `GestureTest`: a tap on
+   nothing closing everything, and **other…** writing its number into the wrong half of the
+   sentence, were each caught by the test aimed at it. Seen on the emulator: the sentence and
+   the grid, as drawn.
+
 2. **An LFO gets a phase**, from 0 to 1, with some way to say "two beats late" and have it
    come out as 0.25 on an LFO whose cycle is eight beats.
 

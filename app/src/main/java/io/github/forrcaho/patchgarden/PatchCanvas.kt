@@ -2314,6 +2314,29 @@ private fun DrawScope.drawTile(
 }
 
 /** One tile of the interval chooser: a count, or "free", centered, lit when it is the one chosen. */
+/** A dropdown's button: its number, and a caret saying it opens. Lit while its grid is open. */
+private fun DrawScope.drawDropdown(rect: Rect, d: Float, label: String, open: Boolean, measurer: TextMeasurer) {
+    val caretW = 14f * d
+    drawIntervalTile(Rect(rect.topLeft, rect.size), d, "", open, measurer)
+    val text = measurer.measure(label, if (open) PanelChipOnStyle else PanelChipStyle)
+    val room = rect.width - caretW - 8f * d
+    drawText(
+        text,
+        topLeft = Offset(rect.left + (room - text.size.width) / 2f + 4f * d, rect.center.y - text.size.height / 2f),
+    )
+    val cx = rect.right - 8f * d - caretW / 2f
+    val cy = rect.center.y
+    drawPath(
+        Path().apply {
+            moveTo(cx - 5f * d, cy - 2.5f * d)
+            lineTo(cx, cy + 3f * d)
+            lineTo(cx + 5f * d, cy - 2.5f * d)
+        },
+        color = if (open) Color(0xFF14171C) else Color(0xFFC3CBD6),
+        style = Stroke(width = 2f * d, cap = StrokeCap.Round),
+    )
+}
+
 private fun DrawScope.drawIntervalTile(rect: Rect, d: Float, label: String, chosen: Boolean, measurer: TextMeasurer) {
     drawRoundRect(
         color = if (chosen) scaleAccent else TileFill,
@@ -2496,50 +2519,99 @@ internal fun presetDetail(preset: SoundFontPreset): String = when (preset.bank) 
     else -> "${preset.program + 1} \u00b7 bank ${preset.bank}"
 }
 
-/** Where each of [count] chooser tiles lands inside a panel's body. */
 /**
- * The interval chooser, laid out: where each tile is and what it picks, the caption over each
- * row, and where the line saying what they make goes. One function for the drawing and the hit
- * test.
+ * The step-length chooser, laid out: every target a tap can land on and what it picks, where
+ * the sentence's words go, where the reading goes, and the open dropdown's ground. One function
+ * for the drawing and the hit test, as every panel editor has.
+ *
+ * From Forrest's notes of 2026-10-04 and a mockup he chose to build as drawn: a tempo | fixed
+ * switch where a module can keep its own time, then the sentence -- "[n] divisions of [m]
+ * beats" -- with a dropdown per number and beats | bars as a switch, since a dropdown of two is
+ * two taps for one choice. It replaced two rows of sixteen tiles that took the whole panel,
+ * offered nothing past sixteen, and said "free" for a fixed time, which nothing about the word
+ * suggests.
+ *
+ * A dropdown opens as a grid under its number: 1 to 16, nine to a row, and "other…" for anything
+ * up to [MAX_COUNT], typed on the keypad. Nine to a row rather than the mockup's six, because
+ * three rows ran off the bottom of a Pixel 8's panel at font scale 1 -- 38dp shorter than the
+ * reference device's -- and two rows fit both.
  */
 internal class IntervalChooser(
-    val tiles: List<Pair<Rect, IntervalPick>>,
-    val captions: List<Pair<Offset, String>>,
-    val readout: Offset,
-)
+    /** Every target, in drawing order; the open grid's last, so a hit test takes it first. */
+    val targets: List<Pair<Rect, IntervalPick>>,
+    /** The sentence's words, between its two dropdowns; null where there is no sentence. */
+    val words: Rect?,
+    /** Where the reading ends, at the sentence's right, and the height it is centered on. */
+    val readout: Offset?,
+    /** Behind the open dropdown's tiles, or null with none open. */
+    val grid: Rect?,
+) {
+    /** What a tap at [at] picks: the open grid before anything under it, or null for nothing. */
+    fun pickAt(at: Offset): IntervalPick? = targets.lastOrNull { it.first.contains(at) }?.second
+}
 
-/**
- * Two rows across the panel, as Forrest sketched them: **beats**, 1 to 16, over **divisions**,
- * 1 to 16 -- a step is that many beats divided into that many -- and "free" at the end of the
- * beats row where the module has one ([ModuleType.canBeFree]).
- *
- * It stays open while both are chosen, since a step is two choices; a tap anywhere but a tile
- * closes it. Above the rows, one line says what they make ("2 beats ÷ 4 = 1/2 beat"), which is
- * the header chip's reading shown against the two choices that made it.
- */
-internal fun intervalChooser(panel: Rect, d: Float, fontScale: Float, free: Boolean): IntervalChooser {
-    val area = panelBody(panel, d).deflate(10f * d)
+/** The chooser for [step], with [open]'s grid showing if one is; see [IntervalChooser]. */
+internal fun intervalChooser(
+    panel: Rect,
+    d: Float,
+    fontScale: Float,
+    canBeFree: Boolean,
+    step: Interval,
+    open: IntervalPart? = null,
+): IntervalChooser {
+    val body = panelBody(panel, d)
     val text = fontScale.coerceAtLeast(1f)
+    val left = body.left + 30f * d
     val gap = 4f * d
-    val readoutH = 30f * d * text
-    val captionH = 22f * d * text
-    val columns = OFFERED_COUNTS + 1
-    val tileW = (area.width - gap * (columns - 1)) / columns
-    val tileH = minOf(56f * d * text, (area.height - readoutH - 2f * captionH - 3f * gap) / 2f)
-    // The whole block sits in the middle of the body rather than hanging from its top.
-    val block = readoutH + 2f * captionH + 2f * tileH + 3f * gap
-    val readout = Offset(area.left, area.top + (area.height - block) / 2f)
-    val firstCaption = readout.y + readoutH
-    val secondCaption = firstCaption + captionH + tileH + 3f * gap
-    fun tile(i: Int, top: Float) = Rect(Offset(area.left + i * (tileW + gap), top), Size(tileW, tileH))
-    val beats = (1..OFFERED_COUNTS).map { tile(it - 1, firstCaption + captionH) to IntervalPick.Beats(it) } +
-        listOfNotNull((tile(OFFERED_COUNTS, firstCaption + captionH) to IntervalPick.Free).takeIf { free })
-    val divisions = (1..OFFERED_COUNTS).map { tile(it - 1, secondCaption + captionH) to IntervalPick.Divisions(it) }
-    return IntervalChooser(
-        beats + divisions,
-        listOf(Offset(area.left, firstCaption) to "beats", Offset(area.left, secondCaption) to "divisions"),
-        readout,
-    )
+    // Chips and tiles grow with the text and never shrink below a finger: see Frame.fontScale.
+    val chipH = maxOf(40f, 27f * text) * d
+    val targets = mutableListOf<Pair<Rect, IntervalPick>>()
+    var y = body.top + 18f * d
+    if (canBeFree) {
+        val w = 74f * text * d
+        targets += Rect(Offset(left, y), Size(w, chipH)) to IntervalPick.Tempo
+        targets += Rect(Offset(left + w + gap, y), Size(w, chipH)) to IntervalPick.Fixed
+        y += chipH + 22f * d
+    }
+    if (step.free) return IntervalChooser(targets, null, null, null)
+
+    val dropW = 62f * text * d
+    val dropH = maxOf(44f, 31f * text) * d
+    val divisions = Rect(Offset(left, y), Size(dropW, dropH))
+    val words = Rect(Offset(divisions.right + 14f * d, y), Size(110f * text * d, dropH))
+    val beats = Rect(Offset(words.right, y), Size(dropW, dropH))
+    val unitW = 56f * text * d
+    val unitTop = y + (dropH - chipH) / 2f
+    val inBeats = Rect(Offset(beats.right + 14f * d, unitTop), Size(unitW, chipH))
+    val inBars = Rect(Offset(inBeats.right + gap, unitTop), Size(unitW, chipH))
+    targets += divisions to IntervalPick.Open(IntervalPart.DIVISIONS)
+    targets += beats to IntervalPick.Open(IntervalPart.BEATS)
+    targets += inBeats to IntervalPick.Bars(false)
+    targets += inBars to IntervalPick.Bars(true)
+    val readout = Offset(body.right - 34f * d, y + dropH / 2f)
+
+    var grid: Rect? = null
+    if (open != null) {
+        val anchor = if (open == IntervalPart.DIVISIONS) divisions else beats
+        val columns = 9
+        val tileW = 43f * text * d
+        val tileH = maxOf(44f, 29f * text) * d
+        val pad = 12f * d
+        val space = 6f * d
+        val tiles = OFFERED_COUNTS + 2 // "other…" takes two
+        val rows = (tiles + columns - 1) / columns
+        val size = Size(columns * tileW + (columns - 1) * space + 2f * pad, rows * tileH + (rows - 1) * space + 2f * pad)
+        val gridLeft = anchor.left.coerceAtMost(body.right - 8f * d - size.width)
+        val ground = Rect(Offset(gridLeft, anchor.bottom + 6f * d), size)
+        fun cell(i: Int, span: Int = 1) = Rect(
+            Offset(ground.left + pad + (i % columns) * (tileW + space), ground.top + pad + (i / columns) * (tileH + space)),
+            Size(span * tileW + (span - 1) * space, tileH),
+        )
+        (1..OFFERED_COUNTS).forEach { n -> targets += cell(n - 1) to IntervalPick.Count(open, n) }
+        targets += cell(OFFERED_COUNTS, span = 2) to IntervalPick.Other(open)
+        grid = ground
+    }
+    return IntervalChooser(targets, words, readout, grid)
 }
 
 internal fun panelTiles(panel: Rect, d: Float, count: Int): List<Rect> =
@@ -4029,6 +4101,9 @@ sealed interface NumberTarget {
 
     /** The level at the end of segment [index] -- node [index]'s. See [SEGMENT_LEVEL]. */
     data class SegmentLevel(val moduleId: Long, val index: Int) : NumberTarget
+
+    /** One number of a step-length chooser's sentence, past the sixteen its grid offers. */
+    data class IntervalCount(val moduleId: Long, val part: IntervalPart) : NumberTarget
 }
 
 sealed interface MenuItem {
@@ -4943,7 +5018,12 @@ fun PatchCanvas(
     // read the newest one, and the chooser would never open. Same trap as the controls
     // above, wearing a different hat.
     var intervalMenu by remember { mutableStateOf(false) }
-    LaunchedEffect(openModule?.id) { intervalMenu = false }
+    // Which of the chooser's two numbers has its grid open, if either.
+    var intervalDropdown by remember { mutableStateOf<IntervalPart?>(null) }
+    LaunchedEffect(openModule?.id) {
+        intervalMenu = false
+        intervalDropdown = null
+    }
 
     // An SF panel's page of instruments: whether it is open, how far it is scrolled in rows,
     // and the fonts there are to switch between -- read when the page opens, like the subpatch
@@ -5164,22 +5244,30 @@ fun PatchCanvas(
                                 }
                             }
 
-                            // The interval chooser owns the panel while it is open: nothing
-                            // behind it is reachable, so a stray tap picks nothing and changes
-                            // no knob. Anywhere dismisses it, including the chip itself.
+                            // The step-length chooser owns the panel while it is open: nothing
+                            // behind it is reachable, so a stray tap picks nothing and changes no
+                            // knob. It stays open while a step is chosen, since a step is several
+                            // choices; a tap on nothing closes the open grid if there is one, and
+                            // the chooser if there is not -- one step back at a time.
                             val intervalParam = open.type.intervalParam
                             if (intervalParam >= 0 && intervalMenu) {
                                 val chooser = intervalChooser(
                                     panel, frame.density, frame.fontScale, open.type.canBeFree,
+                                    open.interval, intervalDropdown,
                                 )
                                 waitForUpRelease()
-                                // A tile changes its row and leaves the chooser open for the
-                                // other; anywhere else closes it.
-                                val pick = chooser.tiles.firstOrNull { it.first.contains(down.position) }?.second
-                                if (pick != null) {
-                                    open.setParam(intervalParam, open.interval.with(pick).code.toFloat())
-                                } else {
-                                    intervalMenu = false
+                                when (val pick = chooser.pickAt(down.position)) {
+                                    null -> if (intervalDropdown != null) intervalDropdown = null else intervalMenu = false
+                                    is IntervalPick.Open ->
+                                        intervalDropdown = pick.part.takeIf { it != intervalDropdown }
+                                    is IntervalPick.Other -> {
+                                        intervalDropdown = null
+                                        interaction = Interaction.Typing(NumberTarget.IntervalCount(open.id, pick.part))
+                                    }
+                                    else -> {
+                                        intervalDropdown = null
+                                        open.setParam(intervalParam, open.interval.with(pick).code.toFloat())
+                                    }
                                 }
                                 return@awaitEachGesture
                             }
@@ -5188,6 +5276,7 @@ fun PatchCanvas(
                                 panelIntervalChip(panel, frame.density, frame.fontScale).contains(down.position)
                             ) {
                                 waitForUpRelease()
+                                intervalDropdown = null
                                 intervalMenu = true
                                 return@awaitEachGesture
                             }
@@ -6026,7 +6115,7 @@ fun PatchCanvas(
                 }
                 drawPanel(
                     open, patch, panelRect(frame), d, screenMeasurer, playing, playingStep,
-                    intervalMenu, liveParams, sfView,
+                    intervalMenu, intervalDropdown, liveParams, sfView,
                     patch.scales.getOrElse(playingEntry) { patch.scales.first() }.rootCents,
                     frame.fontScale,
                 )
@@ -6703,6 +6792,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         is NumberTarget.Knob -> patch.module(target.moduleId)
         is NumberTarget.SegmentTime -> patch.module(target.moduleId)
         is NumberTarget.SegmentLevel -> patch.module(target.moduleId)
+        is NumberTarget.IntervalCount -> patch.module(target.moduleId)
         else -> null
     }
     val param = when (target) {
@@ -6712,6 +6802,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         is NumberTarget.SegmentLevel ->
             SEGMENT_LEVEL.takeIf { module?.segments?.indices?.contains(target.index) == true }
         is NumberTarget.Knob -> module?.type?.params?.getOrNull(target.index)
+        is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let { countParam(target.part, it.interval) }
     } ?: run {
         // The module went away under the keypad, which only an undo could do.
         LaunchedEffect(Unit) { onDone() }
@@ -6724,6 +6815,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
             param.format((module?.segments?.get(target.index)?.time ?: 0f) * 1000f)
         target is NumberTarget.SegmentLevel ->
             param.format(module?.segments?.get(target.index)?.level ?: 0f)
+        target is NumberTarget.IntervalCount -> (module?.interval?.count(target.part) ?: 1).toString()
         target is NumberTarget.Knob && target.end == ValueTarget.LOW && range != null ->
             param.format(range.low)
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH && range != null ->
@@ -6742,7 +6834,8 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
     }
     val accent = when (target) {
         is NumberTarget.Tempo -> TransportAccent
-        is NumberTarget.SegmentTime, is NumberTarget.SegmentLevel -> module?.type?.accent ?: TransportAccent
+        is NumberTarget.SegmentTime, is NumberTarget.SegmentLevel, is NumberTarget.IntervalCount ->
+            module?.type?.accent ?: TransportAccent
         is NumberTarget.Knob -> if (range != null) ModulationColor else module?.type?.accent ?: TransportAccent
     }
 
@@ -6763,6 +6856,12 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
                     val m = module ?: return
                     val seg = m.segments.getOrNull(target.index) ?: return
                     m.setSegment(target.index, seg.copy(level = value))
+                }
+                is NumberTarget.IntervalCount -> {
+                    val m = module ?: return
+                    val index = m.type.intervalParam
+                    if (index < 0) return
+                    m.setParam(index, m.interval.withCount(target.part, value.roundToInt()).code.toFloat())
                 }
                 is NumberTarget.Knob -> {
                     val m = module ?: return
@@ -9027,29 +9126,71 @@ internal fun levelParam(port: Int) = Param(
 internal val ModuleType.canBeFree: Boolean
     get() = intervalParam >= 0 && params.any { it.liveWhen == LiveWhen(intervalParam, FREE_INTERVAL) }
 
-/** What a tap on one of the interval chooser's tiles picks. */
+/** Which number of the chooser's sentence: "[divisions] divisions of [beats] beats". */
+enum class IntervalPart { DIVISIONS, BEATS }
+
+/** What a tap on the step-length chooser picks; see [intervalChooser]. */
 internal sealed interface IntervalPick {
-    data class Beats(val n: Int) : IntervalPick
-    data class Divisions(val n: Int) : IntervalPick
-    data object Free : IntervalPick
+    /** The switch: the tempo times the step... */
+    data object Tempo : IntervalPick
+
+    /** ...or the module's own knob keeps the time, for a module that can ([ModuleType.canBeFree]). */
+    data object Fixed : IntervalPick
+
+    /** A dropdown's button: opens its grid, or closes it if it is the one open. */
+    data class Open(val part: IntervalPart) : IntervalPick
+
+    /** A tile in the open grid. */
+    data class Count(val part: IntervalPart, val n: Int) : IntervalPick
+
+    /** The grid's last tile, which opens the keypad for that number, up to [MAX_COUNT]. */
+    data class Other(val part: IntervalPart) : IntervalPick
+
+    /** beats | bars, at the sentence's end. */
+    data class Bars(val on: Boolean) : IntervalPick
+}
+
+/** How many of [part] this step is: the beats or bars, or the divisions. One, while free. */
+internal fun Interval.count(part: IntervalPart): Int = when {
+    free -> 1
+    part == IntervalPart.DIVISIONS -> den
+    else -> num
 }
 
 /**
- * [this] interval with [pick] applied: the row tapped changes and the other stays. From free,
- * the other row starts at 1 -- Forrest's default for both.
+ * [this] step with [pick] applied, for the picks that change it: the number tapped changes and
+ * the rest stay. From fixed, everything starts at 1 -- a step a beat, Forrest's default.
  */
 internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
-    is IntervalPick.Beats -> if (free) Interval(pick.n, 1) else copy(num = pick.n)
-    is IntervalPick.Divisions -> if (free) Interval(1, pick.n) else copy(den = pick.n)
-    IntervalPick.Free -> Interval.FREE
+    IntervalPick.Tempo -> if (free) Interval(1, 1) else this
+    IntervalPick.Fixed -> Interval.FREE
+    is IntervalPick.Count -> withCount(pick.part, pick.n)
+    is IntervalPick.Bars -> (if (free) Interval(1, 1) else this).copy(bars = pick.on)
+    is IntervalPick.Open, is IntervalPick.Other -> this
 }
 
-/** The line over the chooser saying what the two rows make: "2 beats ÷ 4 = 1/2 beat". */
-internal fun Interval.readout(): String {
-    if (free) return "free: its own knob sets the time"
-    val beats = if (num == 1) "1 beat" else "$num beats"
-    return "$beats \u00F7 $den = $label"
+/** [this] step with one number of the sentence set to [n], clamped to 1..[MAX_COUNT]. */
+internal fun Interval.withCount(part: IntervalPart, n: Int): Interval {
+    val from = if (free) Interval(1, 1) else this
+    val count = n.coerceIn(1, MAX_COUNT)
+    return if (part == IntervalPart.DIVISIONS) from.copy(den = count) else from.copy(num = count)
 }
+
+/** The words between the sentence's two dropdowns, agreeing with the first. */
+internal fun Interval.words(): String = if (count(IntervalPart.DIVISIONS) == 1) "division of" else "divisions of"
+
+/** The line at the sentence's end, saying what it makes: "= 2/3 beat". */
+internal fun Interval.readout(): String = "= $label"
+
+/** What the keypad types for [part] of [step]: a whole number from 1 to [MAX_COUNT]. */
+internal fun countParam(part: IntervalPart, step: Interval) = Param(
+    when {
+        part == IntervalPart.DIVISIONS -> "divisions"
+        step.bars -> "bars"
+        else -> "beats"
+    },
+    1f, MAX_COUNT.toFloat(), 1f, curve = ParamCurve.STEPPED,
+)
 
 /** The transport's rate. The range mirrors kMinTempo and kMaxTempo in transport.h. */
 internal val TEMPO = Param("tempo", 20f, 300f, 120f, " bpm")
@@ -9724,6 +9865,7 @@ private fun DrawScope.drawPanel(
     scale: Scale,
     playingStep: Int,
     intervalMenu: Boolean,
+    intervalDropdown: IntervalPart?,
     /** Where each modulated parameter has got to, from the engine. A missing one shows its knob. */
     live: Map<Int, Float> = emptyMap(),
     /** An SF panel's font and its page of instruments; null for every other module. */
@@ -9841,18 +9983,34 @@ private fun DrawScope.drawPanel(
             topLeft = panelBody(panel, d).topLeft,
             size = panelBody(panel, d).size,
         )
-        val chooser = intervalChooser(panel, d, fontScale, module.type.canBeFree)
-        drawText(measurer.measure(chosenInterval.readout(), PanelChipStyle), topLeft = chooser.readout)
-        chooser.captions.forEach { (at, caption) ->
-            drawText(measurer.measure(caption, GridLabelStyle), topLeft = at)
+        val chooser = intervalChooser(panel, d, fontScale, module.type.canBeFree, chosenInterval, intervalDropdown)
+        chooser.words?.let { words ->
+            val text = measurer.measure(chosenInterval.words(), PanelParamStyle)
+            drawText(text, topLeft = Offset(words.left, words.center.y - text.size.height / 2f))
         }
-        chooser.tiles.forEach { (tile, pick) ->
+        chooser.readout?.let { end ->
+            val text = measurer.measure(chosenInterval.readout(), PanelValueStyle)
+            drawText(text, topLeft = Offset(end.x - text.size.width, end.y - text.size.height / 2f))
+        }
+        chooser.grid?.let { ground ->
+            drawRoundRect(ChipFill, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d))
+            drawRoundRect(
+                ChipEdge, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d),
+                style = Stroke(width = 1.5f * d),
+            )
+        }
+        chooser.targets.forEach { (rect, pick) ->
             val (label, lit) = when (pick) {
-                is IntervalPick.Beats -> pick.n.toString() to (!chosenInterval.free && chosenInterval.num == pick.n)
-                is IntervalPick.Divisions -> pick.n.toString() to (!chosenInterval.free && chosenInterval.den == pick.n)
-                IntervalPick.Free -> "free" to chosenInterval.free
+                IntervalPick.Tempo -> "tempo" to !chosenInterval.free
+                IntervalPick.Fixed -> "fixed" to chosenInterval.free
+                is IntervalPick.Open -> chosenInterval.count(pick.part).toString() to (intervalDropdown == pick.part)
+                is IntervalPick.Count -> pick.n.toString() to (chosenInterval.count(pick.part) == pick.n)
+                // Lit when what is chosen is past the tiles, so the grid always shows where it is.
+                is IntervalPick.Other -> "other\u2026" to (chosenInterval.count(pick.part) > OFFERED_COUNTS)
+                is IntervalPick.Bars -> (if (pick.on) "bars" else "beats") to (chosenInterval.bars == pick.on)
             }
-            drawIntervalTile(tile, d, label, lit, measurer)
+            if (pick is IntervalPick.Open) drawDropdown(rect, d, label, lit, measurer)
+            else drawIntervalTile(rect, d, label, lit, measurer)
         }
         return
     }

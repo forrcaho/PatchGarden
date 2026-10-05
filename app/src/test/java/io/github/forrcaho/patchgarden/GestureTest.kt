@@ -681,25 +681,47 @@ class GestureTest {
     // ------------------------------------------------------------------ the interval chooser
 
     /**
-     * Opens [module]'s chooser from its header chip, taps [picks] in turn -- it stays open between
-     * them, since a step is two choices -- and closes it with a tap away from the tiles.
+     * Opens [module]'s chooser from its header chip and taps [picks] in turn, each found in the
+     * chooser as it stands at that moment -- a grid exists only while its number is open -- and
+     * then, unless told not to, closes it as a finger does: a tap on nothing, twice if a grid is
+     * still open, since each closes one thing.
      */
-    private fun Host.chooseInterval(module: PatchModule, vararg picks: IntervalPick) {
+    private fun Host.chooseInterval(module: PatchModule, vararg picks: IntervalPick, close: Boolean = true) {
         val panel = panelRect(frame)
         tap(panelIntervalChip(panel, d, frame.fontScale).center)
-        val chooser = intervalChooser(panel, d, frame.fontScale, module.type.canBeFree)
+        var open: IntervalPart? = null
         picks.forEach { pick ->
-            val tile = chooser.tiles.firstOrNull { it.second == pick }
-            assertNotNull("$pick is not offered", tile)
-            tap(tile!!.first.center)
+            val chooser = intervalChooser(panel, d, frame.fontScale, module.type.canBeFree, module.interval, open)
+            val target = chooser.targets.firstOrNull { it.second == pick }
+            assertNotNull("$pick is not offered", target)
+            tap(target!!.first.center)
+            open = (pick as? IntervalPick.Open)?.part?.takeIf { it != open }
         }
-        tap(chooser.readout + Offset(5f * d, 5f * d))
+        if (close) {
+            if (open != null) tap(nothing())
+            tap(nothing())
+        }
     }
+
+    /** A spot in an open chooser with nothing under it: the body's bottom right corner. */
+    private fun Host.nothing(): Offset {
+        val panel = panelRect(frame)
+        return Offset(panel.right - 24f * d, panel.bottom - 16f * d)
+    }
+
+    /** Taps [pick] in the chooser as it stands, with no grid open. */
+    private fun Host.tapInChooser(module: PatchModule, pick: IntervalPick) {
+        val chooser = intervalChooser(panelRect(frame), d, frame.fontScale, module.type.canBeFree, module.interval)
+        tap(chooser.targets.single { it.second == pick }.first.center)
+    }
+
+    private val divisions = IntervalPart.DIVISIONS
+    private val beats = IntervalPart.BEATS
 
     @Test
     fun `a sequencer is set to five to a beat by its divisions alone`() {
         val rig = SeqRig()
-        rig.host.chooseInterval(rig.seq, IntervalPick.Divisions(5))
+        rig.host.chooseInterval(rig.seq, IntervalPick.Open(divisions), IntervalPick.Count(divisions, 5))
         assertEquals("one beat, the default, into five", Interval(1, 5), rig.seq.interval)
         assertTrue("and the panel is still open, on its grid", rig.seq.expanded)
     }
@@ -707,12 +729,16 @@ class GestureTest {
     @Test
     fun `two beats in three is chosen with the chooser open throughout`() {
         val rig = SeqRig()
-        rig.host.chooseInterval(rig.seq, IntervalPick.Beats(2), IntervalPick.Divisions(3))
+        rig.host.chooseInterval(
+            rig.seq,
+            IntervalPick.Open(beats), IntervalPick.Count(beats, 2),
+            IntervalPick.Open(divisions), IntervalPick.Count(divisions, 3),
+        )
         assertEquals(Interval(2, 3), rig.seq.interval)
     }
 
     @Test
-    fun `a tap away from the chooser's tiles closes it and changes nothing`() {
+    fun `a tap away from the chooser closes it and changes nothing`() {
         val rig = SeqRig()
         val before = rig.seq.interval
         rig.host.chooseInterval(rig.seq)
@@ -722,8 +748,31 @@ class GestureTest {
         assertEquals(1, rig.seq.dots.size)
     }
 
+    /**
+     * One step back at a time: a tap on nothing with a grid open closes the grid and leaves the
+     * chooser, so a finger that misses a tile has not lost the rest of what it was choosing.
+     */
     @Test
-    fun `an LFO synced from its header leaves its rate faint, and free brings it back`() {
+    fun `a tap away from an open grid closes the grid and leaves the chooser open`() {
+        val rig = SeqRig()
+        rig.host.chooseInterval(rig.seq, IntervalPick.Open(divisions), close = false)
+        rig.host.tap(rig.host.nothing())
+        rig.host.tapInChooser(rig.seq, IntervalPick.Bars(true))
+        assertTrue("the chooser was still there to take it", rig.seq.interval.bars)
+    }
+
+    @Test
+    fun `other types a count past sixteen, and the chooser is still open after`() {
+        val rig = SeqRig()
+        rig.host.chooseInterval(rig.seq, IntervalPick.Open(divisions), IntervalPick.Other(divisions), close = false)
+        listOf("2", "4", KEY_OK).forEach(rig.host::key)
+        assertEquals(Interval(1, 24), rig.seq.interval)
+        rig.host.tapInChooser(rig.seq, IntervalPick.Bars(true))
+        assertEquals("the chooser was under the keypad all along", Interval(1, 24, bars = true), rig.seq.interval)
+    }
+
+    @Test
+    fun `an LFO put on the tempo leaves its rate faint, and fixed brings it back`() {
         val host = Host()
         val lfo = host.patch.add(Types.Lfo, Offset(40f, 40f))!!
         compose.waitForIdle()
@@ -731,11 +780,11 @@ class GestureTest {
         val rate = Types.Lfo.params.indexOfFirst { it.name == "rate" }
         assertTrue(lfo.isLive(rate))
 
-        host.chooseInterval(lfo, IntervalPick.Beats(4))
-        assertEquals("from free, divisions start at one", Interval(4, 1), lfo.interval)
+        host.chooseInterval(lfo, IntervalPick.Tempo, IntervalPick.Open(beats), IntervalPick.Count(beats, 4))
+        assertEquals("from fixed, divisions start at one", Interval(4, 1), lfo.interval)
         assertFalse(lfo.isLive(rate))
 
-        host.chooseInterval(lfo, IntervalPick.Free)
+        host.chooseInterval(lfo, IntervalPick.Fixed)
         assertTrue(lfo.interval.free)
         assertTrue(lfo.isLive(rate))
     }

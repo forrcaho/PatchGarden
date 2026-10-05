@@ -1,9 +1,12 @@
 package io.github.forrcaho.patchgarden
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -69,9 +72,11 @@ class IntervalTest {
         assertEquals("2/3 bar", Interval(2, 3, bars = true).label)
         assertEquals("free", Interval.FREE.label)
 
-        assertEquals("1 beat ÷ 3 = 1/3 beat", Interval(1, 3).readout())
-        assertEquals("the rows as chosen, the length reduced", "2 beats ÷ 4 = 1/2 beat", Interval(2, 4).readout())
-        assertEquals("5 beats ÷ 1 = 5 beats", Interval(5, 1).readout())
+        assertEquals("= 1/3 beat", Interval(1, 3).readout())
+        assertEquals("the length reduced; the sentence says how it was chosen", "= 1/2 beat", Interval(2, 4).readout())
+        assertEquals("= 4 bars", Interval(4, 1, bars = true).readout())
+        assertEquals("divisions of", Interval(1, 3).words())
+        assertEquals("and the words agree with the number", "division of", Interval(2, 1).words())
     }
 
     /**
@@ -104,15 +109,25 @@ class IntervalTest {
     }
 
     @Test
-    fun `a tap on a row changes that row and keeps the other`() {
+    fun `a number picked changes that number and keeps the rest`() {
         val half = Interval(1, 2)
-        assertEquals(Interval(3, 2), half.with(IntervalPick.Beats(3)))
-        assertEquals("and keeps bars", Interval(3, 2, bars = true), Interval(1, 2, bars = true).with(IntervalPick.Beats(3)))
-        assertEquals(Interval(1, 5), half.with(IntervalPick.Divisions(5)))
-        assertTrue(half.with(IntervalPick.Free).free)
+        assertEquals(Interval(3, 2), half.with(IntervalPick.Count(IntervalPart.BEATS, 3)))
+        assertEquals(Interval(1, 5), half.with(IntervalPick.Count(IntervalPart.DIVISIONS, 5)))
+        assertEquals("and keeps bars", Interval(3, 2, bars = true),
+            Interval(1, 2, bars = true).with(IntervalPick.Count(IntervalPart.BEATS, 3)))
+        assertEquals("bars keeps the numbers", Interval(1, 2, bars = true), half.with(IntervalPick.Bars(true)))
+        assertEquals("and so does beats", half, Interval(1, 2, bars = true).with(IntervalPick.Bars(false)))
+        assertTrue(half.with(IntervalPick.Fixed).free)
+        assertEquals("tempo leaves a step on the tempo as it was", half, half.with(IntervalPick.Tempo))
+        assertEquals("opening a grid changes nothing", half, half.with(IntervalPick.Open(IntervalPart.BEATS)))
+        assertEquals("nor does reaching for the keypad", half, half.with(IntervalPick.Other(IntervalPart.BEATS)))
         val free = Interval.FREE
-        assertEquals("from free, the other row starts at 1", Interval(4, 1), free.with(IntervalPick.Beats(4)))
-        assertEquals(Interval(1, 3), free.with(IntervalPick.Divisions(3)))
+        assertEquals("from fixed, a step a beat", Interval(1, 1), free.with(IntervalPick.Tempo))
+        assertEquals("from fixed, the other number starts at 1", Interval(4, 1), free.with(IntervalPick.Count(IntervalPart.BEATS, 4)))
+        assertEquals(Interval(1, 3), free.with(IntervalPick.Count(IntervalPart.DIVISIONS, 3)))
+        assertEquals("typed past what a code holds, the most it holds", MAX_COUNT,
+            half.withCount(IntervalPart.DIVISIONS, 5000).den)
+        assertEquals(1, half.withCount(IntervalPart.BEATS, 0).num)
     }
 
     @Test
@@ -138,41 +153,75 @@ class IntervalTest {
     private val panel = panelRect(frame)
     private val d = frame.density
 
-    @Test
-    fun `beats run 1 to 16 over divisions 1 to 16, and free only where something answers to it`() {
-        val sequencer = intervalChooser(panel, d, 1f, free = Types.Seq.canBeFree).tiles
-        val beats = sequencer.filter { it.second is IntervalPick.Beats }
-        val divisions = sequencer.filter { it.second is IntervalPick.Divisions }
-        assertEquals((1..16).map { IntervalPick.Beats(it) }, beats.map { it.second })
-        assertEquals((1..16).map { IntervalPick.Divisions(it) }, divisions.map { it.second })
-        assertTrue("beats on top", beats.all { b -> divisions.all { b.first.bottom < it.first.top } })
-        assertTrue("left to right", beats.zipWithNext().all { (a, b) -> a.first.left < b.first.left })
-        assertTrue("columns line up", beats.zip(divisions).all { (b, v) -> b.first.left == v.first.left })
-        assertFalse(sequencer.any { it.second == IntervalPick.Free })
+    /**
+     * The Pixel 8 emulator in landscape, its insets as measured off its screenshots: a panel body
+     * 274dp tall against the reference device's 311, which makes it the tight case.
+     */
+    private val emulator = Frame(
+        canvas = Size(2400f, 1080f), density = 2.625f,
+        insetLeft = 132f, insetTop = 72f, insetRight = 0f, insetBottom = 62f,
+    )
 
-        val delay = intervalChooser(panel, d, 1f, free = Types.Delay.canBeFree).tiles
-        val free = delay.single { it.second == IntervalPick.Free }.first
-        assertTrue("free ends the beats row", free.top == beats.first().first.top && free.left > beats.last().first.right)
+    @Test
+    fun `the switch is only where a module can keep its own time, and the sentence follows it`() {
+        val seq = intervalChooser(panel, d, 1f, Types.Seq.canBeFree, Interval(1, 4))
+        assertFalse("a sequencer only steps on the tempo",
+            seq.targets.any { it.second == IntervalPick.Tempo || it.second == IntervalPick.Fixed })
+        val picks = seq.targets.map { it.second }
+        assertEquals(listOf(
+            IntervalPick.Open(IntervalPart.DIVISIONS), IntervalPick.Open(IntervalPart.BEATS),
+            IntervalPick.Bars(false), IntervalPick.Bars(true),
+        ), picks)
+        val (divisions, beats) = seq.targets.take(2).map { it.first }
+        assertTrue("divisions first, as the sentence reads", divisions.right < seq.words!!.left && seq.words!!.right <= beats.left)
+
+        val lfo = intervalChooser(panel, d, 1f, Types.Lfo.canBeFree, Interval(1, 4))
+        val tempo = lfo.targets.single { it.second == IntervalPick.Tempo }.first
+        assertTrue("the switch above the sentence", lfo.targets.filter { it.second is IntervalPick.Open }.all { it.first.top > tempo.bottom })
+        val fixed = intervalChooser(panel, d, 1f, Types.Lfo.canBeFree, Interval.FREE)
+        assertEquals("fixed has no sentence", listOf(IntervalPick.Tempo, IntervalPick.Fixed), fixed.targets.map { it.second })
     }
 
     @Test
-    fun `the chooser fits the panel at the reference device's text sizes, with room for a finger`() {
-        listOf(1f, 1.5f).forEach { scale ->
-            val chooser = intervalChooser(panel, d, scale, free = true)
-            val tiles = chooser.tiles.map { it.first }
-            tiles.forEach { tile ->
-                assertTrue("$tile escapes the panel at $scale", panel.contains(tile.topLeft) &&
-                    tile.right <= panel.right && tile.bottom <= panel.bottom)
-                assertTrue("too narrow at $scale: ${tile.width / d}dp", tile.width / d >= 40f)
-                assertTrue("too short at $scale: ${tile.height / d}dp", tile.height / d >= 40f)
+    fun `a grid offers 1 to 16 and other, under its own number`() {
+        IntervalPart.entries.forEach { part ->
+            val chooser = intervalChooser(panel, d, 1.5f, true, Interval(2, 3), open = part)
+            val counts = chooser.targets.mapNotNull { (it.second as? IntervalPick.Count)?.takeIf { c -> c.part == part }?.n }
+            assertEquals((1..16).toList(), counts)
+            assertNotNull(chooser.targets.singleOrNull { it.second == IntervalPick.Other(part) })
+            val button = chooser.targets.single { it.second == IntervalPick.Open(part) }.first
+            assertTrue("under its number", chooser.grid!!.top > button.bottom)
+            assertEquals("a tile picks before anything under it", IntervalPick.Count(part, 1),
+                chooser.pickAt(chooser.targets.first { it.second == IntervalPick.Count(part, 1) }.first.center))
+        }
+        assertNull("no grid unless one is open", intervalChooser(panel, d, 1f, true, Interval(2, 3)).grid)
+    }
+
+    @Test
+    fun `the chooser fits the panel at both text sizes, on the reference device and the emulator`() {
+        listOf(frame, emulator).forEach { f ->
+            val p = panelRect(f)
+            val d = f.density
+            listOf(1f, 1.5f).forEach { scale ->
+                IntervalPart.entries.forEach { part ->
+                    val chooser = intervalChooser(p, d, scale, true, Interval(2, 3), open = part)
+                    val rects = chooser.targets.map { it.first }
+                    val body = Rect(p.left, p.top + PatchModule.PANEL_HEADER * d, p.right, p.bottom)
+                    (rects + chooser.grid!!).forEach { r ->
+                        assertTrue("$r escapes the panel at $scale", r.left >= body.left && r.top >= body.top &&
+                            r.right <= body.right && r.bottom <= body.bottom)
+                    }
+                    rects.forEach { r ->
+                        assertTrue("too small for a finger at $scale: ${r.width / d}x${r.height / d}dp",
+                            r.width / d >= 40f && r.height / d >= 40f)
+                    }
+                    rects.forEachIndexed { i, a ->
+                        rects.drop(i + 1).forEach { b -> assertFalse("$a overlaps $b", a.overlaps(b)) }
+                    }
+                    val bars = chooser.targets.single { it.second == IntervalPick.Bars(true) }.first
+                    assertTrue("the reading is right of the sentence", chooser.readout!!.x > bars.right + 60f * d)
+                }
             }
-            tiles.forEachIndexed { i, a ->
-                tiles.drop(i + 1).forEach { b -> assertFalse("$a overlaps $b", a.overlaps(b)) }
-            }
-            val header = panel.top + PatchModule.PANEL_HEADER * d
-            assertTrue("the readout is below the header at $scale", chooser.readout.y >= header)
-            assertTrue("and above the rows", tiles.all { it.top > chooser.readout.y })
-            chooser.captions.forEach { (at, _) -> assertTrue(panel.contains(at)) }
         }
     }
 
