@@ -509,6 +509,13 @@ panel is the kind of question Forrest decides from a picture; then the `fm` port
 is time. Everything tonight shares **format 21, which reads nothing older**. Every check is on the
 emulator -- the phone cuts USB data when it locks -- so nothing audible is judged.
 
+**How the night went:** all of it. Items 2 (`f6abd5c`), 3 (`a1f9dd7`) and 4 (`2147d74`) built,
+item 5 designed and mocked up (`2b6dec0`), and the `fm` port built (`7d8b8f2`), each green on
+512 JVM tests and the three native suites, each mutation-checked, each looked at on the
+emulator. One deviation from what was asked, in item 4: the version picker is one chip opening
+a strip, since a chip per version did not fit the header at font scale 1.5. **Not done:** the
+phone has item 1's build, not tonight's -- it locked -- and nothing tonight has been heard.
+
 ### Still from 2026-09-25
 
 - ~~**The `fm` port on `Osc`**~~ **built overnight 2026-10-04**, then the ladder filter -- the
