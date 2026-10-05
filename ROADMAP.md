@@ -544,8 +544,9 @@ third and the fourth -- which is why they go in the order they are numbered.
      reported only its section, so its position now packs the step into it as well; and the graph
      published a position only while there was one, so an Arranger that stopped at the end of its
      song would have gone on showing its last section -- a graph test now runs one to its end.
-     Seen on the emulator through an A B A B′ song: the Seqs light and dim with the sections, and
-     Seq 1's playhead jumps back to its start at the second A.
+     Seen on the emulator and then the phone through an A B A B′ song: the Seqs light and dim with
+     the sections, B′'s Seq says v2, the Arranger's song bar fills and starts over, and Seq 1's
+     playhead jumps back to its start at the second A.
 
    Sources for 4 and 5: [Elektron trig conditions](https://www.manualslib.com/manual/2952572/Elektron-Syntakt.html?page=42),
    [Bitwig 4 operators](https://www.soundonsound.com/reviews/bitwig-studio-4?page=2),
