@@ -570,7 +570,11 @@ recording still hear it. **The ceiling is in the patch's terms**: -3dB of full s
 there and 0.425 at the converter, which is what the phone measured, so the loudest patch is 1.2dB
 louder than before and a quiet one 0.6dB, the curve no longer squashing it. The 0.6 master gain
 dates from Phase 3, before there was a limiter at all; with a ceiling that holds, raising it is
-now a choice about loudness and not about safety. Not made.
+now a choice about loudness and not about safety. **Made the same day: Forrest lifted it to
+unity**, "as long as we're safe from saturation". The limiter's -3dB is now the converter's
+ceiling, 0.708, which leaves the converter and a lossy Bluetooth codec 3dB for overshoot of their
+own; everything is 4.4dB louder than it was, and past it would have been a step toward full scale
+for loudness alone.
 
 **The app builds with `-ffast-math`**, under which `std::isfinite` may be folded to true -- on the
 device, while the host tests, built without it, pass. The guard that keeps a NaN from reaching

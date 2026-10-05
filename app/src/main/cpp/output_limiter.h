@@ -19,7 +19,7 @@
  * It lives here rather than in `OutNode` because its lookahead is a delay: inside the graph,
  * every timing the graph tests measure through Out would move by it, and the first sample of
  * a patch could no longer arrive in the first block. The engine runs it on the graph's output,
- * before the master gain, so the capture and the recording hear what the converter does.
+ * before the output switch's fade, so the capture and the recording hear what the converter does.
  *
  * Per frame: the louder channel's level sets a target gain from a static curve -- unity to the
  * knee's foot, a quadratic in decibels across the knee, and flat at the ceiling above it, so

@@ -17,7 +17,13 @@ namespace {
 
 constexpr const char *kTag = "PatchAudio";
 
-constexpr float kMasterGain = 0.6f;
+/**
+ * Unity, so the limiter's ceiling is the converter's: -3dBFS, which leaves the converter and a
+ * lossy Bluetooth codec room for overshoot of their own. It was 0.6 from Phase 3, before there
+ * was any limiter, and was lifted on 2026-10-05 once the limiter's ceiling could be trusted
+ * (OutputLimiter). What is left of this stage is the output switch's fade.
+ */
+constexpr float kMasterGain = 1.0f;
 
 /** Seconds of rolling debug capture. Ten is plenty to find a click and cheap to hold. */
 constexpr int kCaptureSeconds = 10;
@@ -247,8 +253,8 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream * /*stream*
 
         for (int32_t i = 0; i < block; ++i) {
             gain_ += (target - gain_) * smoothing;
-            // Before the master gain, so what it limits is the patch's own level, whatever
-            // the output switch's fade is doing.
+            // Before the output switch's fade, so what it limits is the patch's own level and
+            // not wherever the fade has got to.
             float l = left[i];
             float r = right[i];
             limiter_.process(l, r);

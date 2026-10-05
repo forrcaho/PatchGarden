@@ -767,12 +767,12 @@ in that same block. Without it a drone patched to a new oscillator is silent unt
 cells are toggled. A node that can hold a note indefinitely must implement `heldNotes`.
 
 **The output limiter is a safety stage, and it is exact until it is needed.** It is the
-engine's (`OutputLimiter`, run on the graph's output before the 0.6 master gain), not `Out`'s,
+engine's (`OutputLimiter`, run on the graph's output before the output switch's fade), not `Out`'s,
 because a limiter that never lets a peak past has to see it coming: a millisecond of lookahead,
 48 frames, which inside the graph would move every timing the graph tests measure. It is
 **bit-exact below -6dB** of the patch's full scale, bends through a 6dB knee and levels off at
-**-3dB** (0.708, so 0.425 at the converter), with one gain for both channels, a 20ms hold and a
-150ms release. It replaced DaisySP's `Limiter`, whose `SoftLimit` curve has no threshold: every
+**-3dB** (0.708, and since the master gain went to unity that is the converter's ceiling too),
+with one gain for both channels, a 20ms hold and a 150ms release. It replaced DaisySP's `Limiter`, whose `SoftLimit` curve has no threshold: every
 patch was saturated, 1.8% THD at half scale, the first millisecond of a hit got past it, and it
 held the mix down for two seconds after one. Forrest chose the lookahead over a zero-latency
 version on 2026-10-05, after seeing that a millisecond is under 1% of what Bluetooth adds. The

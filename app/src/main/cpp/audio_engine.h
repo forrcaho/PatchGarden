@@ -158,7 +158,7 @@ private:
     // Audio-thread only. Not atomic because nothing else touches it while running.
     float gain_ = 0.0f;
 
-    /** Between the graph and the master gain. Prepared in start(); audio thread after that. */
+    /** Between the graph and the output switch's fade. Prepared in start(); audio thread after. */
     OutputLimiter limiter_;
 
     /** Opens the recorder at the stream's rate, if one is asked for. Caller holds streamLock_. */
