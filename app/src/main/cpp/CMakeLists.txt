@@ -16,7 +16,6 @@ add_library(daisysp STATIC
         vendor/daisysp/oscillator.cpp
         vendor/daisysp/svf.cpp
         vendor/daisysp/adsr.cpp
-        vendor/daisysp/limiter.cpp
         vendor/daisysp/dcblock.cpp
         vendor/daisysp/KarplusString.cpp
         vendor/daisysp/crossfade.cpp)

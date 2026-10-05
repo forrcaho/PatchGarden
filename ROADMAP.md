@@ -516,6 +516,71 @@ emulator. One deviation from what was asked, in item 4: the version picker is on
 a strip, since a chip per version did not fit the header at font scale 1.5. **Not done:** the
 phone has item 1's build, not tonight's -- it locked -- and nothing tonight has been heard.
 
+**Measured on the phone, 2026-10-05**, from captures of test patches loaded as files; still not
+heard. The `fm` port: every sideband to n = ±5 stands where Bessel puts it for index 2, to 0.1dB
+-- measured by exact correlation, since reading the nearest FFT bin under a window scallops by up
+to a decibel and briefly made it look 0.5dB off. Versions, with a ModSeq stepping a Seq's
+version 1, 2, 0, 1 a bar each: 0 to 1 and 1 to 2 restart at step 0, 1 to 1 carries on (the
+documented A A limit), 2 to 0 is silent on the bar line, and every onset is on the beat. An
+LFO synced to a beat at phase 0.25 resets 6000 samples after each beat, 125.0ms, to the sample.
+No xruns. The `fm` capture also carried tones at whole multiples of the modulator, 37 to 45dB
+under the first sidebands, that fell 27dB when the carrier fell 13dB: third order, after the
+oscillator -- `Out`'s limiter, below.
+
+### Out's limiter, replaced 2026-10-05
+
+**It saturated everything.** DaisySP's `Limiter` runs every sample through `SoftLimit`,
+x(27 + x²)/(27 + 9x²), a curve with no threshold, so the "transparent below threshold" its
+comment claimed was never true: 0.6% THD at -11dB, 1.8% at -6dB, 3.3% from -3dB up, where the
+gain stage pinned it. A Python model of it on a +12dB saw from silence also let the first
+millisecond through at 1.006, and held the mix down for two seconds after a 50ms spike, since its
+release is a one-second time constant.
+
+Forrest's ask: **keep the protection**, since a feedback patch reaches full scale at once and
+this is played on headphones, with a soft elbow so that hitting it is not jarring. Modeled
+against today's on the same signals:
+
+| | THD at -6dB | at +6dB | sustained ceiling | first ms of a +12dB hit | back after a spike |
+| --- | --- | --- | --- | --- | --- |
+| DaisySP's, as it was | 1.77% | 3.34% | 0.61 | 1.006 | 2.0s |
+| a soft clipper alone | 0 | 21% | 0.98 | 0.98 | at once |
+| a limiter, clipper behind it | 0 | 0 | 0.71 | 0.98, clipped | 0.53s |
+| the same, 1ms lookahead | 0 | 0.02% | 0.71 | 0.71 | 0.51s |
+
+The clipper alone is the jarring case: clean until it is hit, then hard. **Decided 2026-10-05:
+the lookahead**, once the latency already there was on the table -- 4.7 to 7.5ms of stream, up
+to 2ms for a command to arrive, and over Bluetooth A2DP, which is how the phone is listened to,
+100ms or more the engine cannot see. A millisecond is 48 samples, and it delays everything
+equally, so nothing moves against the transport; only touch-to-sound and the mic get later. And
+**-3dB** for where it levels off.
+
+**As built** (`OutputLimiter`, `output_limiter.h`): one gain for both channels, from the louder;
+a static curve that is unity to -6dB, a quadratic in decibels across a 6dB knee, and flat at
+-3dB; a 20ms hold as a true sliding minimum; a 150ms release from below; the held gain averaged
+over the lookahead; the audio delayed by exactly the lookahead, which is what guarantees a peak
+is at its target gain when it comes out. It is bit-exact below the knee. The hold was first "the
+lowest so far, until 20ms pass without one as low", and the test for steady gain caught it:
+a sampled sine's peaks differ in the fifth decimal, the smaller ones failed to restart it, and
+the gain sagged and was knocked back once a cycle -- 0.5% ripple, which is distortion.
+
+**It moved out of `Out` into the engine**, before the 0.6 master gain, because the lookahead is a
+delay and inside the graph it would have sat under every timing the graph tests measure -- the
+first of them asks that a patch's first sample arrive in the first block. The capture and the
+recording still hear it. **The ceiling is in the patch's terms**: -3dB of full scale is 0.708
+there and 0.425 at the converter, which is what the phone measured, so the loudest patch is 1.2dB
+louder than before and a quiet one 0.6dB, the curve no longer squashing it. The 0.6 master gain
+dates from Phase 3, before there was a limiter at all; with a ceiling that holds, raising it is
+now a choice about loudness and not about safety. Not made.
+
+**The app builds with `-ffast-math`**, under which `std::isfinite` may be folded to true -- on the
+device, while the host tests, built without it, pass. The guard that keeps a NaN from reaching
+the converter, or sticking in the gain, checks the bits.
+
+**Measured on the phone** after it, the same `fm` patch: the third-order tones went from 37 to 45dB
+under the first sidebands to 69 to 93dB under. Driven to four times full scale, the peak was
+0.4247 against a ceiling of 0.4248, the sidebands still Bessel's and no discontinuities; and loud
+sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
+
 ### Still from 2026-09-25
 
 - ~~**The `fm` port on `Osc`**~~ **built overnight 2026-10-04**, then the ladder filter -- the
@@ -584,6 +649,11 @@ phone has item 1's build, not tonight's -- it locked -- and nothing tonight has 
 
 ### Still to be heard on the phone
 
+- **The output limiter** (above, 2026-10-05): whether a patch that hits it now sounds turned
+  down rather than squashed, and whether the 150ms release pumps. Measured, not heard.
+- **The overnight run of 2026-10-04**: LFO phase, ModSeq, Seq versions and the `fm` port. Measured
+  on the phone the next day (above); not heard, and the chooser and the version strip are untried
+  by hand.
 - **A level on every synth, and the release** (Phase 12, 7). Built on 2026-10-02 and checked
   only by the tests. It also changed which instance `PolyIn` takes.
 - **The overnight run of 2026-09-23** (Phase 11), whose list for the morning was never

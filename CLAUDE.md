@@ -130,6 +130,7 @@ being edited out from under it.
 | `soundfont.{h,cpp}` | the SF node over TinySoundFont; a SoundFont loaded once and shared |
 | `synth.h` | `MonoSynth` and `GateRamp`: one note's pitch, glide and declick |
 | `audio_engine.{h,cpp}` | Oboe streams, ADPF, debug capture |
+| `output_limiter.h` | the last stage before the master gain: lookahead, linked, header-only |
 | `recorder.{h,cpp}` | always recording: a ring, a writer thread and a circular file |
 
 ## Invariants
@@ -278,7 +279,7 @@ gives 97% tracking, which drifts across the keyboard and reads as a tuning bug.
 **A filter's resonance is bounded by its drive, and the drive is not optional.**
 `daisysp::Svf`'s only limit on resonance is a cubic term scaled by that drive, which
 `FilterNode::prepare` set to zero for the life of the module: measured with a sine sitting on
-the cutoff, the old maximum of 0.95 gave **39x** and 1.0 gave 1255x. `Out`'s limiter would
+the cutoff, the old maximum of 0.95 gave **39x** and 1.0 gave 1255x. The output limiter would
 have held it, which is the problem -- as a brick wall over whatever else was playing. The
 drive is 0.02, which costs nothing musically because it saturates the steady-state peak and
 leaves the ring: an impulse rings 12ms at res 0.5 and past three seconds at 1.0, and those
@@ -764,6 +765,22 @@ once, so the graph marks a new note cable *fresh* and, on its first block, asks 
 for `heldNotes` and hands those over as starts -- skipping any note the source is starting
 in that same block. Without it a drone patched to a new oscillator is silent until its
 cells are toggled. A node that can hold a note indefinitely must implement `heldNotes`.
+
+**The output limiter is a safety stage, and it is exact until it is needed.** It is the
+engine's (`OutputLimiter`, run on the graph's output before the 0.6 master gain), not `Out`'s,
+because a limiter that never lets a peak past has to see it coming: a millisecond of lookahead,
+48 frames, which inside the graph would move every timing the graph tests measure. It is
+**bit-exact below -6dB** of the patch's full scale, bends through a 6dB knee and levels off at
+**-3dB** (0.708, so 0.425 at the converter), with one gain for both channels, a 20ms hold and a
+150ms release. It replaced DaisySP's `Limiter`, whose `SoftLimit` curve has no threshold: every
+patch was saturated, 1.8% THD at half scale, the first millisecond of a hit got past it, and it
+held the mix down for two seconds after one. Forrest chose the lookahead over a zero-latency
+version on 2026-10-05, after seeing that a millisecond is under 1% of what Bluetooth adds. The
+status line says `lookahead=` beside `latencyMs`, which does not include it. **The app builds
+with `-ffast-math`, so `std::isfinite` and `std::isnan` may be folded to constants on the
+device** while the host tests, built without it, pass: the limiter's guard against a NaN reaching
+the converter checks the float's bits instead. Do the same anywhere a non-finite value has to be
+caught on the audio thread.
 
 **Inputs take one source.** A connect already replaces, so a replacement must send only
 the connect — sending a disconnect too makes the engine fade to silence and back, which

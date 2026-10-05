@@ -232,7 +232,7 @@ void patchingDoesNotStep() {
     const auto onConnect = render(graph, 64);
 
     // A fade can only scale the signal down, so a transition should never out-step the
-    // steady state. The margin is for the limiter's gain moving underneath it.
+    // steady state. The margin was for Out's old limiter moving its gain underneath it.
     check(maxStep(onDisconnect) <= baseline * 1.25f, "disconnecting adds no step");
     check(maxStep(onConnect) <= baseline * 1.25f, "connecting adds no step");
     check(energy(onConnect.data(), static_cast<int32_t>(onConnect.size())) > 0.0f,
@@ -932,9 +932,10 @@ std::vector<float> levels(Graph &graph, int windows, int blocks = 8) {
  * to nothing so it arrives there at once, and callers still render past the change before
  * measuring, because the sustain segment glides rather than jumps.
  *
- * Measured through Out, whose limiter is transparent only well below full scale: a level of
- * 0.2 reads back as 0.198, but 0.6 already settles at 0.543. So a test that compares two
+ * Measured through Out, which until 2026-10-05 carried a limiter that was transparent only well
+ * below full scale: 0.2 read back as 0.198, but 0.6 settled at 0.543. So a test that compares two
  * levels keeps both below 0.4, and one that has to go higher judges against what it measured.
+ * Out is linear now -- the limiter is the engine's, after the graph -- and the levels stayed.
  */
 struct ModPatch {
     Graph graph;
@@ -981,8 +982,7 @@ struct ModPatch {
  * A sine through a Gain to the output, with a held envelope ready to patch into its `mod`.
  *
  * The envelope is ModPatch's: one segment that rises at once and parks, so what it is worth
- * is a level rather than a moment in a shape. Levels are kept below 0.4 through Out, whose
- * limiter is transparent only down there -- see ModPatch.
+ * is a level rather than a moment in a shape. Levels are kept below 0.4 -- see ModPatch.
  */
 struct AmpRig {
     Graph graph;
@@ -1487,9 +1487,9 @@ void patchingAModulatorFadesRatherThanJumps() {
     m.level(0.0f);
     render(m.graph, 200);
 
-    // 30ms is 1454 samples, nearly six windows. Measured, a fade in reads 0.14, 0.21, 0.34,
-    // 0.45, 0.53 and then holds at 0.54 -- the limiter's reading of 0.6 -- and a fade out
-    // mirrors it. Without a fade every window after the patch is already at its end, so
+    // 30ms is 1454 samples, nearly six windows. Measured when Out had a limiter, a fade in read
+    // 0.14, 0.21, 0.34, 0.45, 0.53 and then held at 0.54, that limiter's reading of 0.6 -- it
+    // arrives at 0.6 now -- and a fade out mirrors it. Without a fade every window after the patch is already at its end, so
     // "partway" is judged against both ends rather than against a number.
     m.graph.postConnectMod(4, 0, 2, 0);
     m.graph.applyCommands();

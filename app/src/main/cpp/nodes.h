@@ -10,7 +10,6 @@
 #include "delayline.h"
 #include "reverb.h"
 #include "KarplusString.h"
-#include "limiter.h"
 #include "oscillator.h"
 #include "svf.h"
 
@@ -178,8 +177,8 @@ private:
  * The signal edge of a poly subpatch: one input per instance, summed.
  *
  * Summed rather than averaged, like Mix: a chord is louder than one
- * note, which is true of every instrument, and Out's limiter catches what that costs at the
- * top. An instance that is not sounding contributes silence, so the sum is over what is
+ * note, which is true of every instrument, and the output limiter catches what that costs at
+ * the top. An instance that is not sounding contributes silence, so the sum is over what is
  * playing rather than over the knob.
  *
  * Eight inputs always, for the reason PolyIn has eight outputs. An unwired one reads as
@@ -1065,10 +1064,12 @@ private:
 };
 
 /**
- * The sink. DC blocked and limited, in that order.
+ * The sink: DC blocked, at its level.
  *
- * The limiter is not polish: a feedback patch reaches full scale instantly, and this is
- * an instrument played on headphones.
+ * Its limiter moved out of the graph on 2026-10-05, to the engine (OutputLimiter), because a
+ * limiter that never saturates needs to see a peak coming and so delays everything it passes,
+ * and inside the graph that delay would sit under every timing the graph is tested on. It is
+ * no less there: nothing reaches the converter without going through it.
  */
 class OutNode : public Node {
 public:
@@ -1082,8 +1083,6 @@ private:
     float level_ = 1.0f;
     daisysp::DcBlock dcLeft_;
     daisysp::DcBlock dcRight_;
-    daisysp::Limiter limitLeft_;
-    daisysp::Limiter limitRight_;
 };
 
 /**

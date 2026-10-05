@@ -1166,8 +1166,6 @@ void OutNode::prepare(int32_t sampleRate) {
     Node::prepare(sampleRate);
     dcLeft_.Init(static_cast<float>(sampleRate));
     dcRight_.Init(static_cast<float>(sampleRate));
-    limitLeft_.Init();
-    limitRight_.Init();
 }
 
 void OutNode::process(int32_t frames) {
@@ -1176,20 +1174,12 @@ void OutNode::process(int32_t frames) {
     const float *inLeft = input(0);
     const float *inRight = input(1);
 
-    // DC first, then limit. A blocked offset would otherwise eat the limiter's headroom
-    // while being inaudible itself.
+    // DC blocked before the engine's limiter sees it, since a blocked offset would otherwise
+    // eat the limiter's headroom while being inaudible itself.
     for (int32_t i = 0; i < frames; ++i) {
         left[i] = dcLeft_.Process(inLeft[i] * level_);
         right[i] = dcRight_.Process(inRight[i] * level_);
     }
-    // DaisySP's Limiter multiplies everything by a fixed 0.7 whether it is loud or not,
-    // which is seven decibels given away before any limiting has happened -- a fader,
-    // not a limiter. Compensating that in pre_gain makes the stage transparent below
-    // threshold and leaves it to act only where it is meant to. It also brings the knee
-    // in at about 0.7 rather than 1.0, so the saturation stays gentle.
-    constexpr float kMakeUp = 1.0f / 0.7f;
-    limitLeft_.ProcessBlock(left, static_cast<size_t>(frames), kMakeUp);
-    limitRight_.ProcessBlock(right, static_cast<size_t>(frames), kMakeUp);
 }
 
 void OutNode::setParam(int32_t index, float value) {

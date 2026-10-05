@@ -4,6 +4,7 @@
 #include <oboe/Oboe.h>
 
 #include "graph.h"
+#include "output_limiter.h"
 #include "recorder.h"
 
 #include <array>
@@ -40,8 +41,8 @@ public:
     std::string status() const;
 
     /**
-     * Debug capture of exactly what reaches the stream -- post master gain, post
-     * limiter, the samples the converter actually receives. A rolling window of the last
+     * Debug capture of exactly what reaches the stream -- post limiter, post master
+     * gain, the samples the converter actually receives. A rolling window of the last
      * few seconds, written out when the stream stops, so "play, then background the app"
      * captures whatever you just heard.
      *
@@ -156,6 +157,9 @@ private:
 
     // Audio-thread only. Not atomic because nothing else touches it while running.
     float gain_ = 0.0f;
+
+    /** Between the graph and the master gain. Prepared in start(); audio thread after that. */
+    OutputLimiter limiter_;
 
     /** Opens the recorder at the stream's rate, if one is asked for. Caller holds streamLock_. */
     void openRecorderLocked();

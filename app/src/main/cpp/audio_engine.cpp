@@ -94,6 +94,7 @@ bool AudioEngine::start() {
     channelCount_ = stream_->getChannelCount();
     framesPerBurst_ = stream_->getFramesPerBurst();
     graph_.setSampleRate(sampleRate_);
+    limiter_.prepare(sampleRate_);
 
     // Two bursts is the documented starting point: enough to absorb scheduling jitter,
     // small enough to stay in the low-latency regime.
@@ -246,15 +247,18 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream * /*stream*
 
         for (int32_t i = 0; i < block; ++i) {
             gain_ += (target - gain_) * smoothing;
-            float l;
-            float r;
+            // Before the master gain, so what it limits is the patch's own level, whatever
+            // the output switch's fade is doing.
+            float l = left[i];
+            float r = right[i];
+            limiter_.process(l, r);
             if (channelCount_ >= 2) {
-                l = left[i] * gain_;
-                r = right[i] * gain_;
+                l *= gain_;
+                r *= gain_;
                 *out++ = l;
                 *out++ = r;
             } else {
-                l = r = (left[i] + right[i]) * 0.5f * gain_;
+                l = r = (l + r) * 0.5f * gain_;
                 *out++ = l;
             }
             captureFrame(l, r);
@@ -558,5 +562,7 @@ std::string AudioEngine::statusLocked() const {
         out << " latencyMs=unavailable";
     }
     out << " xruns=" << (xRuns ? xRuns.value() : -1);
+    // Not in latencyMs, which is the stream's alone.
+    out << " lookahead=" << limiter_.latency();
     return out.str();
 }

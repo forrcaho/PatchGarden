@@ -22,7 +22,6 @@ The cost is that updating is a manual re-copy. That is the right trade for a doz
 | `oscillator.*` | Osc — the PolyBLEP waveforms; naive saws alias audibly |
 | `svf.*` | Filter — state-variable, the Mutable Instruments one |
 | `adsr.*` | Env |
-| `limiter.*` | Out — a feedback patch can reach full scale instantly |
 | `dcblock.*` | Out — keeps offset out of the converter |
 | `KarplusString.*` | Pluck — the string, from Rings |
 | `delayline.h`, `onepole.h`, `crossfade.*` | what the string is built from |

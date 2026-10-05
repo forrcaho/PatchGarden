@@ -12,9 +12,11 @@
 #include <initializer_list>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 
 #include "nodes.h"
+#include "output_limiter.h"
 #include "processors.h"
 #include "soundfont.h"
 #include "test_support.h"
@@ -376,7 +378,7 @@ void theSteeperSlopeIsSteeper() {
  * The SVF's only limit on its resonance is a cubic term scaled by the drive, and the drive
  * was zero: a sine sitting exactly on the cutoff came out 39x at the old maximum res of
  * 0.95 and 1255x at 1.0. Nothing caught it because nothing had ever pointed a tone at the
- * cutoff and looked at the number. Out's limiter would have held the output, which is the
+ * cutoff and looked at the number. The output limiter would have held the output, which is the
  * point -- it would have held it as a brick wall over whatever else was playing.
  */
 void resonanceIsBoundedAtEveryKindAndSlope() {
@@ -1147,8 +1149,8 @@ void outPassesAudioAtLevel() {
     check(ratio < 1.05f, "nor amplified, ratio " + std::to_string(ratio));
 }
 
-void outProtectsTheListener() {
-    std::printf("out protects the listener\n");
+void outBlocksAConstant() {
+    std::printf("out blocks a constant\n");
     const auto loud = constantBuffer(4.0f);
 
     OutNode out;
@@ -1157,14 +1159,168 @@ void outProtectsTheListener() {
     out.setInput(1, loud.data());
     // DaisySP's DcBlock uses gain = 1 - 10/sampleRate, which is a ~100ms time constant,
     // so this needs far longer than it looks. Measured: still 0.09 after 256 blocks.
-    const auto limited = run(out, 1024);
+    const auto blocked = run(out, 1024);
 
-    // A feedback patch reaches full scale instantly, and this is played on headphones.
-    check(peak(limited) < 1.5f, "four times full scale is brought back under control");
+    // A constant input must not sit there as an offset eating the output limiter's
+    // headroom. Keeping the listener safe is the limiter's job now; see below.
+    check(std::fabs(blocked.back()) < 0.05f, "a constant settles to nothing");
+}
 
-    // And the DC blocker means a constant input does not sit there as an offset eating
-    // the limiter's headroom.
-    check(std::fabs(limited.back()) < 0.05f, "a constant settles to nothing");
+// ---------------------------------------------------------------- the output limiter
+
+/** A stereo signal through the limiter, frame by frame; returns both channels. */
+struct Limited {
+    std::vector<float> left, right;
+};
+
+Limited limit(const std::vector<float> &left, const std::vector<float> &right, OutputLimiter &limiter) {
+    Limited out{left, right};
+    for (std::size_t i = 0; i < left.size(); ++i) limiter.process(out.left[i], out.right[i]);
+    return out;
+}
+
+std::vector<float> sine(float amplitude, double hz, double seconds) {
+    std::vector<float> v(static_cast<std::size_t>(seconds * kRate));
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        v[i] = amplitude * static_cast<float>(std::sin(2.0 * M_PI * hz * i / kRate));
+    }
+    return v;
+}
+
+const float kLimitCeiling = std::pow(10.0f, OutputLimiter::kCeilingDb / 20.0f);
+
+/**
+ * Below the knee it is a delay and nothing else, to the bit. DaisySP's limiter, which this
+ * replaced, bent every sample through a curve with no threshold: 1.8% THD at half scale.
+ */
+void limiterIsExactBelowItsKnee() {
+    std::printf("the limiter is exact below its knee\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    check(limiter.latency() == 48, "a millisecond of lookahead at 48kHz, got " +
+                                       std::to_string(limiter.latency()));
+    const auto in = sine(0.5f, 261.6, 0.5);  // -6.0dB, just under where the knee starts
+    const auto out = limit(in, in, limiter);
+    const auto lag = static_cast<std::size_t>(limiter.latency());
+    bool exact = true;
+    for (std::size_t i = 0; i < lag; ++i) exact = exact && out.left[i] == 0.0f;
+    for (std::size_t i = lag; i < in.size(); ++i) exact = exact && out.left[i] == in[i - lag];
+    check(exact, "every sample comes out unchanged, a millisecond late");
+}
+
+/**
+ * A hit from silence at four times full scale never gets past the ceiling, not even its first
+ * sample -- the old limiter let the first millisecond through at 1.006. The lookahead and the
+ * averaging window are what hold it; shorten either and this fails.
+ */
+void limiterHoldsItsCeilingFromTheFirstSample() {
+    std::printf("the limiter holds its ceiling from the first sample\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    std::vector<float> in(static_cast<std::size_t>(0.3 * kRate), 0.0f);
+    for (std::size_t i = kRate / 10; i < in.size(); ++i) {
+        in[i] = 4.0f * (2.0f * static_cast<float>(std::fmod(i * 220.0 / kRate, 1.0)) - 1.0f);
+    }
+    const auto out = limit(in, in, limiter);
+    check(peak(out.left) <= kLimitCeiling * 1.00001f,
+          "never past the ceiling, peak " + std::to_string(peak(out.left)));
+    check(peak(out.left) > kLimitCeiling * 0.95f, "and actually reaches it, rather than going quiet");
+}
+
+/**
+ * Riding the gain does not distort what it rides: over a sustained overload the gain is one
+ * number, so the waveform is only turned down. Held across a 110Hz cycle by the hold; with no
+ * hold the release would sag between peaks and the ratio would wobble at twice the pitch.
+ */
+void limiterRidesAnOverloadWithoutBendingIt() {
+    std::printf("the limiter rides an overload without bending it\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    const auto in = sine(2.0f, 110.0, 1.0);  // +6dB
+    const auto out = limit(in, in, limiter);
+    const auto lag = static_cast<std::size_t>(limiter.latency());
+    float lowest = 10.0f;
+    float highest = 0.0f;
+    for (std::size_t i = in.size() - kRate / 10; i < in.size(); ++i) {
+        const float source = in[i - lag];
+        if (std::fabs(source) < 0.1f) continue;  // a ratio near a zero crossing is noise
+        const float ratio = out.left[i] / source;
+        lowest = std::min(lowest, ratio);
+        highest = std::max(highest, ratio);
+    }
+    check(highest - lowest < 1e-4f, "one gain across the last 100ms, spread " +
+                                        std::to_string(highest - lowest));
+    check(std::fabs(highest * 2.0f - kLimitCeiling) < 0.01f,
+          "and the peaks sit at the ceiling, " + std::to_string(highest * 2.0f));
+}
+
+/**
+ * One gain for both sides, so a loud left does not swing the image right by turning only
+ * itself down.
+ */
+void limiterTurnsBothSidesDownTogether() {
+    std::printf("the limiter turns both sides down together\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    const auto loud = sine(2.0f, 110.0, 0.5);
+    const auto quiet = sine(0.1f, 110.0, 0.5);
+    const auto out = limit(loud, quiet, limiter);
+    const std::size_t i = loud.size() - 200;
+    const auto lag = static_cast<std::size_t>(limiter.latency());
+    const float leftGain = out.left[i] / loud[i - lag];
+    const float rightGain = out.right[i] / quiet[i - lag];
+    check(rightGain < 0.5f, "the quiet side is turned down with the loud one, " + std::to_string(rightGain));
+    check(std::fabs(leftGain - rightGain) < 1e-4f, "by the same amount");
+}
+
+/**
+ * After a spike it lets go: held for the hold, then released over 150ms, so a quiet passage is
+ * back within half a decibel in under a second. The old one took two.
+ */
+void limiterLetsGoAfterASpike() {
+    std::printf("the limiter lets go after a spike\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    auto in = sine(0.25f, 440.0, 1.5);
+    for (std::size_t i = 0; i < static_cast<std::size_t>(0.05 * kRate); ++i) in[i] *= 16.0f;
+    const auto out = limit(in, in, limiter);
+    const auto lag = static_cast<std::size_t>(limiter.latency());
+    auto gainAt = [&](double seconds) {
+        // The loudest sample of a cycle against its source, so a zero crossing cannot fool it.
+        const auto from = static_cast<std::size_t>(seconds * kRate);
+        float o = 0.0f, s = 0.0f;
+        for (std::size_t i = from; i < from + kRate / 440 + 1; ++i) {
+            if (std::fabs(in[i - lag]) > s) { s = std::fabs(in[i - lag]); o = std::fabs(out.left[i]); }
+        }
+        return o / s;
+    };
+    check(gainAt(0.06) < 0.5f, "still holding just after the spike, " + std::to_string(gainAt(0.06)));
+    // A release that jumped would bring the whole mix back up in the lookahead's millisecond.
+    check(gainAt(0.1) < 0.6f, "and letting go gradually, " + std::to_string(gainAt(0.1)));
+    check(gainAt(0.75) > std::pow(10.0f, -0.5f / 20.0f), "back within half a decibel by 0.75s, " +
+                                                            std::to_string(gainAt(0.75)));
+}
+
+/**
+ * A NaN or an infinity is silence, and leaves nothing behind: the old limiter's peak follower
+ * would have held a NaN for the life of the stream. Checked by the bits in the limiter, since
+ * the app builds with -ffast-math, which may fold std::isfinite to true.
+ */
+void limiterTurnsNonFiniteIntoSilence() {
+    std::printf("the limiter turns a non-finite sample into silence\n");
+    OutputLimiter limiter;
+    limiter.prepare(kRate);
+    auto in = sine(0.3f, 261.6, 0.2);
+    in[100] = std::numeric_limits<float>::quiet_NaN();
+    in[101] = std::numeric_limits<float>::infinity();
+    in[102] = -std::numeric_limits<float>::infinity();
+    const auto out = limit(in, in, limiter);
+    bool finiteAll = true;
+    for (float v : out.left) finiteAll = finiteAll && std::isfinite(v);
+    check(finiteAll, "nothing non-finite comes out");
+    const auto lag = static_cast<std::size_t>(limiter.latency());
+    const std::size_t later = in.size() - 10;
+    check(out.left[later] == in[later - lag], "and the quiet signal after it passes untouched");
 }
 
 } // namespace
@@ -3269,7 +3425,7 @@ void noiseHasTheSlopeItsNameSays() {
 
 /**
  * The three colors sit at about the same loudness, so the knob changes the color and not the
- * level -- and none of them reaches full scale, where Out's limiter would start to act on it.
+ * level -- and none of them reaches full scale, where the output limiter would start to act on it.
  */
 void noiseColorsAreAboutAsLoudAsEachOther() {
     std::printf("noise colors are about as loud as each other\n");
@@ -3598,7 +3754,7 @@ void aReverbsTailDiesAndABiggerOneLasts() {
 /**
  * At its largest and least damped, twenty seconds of full-scale noise is finite and has stopped
  * growing. Not small: the room's combs at 0.98 feedback resonate some fifty times over, and full
- * scale noise into that peaks near ten, as Freeverb's always has -- Out's limiter is what meets
+ * scale noise into that peaks near ten, as Freeverb's always has -- the output limiter is what meets
  * it. What would be wrong is a loop above unity, and that is a level still rising at the end.
  */
 void aReverbAtItsLargestStaysFinite() {
@@ -3773,7 +3929,13 @@ int main() {
     aKeyChangeLandsOnItsBeat();
     mixSumsRatherThanAverages();
     outPassesAudioAtLevel();
-    outProtectsTheListener();
+    outBlocksAConstant();
+    limiterIsExactBelowItsKnee();
+    limiterHoldsItsCeilingFromTheFirstSample();
+    limiterRidesAnOverloadWithoutBendingIt();
+    limiterTurnsBothSidesDownTogether();
+    limiterLetsGoAfterASpike();
+    limiterTurnsNonFiniteIntoSilence();
     theNotesOutputSaysWhatTheGateSays();
     aRestStartsNothing();
     aTransposeRidesOnTheNote();
