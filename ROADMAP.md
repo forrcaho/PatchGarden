@@ -250,10 +250,9 @@ third and the fourth -- which is why they go in the order they are numbered.
    quarter -- one beat -- rather than still two beats, which would be half. It is what the knob
    stores, and the simpler of the two.
 
-   *Proposed, with it:* the translation lives in the readout and the keypad rather than in what
-   is stored. The row says both ("0.25 · 2 beats") while synced, so a changed cycle shows its
-   beats changing, and the keypad takes either. A knob added to a module bumps the format, so
-   this lands with 1.
+   *Decided 2026-10-04, evening:* the keypad types the fraction, and while synced the row's
+   reading adds the beats ("0.25 · 2 beats"), so the beats are always in view without a second
+   way to type. Faint in fixed time.
 
 3. **A sequencer for modulation: `ModSeq`.** A loop of steps, each holding a value from 0 to 1, stepped
    at an interval like any sequencer and sent out as modulation. Forrest's case: a four-bar
@@ -296,7 +295,9 @@ third and the fourth -- which is why they go in the order they are numbered.
    kind of slot.
 
    *Decided:* it is called **`ModSeq`**, beside `Seq`; Bespoke's name would not fit in eight
-   characters. *Still open:* how many steps.
+   characters. *Decided 2026-10-04, evening:* **16 steps, a bar each** by default, and edited as
+   **a bar graph** -- a bar per step dragged up or down, its number tapped to type it, and each
+   step labeled in the target's terms when one knob is patched.
 
 4. **A `Seq` with versions.** A phrase is often played ABAB', where B' is B with a few notes
    changed -- like first and second endings in notation. The first phrase entered is version 1.
@@ -345,6 +346,12 @@ third and the fourth -- which is why they go in the order they are numbered.
    *Decided 2026-10-04:* a wrong note that is in every version is fixed from an **all** view.
    The version picker has an "all" entry; an edit made there applies to a dot in every version
    it is in, and a dot added there goes into every version.
+
+   *Decided 2026-10-04, evening:* the picker is **chips in the Seq's header** -- "all 1 2 +" --
+   beside the lock and the step chip; the version shown is the one picked, independent of the
+   version knob, which marks the one playing. **+ copies** the version showing, every note in it
+   common to the new one; **a long press on a version's chip offers Delete**, since a destructive
+   action is always a tile.
 
    *What the code says.* A dot is a `DotSlot` (step, degree, length, velocity), so the set is a
    fifth field. As a bitmask, "any number" becomes a cap in practice -- 32 in an `int32` -- and
@@ -453,6 +460,12 @@ third and the fourth -- which is why they go in the order they are numbered.
    [Bespoke's reference](https://www.bespokesynth.com/docs/) and
    [its changelog](https://github.com/BespokeSynth/BespokeSynth/blob/main/CHANGELOG.md),
    [Cubase's Arranger track](https://www.steinberg.help/r/cubase-pro/14.0/en/cubase_nuendo/topics/arranger_track/arranger_track_c.html).
+
+**Overnight, 2026-10-04 to 05, at Forrest's word before he slept:** items 2, 3 and 4 built in
+order, each committed only green; the Arranger (5) **designed and mocked up, not built**, since its
+panel is the kind of question Forrest decides from a picture; then the `fm` port on `Osc` if there
+is time. Everything tonight shares **format 21, which reads nothing older**. Every check is on the
+emulator -- the phone cuts USB data when it locks -- so nothing audible is judged.
 
 ### Still from 2026-09-25
 
