@@ -57,6 +57,7 @@ enum class NodeType : int32_t {
     Noise = 24,
     Delay = 25,
     Reverb = 26,
+    ModSeq = 27,
 };
 
 /**
@@ -958,6 +959,43 @@ private:
     Interval interval_ = intervalOf(kFreeInterval);
     /** How late a synced cycle starts, as a fraction of it; nothing while free. */
     double phaseOffset_ = 0.0;
+};
+
+/**
+ * A loop of levels stepped by the transport and sent as modulation: Bespoke's controlsequencer,
+ * for a cutoff low the first time through a phrase and higher each time after. Roadmap item 3.
+ *
+ * A step holds its level until the next, switched on the sample of its tick. It crosses as a
+ * segment slot -- the Env's level, and later its curve, without the time, since the step is
+ * the time -- so a glide between steps can come without a fourth kind of slot. Before the
+ * first tick it sends step one's level, so patching a ModSeq applies its start at once.
+ */
+class ModSeqNode : public Node {
+public:
+    /** Mirrored by MODSEQ_STEPS in PatchCanvas.kt. */
+    static constexpr int32_t kSteps = 16;
+
+    ModSeqNode();
+
+    int32_t inputCount() const override { return 0; }
+    int32_t outputCount() const override { return 1; }
+    void process(int32_t frames) override;
+    void setParam(int32_t index, float value) override;
+    void setSlot(const SlotValue &slot) override;
+    int32_t position() const override { return step_; }
+    Interval interval() const override { return interval_; }
+    void tick(int32_t offset, int64_t count) override;
+
+private:
+    static constexpr int32_t kMaxPending = 4;
+
+    Tick pending_[kMaxPending] = {};
+    int32_t pendingCount_ = 0;
+    float level_[kSteps] = {};
+    int32_t length_ = kSteps;
+    /** -1 until the first tick, while step one's level is what is sent. */
+    int32_t step_ = -1;
+    Interval interval_ = intervalOf(kDefaultInterval);
 };
 
 /**

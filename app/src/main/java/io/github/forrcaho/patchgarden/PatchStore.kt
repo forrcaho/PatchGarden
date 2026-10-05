@@ -82,7 +82,8 @@ import java.io.File
  * have a `period` knob saying how their fixed time is shown. Reads nothing but 20, under the
  * same policy: a 19 code read with the new radix is a different step, and that is a refusal,
  * never a conversion.
- * 21: the overnight build of 2026-10-04 -- an LFO has a phase. Reads nothing but 21, under
+ * 21: the overnight build of 2026-10-04 -- an LFO has a phase, and ModSeq, a loop of levels
+ * sent as modulation, is a new module whose levels are saved as `levels`. Reads nothing but 21, under
  * the same policy, one bump for everything that night.
  */
 private const val FORMAT_VERSION = 21
@@ -101,6 +102,9 @@ fun Patch.toJson(): String {
             .put("mod", modOf(m))
         if (m.type.grid == GridKind.DOTS) entry.put("dots", dotsOf(m))
         if (m.type.grid == GridKind.ENVELOPE) entry.put("segments", segmentsOf(m))
+        if (m.type.grid == GridKind.LEVELS) {
+            entry.put("levels", JSONArray().apply { m.levels.forEach { put(it.toString().toDouble()) } })
+        }
         // Absent at the top level, so a patch with no subpatches writes exactly what format 5 did.
         m.name?.let { entry.put("name", it) }
         m.font?.let { entry.put("font", it) }
@@ -294,6 +298,15 @@ private fun segmentsOf(module: PatchModule): JSONArray {
     return out
 }
 
+/** A ModSeq's levels, in order: a level that will not read keeps the step's default. */
+private fun restoreLevels(module: PatchModule, stored: JSONArray?) {
+    if (stored == null || module.type.grid != GridKind.LEVELS) return
+    for (i in 0 until minOf(stored.length(), module.levels.size)) {
+        val level = stored.optDouble(i, Double.NaN).toFloat()
+        if (level.isFinite()) module.setLevel(i, level)
+    }
+}
+
 private fun restoreSegments(module: PatchModule, stored: JSONArray?) {
     if (stored == null || module.type.grid != GridKind.ENVELOPE) return
     val read = mutableListOf<EnvSegment>()
@@ -446,6 +459,7 @@ fun patchFromJson(text: String, scales: ScaleLibrary = ScaleLibrary.of(null)): P
             restoreSteps(module, m.optJSONArray("steps"))
             restoreDots(module, m.optJSONArray("dots"))
             restoreSegments(module, m.optJSONArray("segments"))
+            restoreLevels(module, m.optJSONArray("levels"))
             // Before the cables, which can only land on a parameter already exposed.
             restoreMod(module, m.optJSONObject("mod"))
             patch.adopt(module)

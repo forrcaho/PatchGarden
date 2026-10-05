@@ -58,6 +58,7 @@ enum class NodeType(val id: Int) {
     Noise(24),
     Delay(25),
     Reverb(26),
+    ModSeq(27),
 }
 
 /**
@@ -81,7 +82,7 @@ interface GraphCommands {
      * What an exposed parameter sweeps between, in its own units, and whether geometrically.
      * There is no clearing one: a parameter nothing modulates ignores its range.
      */
-    fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean)
+    fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean)
     /** A cable onto parameter [index] of [dstId]. A parameter takes one, so this replaces. */
     fun connectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int)
     fun disconnectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int)
@@ -140,9 +141,9 @@ object EngineCommands : GraphCommands {
         AudioEngine.setParam(id, index, value)
     }
 
-    override fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean) {
-        trace { "range $id[$index] = $low..$high${if (exponential) " exp" else ""}" }
-        AudioEngine.setModRange(id, index, low, high, exponential)
+    override fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean) {
+        trace { "range $id[$index] = $low..$high${if (exponential) " exp" else ""}${if (stepped) " stepped" else ""}" }
+        AudioEngine.setModRange(id, index, low, high, exponential, stepped)
     }
 
     override fun connectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int) {
@@ -233,6 +234,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
     private var syncedFonts = emptyMap<Long, Long>()
     private var syncedDots = emptyMap<Long, List<Dot>>()
     private var syncedSegments = emptyMap<Long, List<EnvSegment>>()
+    private var syncedLevels = emptyMap<Long, List<Float>>()
 
     /**
      * One slot-indexed list, diffed against what the engine was last told, and the new
@@ -351,8 +353,11 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
             val previous = if (node.id in fresh) null else syncedRanges[node.id]
             ranges.getValue(node.id).forEach { (index, range) ->
                 if (previous?.get(index) != range) {
-                    val exponential = type.params.getOrNull(index)?.curve == ParamCurve.EXPONENTIAL
-                    commands.setModRange(node.id, index, range.low, range.high, exponential)
+                    val curve = type.params.getOrNull(index)?.curve
+                    commands.setModRange(
+                        node.id, index, range.low, range.high,
+                        curve == ParamCurve.EXPONENTIAL, curve == ParamCurve.STEPPED,
+                    )
                 }
             }
         }
@@ -408,6 +413,16 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
             },
             clear = { id, slot -> commands.setDot(id, slot, 0, 0, 0, 1f) },
         )
+        // A ModSeq's steps go as segment slots -- a level, and one day a curve, without the time
+        // a step already is -- through the same pass; the time only says the slot is in use.
+        val levels = diffSlots(
+            sounding, fresh, syncedLevels,
+            applies = { it.grid == GridKind.LEVELS },
+            read = { it.levels.toList() },
+            send = { id, slot, level -> commands.setSegment(id, slot, 1f, level, 0f, false) },
+            // Fixed length: every step is always there.
+            clear = null,
+        )
         val segments = diffSlots(
             sounding, fresh, syncedSegments,
             applies = { it.grid == GridKind.ENVELOPE },
@@ -442,6 +457,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         syncedFonts = wanted
         syncedDots = dots
         syncedSegments = segments
+        syncedLevels = levels
 
         // Whatever the audio thread retired during the last block is ours to free.
         commands.collectGarbage()

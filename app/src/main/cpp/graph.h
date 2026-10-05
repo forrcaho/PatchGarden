@@ -90,8 +90,13 @@ public:
      * Sent when the range is marked and whenever it changes. There is no command to clear
      * one: a parameter nothing is patched to ignores its range, so un-exposing is only
      * ever a disconnect.
+     *
+     * [stepped] is for a knob of whole options -- a waveform, a Seq's version -- which takes
+     * the block's last sample rather than its mean: the mean of a step taken mid-block is
+     * whatever option lies between the two, for that block. See modulatedValue.
      */
-    bool postSetModRange(int64_t id, int32_t paramIndex, float low, float high, bool exponential);
+    bool postSetModRange(int64_t id, int32_t paramIndex, float low, float high, bool exponential,
+                         bool stepped = false);
     /**
      * Patches output [srcPort] of [srcId] to parameter [paramIndex] of [dstId].
      *
@@ -207,6 +212,8 @@ private:
         /** SetModRange only: the high end, and whether the sweep between them is geometric. */
         float high = 0.0f;
         bool exponential = false;
+        /** SetModRange only: whether the knob is whole options; see postSetModRange. */
+        bool stepped = false;
         /** SetScales only: the list to swap in. */
         ScaleList *scales = nullptr;
         /** SetResource only: what the node takes. */
@@ -289,6 +296,8 @@ private:
         float low = 0.0f;
         float high = 0.0f;
         bool exponential = false;
+        /** Whole options, read from the block's last sample; see postSetModRange. */
+        bool stepped = false;
         /** Whether a range ever arrived. A modulator patched before one does changes nothing. */
         bool ranged = false;
         /**

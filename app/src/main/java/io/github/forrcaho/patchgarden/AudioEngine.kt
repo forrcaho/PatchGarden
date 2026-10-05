@@ -63,9 +63,12 @@ object AudioEngine {
     fun setParam(id: Long, index: Int, value: Float): Boolean =
         available && started && nativeSetParam(id, index, value)
 
-    /** What an exposed parameter sweeps between, in its own units, and whether geometrically. */
-    fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean): Boolean =
-        available && started && nativeSetModRange(id, index, low, high, exponential)
+    /**
+     * What an exposed parameter sweeps between, in its own units, whether geometrically, and
+     * whether it is whole options read from a block's last sample (Graph::postSetModRange).
+     */
+    fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean): Boolean =
+        available && started && nativeSetModRange(id, index, low, high, exponential, stepped)
 
     /** A modulator onto parameter [index] of [dstId]. One per parameter, so this replaces. */
     fun connectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int): Boolean =
@@ -275,7 +278,7 @@ object AudioEngine {
     ): Boolean
     private external fun nativeSetParam(id: Long, index: Int, value: Float): Boolean
     private external fun nativeSetModRange(
-        id: Long, index: Int, low: Float, high: Float, exponential: Boolean,
+        id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean,
     ): Boolean
     private external fun nativeConnectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int): Boolean
     private external fun nativeDisconnectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int): Boolean

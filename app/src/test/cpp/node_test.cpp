@@ -1015,6 +1015,37 @@ void theIntervalIsChosenByParameter() {
           "an out-of-range value clamps to the last there is rather than reading past it");
 }
 
+/**
+ * ModSeq: a level a step, switched on the sample its tick lands on, held between, and the
+ * loop wrapping at its length. Before any tick it sends step one, so it applies at once.
+ */
+void aModSeqStepsThroughItsLevels() {
+    std::printf("a modseq steps through its levels\n");
+    ModSeqNode seq;
+    seq.prepare(kRate);
+    seq.setParam(0, 3.0f);  // three steps
+    seq.setSlot(segmentSlot(0, 1.0f, 0.1f, 0.0f, false));
+    seq.setSlot(segmentSlot(1, 1.0f, 0.6f, 0.0f, false));
+    seq.setSlot(segmentSlot(2, 1.0f, 0.9f, 0.0f, false));
+    seq.process(kBlockSize);
+    check(std::fabs(seq.output(0)[0] - 0.1f) < 1e-6f, "before any tick, step one");
+
+    seq.tick(10, 1);
+    seq.process(kBlockSize);
+    check(std::fabs(seq.output(0)[9] - 0.1f) < 1e-6f, "held until the tick");
+    check(std::fabs(seq.output(0)[10] - 0.6f) < 1e-6f, "and switched on its sample");
+    check(std::fabs(seq.output(0)[kBlockSize - 1] - 0.6f) < 1e-6f, "then held");
+    check(seq.position() == 1, "and says which step it is on");
+
+    seq.tick(0, 5);  // five past the top of a three-step loop is step three
+    seq.process(kBlockSize);
+    check(std::fabs(seq.output(0)[0] - 0.9f) < 1e-6f, "the count wraps at the length");
+    seq.setParam(0, 2.0f);
+    check(seq.position() < 2, "and a shorter loop takes the step back inside it");
+    seq.setSlot(segmentSlot(99, 1.0f, 0.5f, 0.0f, false));
+    check(true, "a slot past the end is ignored rather than written");
+}
+
 void mixSumsRatherThanAverages() {
     std::printf("mix sums rather than averages\n");
     const auto quarter = constantBuffer(0.25f);
@@ -3586,6 +3617,7 @@ void aReverbsTailEndsInTrueSilence() {
 }
 
 int main() {
+    aModSeqStepsThroughItsLevels();
     oscPlaysTheRequestedPitch();
     anOscsTuneMovesItsPitchByCents();
     noiseHasTheSlopeItsNameSays();

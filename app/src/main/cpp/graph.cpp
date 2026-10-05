@@ -116,7 +116,7 @@ bool Graph::postSetParam(int64_t id, int32_t paramIndex, float value) {
 }
 
 bool Graph::postSetModRange(int64_t id, int32_t paramIndex, float low, float high,
-                            bool exponential) {
+                            bool exponential, bool stepped) {
     Command cmd;
     cmd.type = CommandType::SetModRange;
     cmd.id = id;
@@ -124,6 +124,7 @@ bool Graph::postSetModRange(int64_t id, int32_t paramIndex, float low, float hig
     cmd.value = low;
     cmd.high = high;
     cmd.exponential = exponential;
+    cmd.stepped = stepped;
     return commands_.push(cmd);
 }
 
@@ -495,6 +496,7 @@ void Graph::applyCommands() {
                 param.low = cmd.value;
                 param.high = cmd.high;
                 param.exponential = cmd.exponential;
+                param.stepped = cmd.stepped;
                 param.ranged = true;
                 break;
             }
@@ -637,9 +639,16 @@ float Graph::modulatedValue(const ParamRef &param, int32_t index, int32_t port,
     if (index < 0 || !param.ranged || !nodes_[index].used || frames <= 0) return param.base;
 
     const float *buffer = nodes_[index].node->output(port);
-    float sum = 0.0f;
-    for (int32_t i = 0; i < frames; ++i) sum += buffer[i];
-    const float mean = sum / static_cast<float>(frames);
+    // A knob of whole options takes where the modulator ends the block, not its mean: a step
+    // from saw to triangle taken mid-block averages to square, which is a block of the wrong
+    // waveform. The modulator runs before the knob it turns, so a step taken on a tick in
+    // this block is already the value when the knob's own tick reads it.
+    float mean = buffer[frames - 1];
+    if (!param.stepped) {
+        float sum = 0.0f;
+        for (int32_t i = 0; i < frames; ++i) sum += buffer[i];
+        mean = sum / static_cast<float>(frames);
+    }
     // NaN compares false both ways, so it falls through to the bottom of the range rather
     // than reaching a node's setParam.
     const float amount = mean > 1.0f ? 1.0f : (mean > 0.0f ? mean : 0.0f);

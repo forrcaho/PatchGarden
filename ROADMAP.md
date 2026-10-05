@@ -258,7 +258,19 @@ third and the fourth -- which is why they go in the order they are numbered.
    reading adds the beats ("0.25 · 2 beats"), so the beats are always in view without a second
    way to type. Faint in fixed time.
 
-3. **A sequencer for modulation: `ModSeq`.** A loop of steps, each holding a value from 0 to 1, stepped
+3. ~~**A sequencer for modulation: `ModSeq`.**~~ **Done overnight 2026-10-04**, on the emulator
+   only. A new module (engine id 27, a deep violet found by the same search as the other colors),
+   16 steps of a bar, its levels a list of their own crossing as segment slots -- the level now,
+   the curve when there is one -- through the same diff as every slot list. Edited as a bar graph
+   (`levelColumns`, one function for the drawing and the hit test, behind the panel editors'
+   shared gate); a step's number types it on the keypad. Labels follow the one knob it drives
+   through the patch as the engine has it, boxes and all (`modSeqTarget`), mapped as the graph
+   maps them -- geometric for a cutoff, an option's name for a waveform -- and read "0.50" with no
+   single target. **The stepped-knob fix went in with it**: a range now says whether its knob is
+   whole options, and the graph reads such a knob from the block's last sample. Mutation-checked:
+   the mean put back, a column read upside down, and a step's number answering as a bar were each
+   caught. *Not done:* typing a step in the target's terms -- the keypad takes 0 to 1. The idea:
+   A loop of steps, each holding a value from 0 to 1, stepped
    at an interval like any sequencer and sent out as modulation. Forrest's case: a four-bar
    phrase repeating, with a filter's cutoff low the first time through and higher each time
    after -- four steps of four bars each. Bespoke's `controlsequencer` is this module

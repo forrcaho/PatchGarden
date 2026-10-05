@@ -20,6 +20,7 @@ private sealed interface Cmd {
     data class SetTempo(val bpm: Float) : Cmd
     data class SetModRange(
         val id: Long, val index: Int, val low: Float, val high: Float, val exponential: Boolean,
+        val stepped: Boolean = false,
     ) : Cmd
     data class ConnectMod(val src: Long, val srcPort: Int, val dst: Long, val index: Int) : Cmd
     data class DisconnectMod(val src: Long, val srcPort: Int, val dst: Long, val index: Int) : Cmd
@@ -68,8 +69,8 @@ private class Recorder : GraphCommands {
     ) {
         log += Cmd.SetSegment(id, slot, time, level, curve, sustain)
     }
-    override fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean) {
-        log += Cmd.SetModRange(id, index, low, high, exponential)
+    override fun setModRange(id: Long, index: Int, low: Float, high: Float, exponential: Boolean, stepped: Boolean) {
+        log += Cmd.SetModRange(id, index, low, high, exponential, stepped)
     }
     override fun connectMod(srcId: Long, srcPort: Int, dstId: Long, index: Int) {
         log += Cmd.ConnectMod(srcId, srcPort, dstId, index)

@@ -133,8 +133,10 @@ JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetModRange(JNIEnv *, jobject,
                                                                   jlong id, jint index,
                                                                   jfloat low, jfloat high,
-                                                                  jboolean exponential) {
-    return engine().graph().postSetModRange(id, index, low, high, exponential == JNI_TRUE)
+                                                                  jboolean exponential,
+                                                                  jboolean stepped) {
+    return engine().graph().postSetModRange(id, index, low, high, exponential == JNI_TRUE,
+                                            stepped == JNI_TRUE)
                    ? JNI_TRUE
                    : JNI_FALSE;
 }

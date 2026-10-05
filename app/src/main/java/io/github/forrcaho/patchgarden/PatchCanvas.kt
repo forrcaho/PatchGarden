@@ -506,6 +506,14 @@ enum class GridKind {
      * of that one axis, and the engine never learns there were rows.
      */
     DRONE,
+
+    /**
+     * A bar per step, its height the level the step sends: a ModSeq. Columns are steps in
+     * time, as in a sequence, and the vertical is the level, continuous from 0 to 1. Edited as
+     * a bar graph -- a bar dragged up or down, its number tapped to type it -- as Forrest chose
+     * over a slider row per step, which sixteen of would not fit.
+     */
+    LEVELS,
 }
 
 /**
@@ -750,6 +758,26 @@ object Types {
             Param("mix", 0f, 1f, 0.3f, "", LIN),
         ),
         engine = NodeType.Reverb, category = Category.EFFECTS,
+    )
+    /**
+     * A loop of levels stepped by the transport, sent as modulation: a cutoff low the first time
+     * through a phrase and higher each time after. Bespoke's controlsequencer, renamed to fit
+     * eight characters. Sixteen steps, a bar each by default, as Forrest chose. A step's value
+     * is a position between its target's brackets, so the panel labels each in the target's own
+     * terms when exactly one knob is patched ([Patch.modSeqTarget]). Order mirrors
+     * ModSeqNode::setParam -- length, interval.
+     */
+    val ModSeq = ModuleType(
+        "ModSeq", emptyList(), listOf(Port("out", M)),
+        // A deep violet, chosen by search as the rest were: Env is a lavender and LFO a magenta,
+        // and this is the purple 28.6 from every border on the canvas.
+        Color(0xFF6C38E4),
+        params = listOf(
+            Param("len", 1f, MODSEQ_STEPS.toFloat(), MODSEQ_STEPS.toFloat(), "", STEP),
+            intervalParam(default = Interval(1, 1, bars = true).code),
+        ),
+        grid = GridKind.LEVELS,
+        engine = NodeType.ModSeq, category = Category.MOD,
     )
     val Lfo = ModuleType(
         "LFO", emptyList(), listOf(Port("out", M)),
@@ -1145,7 +1173,7 @@ object Types {
         Seq, Drone, Euclid,
         Arp, Chord, Chance,
         Filter, Delay, Reverb, Gain, Mix,
-        Env, Lfo,
+        Env, Lfo, ModSeq,
         Steps, Out, In,
     )
 
@@ -1359,6 +1387,18 @@ class PatchModule(
         if (type.grid == GridKind.ENVELOPE) addAll(DEFAULT_ENVELOPE)
     }
 
+    /**
+     * A ModSeq's levels, one a step, each 0 to 1; empty on everything else. Fixed length, like
+     * a sequence's steps: the length knob says how many play, and the rest keep their values.
+     */
+    val levels: SnapshotStateList<Float> = mutableStateListOf<Float>().apply {
+        if (type.grid == GridKind.LEVELS) repeat(MODSEQ_STEPS) { add(0.5f) }
+    }
+
+    fun setLevel(index: Int, level: Float) {
+        if (index in levels.indices) levels[index] = level.coerceIn(0f, 1f)
+    }
+
     /** Where each node sits in time: the running sum of the segments before it. */
     val segmentTimes: List<Float>
         get() {
@@ -1445,7 +1485,7 @@ class PatchModule(
      * engine -- and it fails by *omission*, which is the failure a list cannot have.
      */
     val slotLists: List<List<Any>>
-        get() = listOf(steps.toList(), dots.toList(), segments.toList())
+        get() = listOf(steps.toList(), dots.toList(), segments.toList(), levels.toList())
 
     fun copyGridFrom(from: PatchModule) {
         dots.clear()
@@ -1453,6 +1493,10 @@ class PatchModule(
         if (type.grid == GridKind.ENVELOPE) {
             segments.clear()
             segments.addAll(from.segments)
+        }
+        if (type.grid == GridKind.LEVELS) {
+            levels.clear()
+            levels.addAll(from.levels)
         }
     }
 
@@ -2786,9 +2830,9 @@ internal fun panelCellAt(
 ): Pair<Int, Int>? {
     // An envelope has no cells: it is continuous in both axes, and its own hit testing is
     // envNodeAt and envSegmentAt. Excluded here so a tap on the shape cannot also read as a
-    // cell somewhere behind it.
+    // cell somewhere behind it. A ModSeq's bar graph neither: its columns are levelColumns.
     if (module.type.grid == GridKind.NONE || module.type.grid == GridKind.PATTERN ||
-        module.type.grid == GridKind.ENVELOPE
+        module.type.grid == GridKind.ENVELOPE || module.type.grid == GridKind.LEVELS
     ) {
         return null
     }
@@ -4240,6 +4284,9 @@ sealed interface NumberTarget {
     /** The level at the end of segment [index] -- node [index]'s. See [SEGMENT_LEVEL]. */
     data class SegmentLevel(val moduleId: Long, val index: Int) : NumberTarget
 
+    /** One step of a ModSeq, typed as its level from 0 to 1. */
+    data class Level(val moduleId: Long, val index: Int) : NumberTarget
+
     /** One number of a step-length chooser's sentence, past the sixteen its grid offers. */
     data class IntervalCount(val moduleId: Long, val part: IntervalPart) : NumberTarget
 }
@@ -5208,7 +5255,8 @@ fun PatchCanvas(
         // A sequencer's only, of either kind. A drone has no position to report, and polling one every
         // frame for a -1 is a frame's work for nothing.
         val id = openModule?.takeIf {
-            it.type.grid == GridKind.SEQUENCE || it.type.grid == GridKind.DOTS || it.type.grid == GridKind.PATTERN
+            it.type.grid == GridKind.SEQUENCE || it.type.grid == GridKind.DOTS ||
+                it.type.grid == GridKind.PATTERN || it.type.grid == GridKind.LEVELS
         }?.id
         if (id == null) {
             playingStep = -1
@@ -5580,6 +5628,29 @@ fun PatchCanvas(
                             // dangerous is a loop that claims.
                             val inEditor = open.type.grid != GridKind.NONE &&
                                 gridArea.contains(down.position)
+
+                            // A ModSeq's bar graph: a touch in a column sets that step's level
+                            // where the finger is and follows it; a tap on a step's number types
+                            // it. Behind the same gate as every editor, so it claims nothing
+                            // outside its own area.
+                            if (open.type.grid == GridKind.LEVELS && !onHistory && knob == null && inEditor) {
+                                val columns = levelColumns(gridArea, frame.density, frame.fontScale, open.levelCount)
+                                val hit = columns.indexOfFirst { it.whole.contains(down.position) }
+                                if (hit < 0) return@awaitEachGesture
+                                val column = columns[hit]
+                                if (column.label.contains(down.position)) {
+                                    waitForUpRelease()
+                                    interaction = Interaction.Typing(NumberTarget.Level(open.id, hit))
+                                    return@awaitEachGesture
+                                }
+                                open.setLevel(hit, column.levelAt(down.position.y))
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                    open.setLevel(hit, column.levelAt(change.position.y))
+                                    change.consume()
+                                }
+                                return@awaitEachGesture
+                            }
 
                             // An envelope's editor, which is not a grid of cells and has its
                             // own loop for that reason -- as the dot grid does below.
@@ -6969,6 +7040,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         is NumberTarget.SegmentTime -> patch.module(target.moduleId)
         is NumberTarget.SegmentLevel -> patch.module(target.moduleId)
         is NumberTarget.IntervalCount -> patch.module(target.moduleId)
+        is NumberTarget.Level -> patch.module(target.moduleId)
         else -> null
     }
     val param = when (target) {
@@ -6981,6 +7053,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         // the knob is; see RowView.
         is NumberTarget.Knob -> module?.takeIf { target.index in it.type.params.indices }?.rowView(target.index)?.param
         is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let { countParam(target.part, it.interval) }
+        is NumberTarget.Level -> STEP_LEVEL.takeIf { module?.levels?.indices?.contains(target.index) == true }
     } ?: run {
         // The module went away under the keypad, which only an undo could do.
         LaunchedEffect(Unit) { onDone() }
@@ -6997,6 +7070,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         target is NumberTarget.SegmentLevel ->
             param.format(module?.segments?.get(target.index)?.level ?: 0f)
         target is NumberTarget.IntervalCount -> (module?.interval?.count(target.part) ?: 1).toString()
+        target is NumberTarget.Level -> param.format(module?.levels?.getOrNull(target.index) ?: 0f)
         target is NumberTarget.Knob && target.end == ValueTarget.LOW && range != null ->
             param.format(shown(range.low))
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH && range != null ->
@@ -7011,13 +7085,15 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         // Both say which quantity as well as which one, now that an envelope types two.
         target is NumberTarget.SegmentTime -> "segment ${target.index + 1} time"
         target is NumberTarget.SegmentLevel -> "node ${target.index + 1} level"
+        target is NumberTarget.Level -> "step ${target.index + 1}"
         target is NumberTarget.Knob && target.end == ValueTarget.LOW -> "${param.name} from"
         target is NumberTarget.Knob && target.end == ValueTarget.HIGH -> "${param.name} to"
         else -> param.name
     }
     val accent = when (target) {
         is NumberTarget.Tempo -> TransportAccent
-        is NumberTarget.SegmentTime, is NumberTarget.SegmentLevel, is NumberTarget.IntervalCount ->
+        is NumberTarget.SegmentTime, is NumberTarget.SegmentLevel, is NumberTarget.IntervalCount,
+        is NumberTarget.Level ->
             module?.type?.accent ?: TransportAccent
         is NumberTarget.Knob -> if (range != null) ModulationColor else module?.type?.accent ?: TransportAccent
     }
@@ -7040,6 +7116,7 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
                     val seg = m.segments.getOrNull(target.index) ?: return
                     m.setSegment(target.index, seg.copy(level = value))
                 }
+                is NumberTarget.Level -> module?.setLevel(target.index, value)
                 is NumberTarget.IntervalCount -> {
                     val m = module ?: return
                     val index = m.type.intervalParam
@@ -8224,6 +8301,134 @@ private fun DrawScope.drawBeatLines(area: Rect, d: Float, columns: Int, interval
     }
 }
 
+// ------------------------------------------------------------ a ModSeq's levels
+
+/** How many steps a ModSeq plays: its length knob. */
+internal val PatchModule.levelCount: Int
+    get() = params.getOrElse(0) { type.params.getOrNull(0)?.default ?: 1f }.roundToInt().coerceIn(1, MODSEQ_STEPS)
+
+/** A column of a ModSeq's bar graph: the whole of it, its number at the top, and the bar below. */
+internal class LevelColumn(val whole: Rect, val label: Rect, val track: Rect) {
+    /** The level a finger at [y] means: the bar's height there, from its bottom. */
+    fun levelAt(y: Float): Float = ((track.bottom - y) / track.height).coerceIn(0f, 1f)
+    fun yOf(level: Float): Float = track.bottom - level * track.height
+}
+
+/**
+ * A ModSeq's columns in [area], one a step: a band at the top for the step's number, as tall as
+ * the text it holds, and the bar below. One function for the drawing and the hit test.
+ */
+internal fun levelColumns(area: Rect, d: Float, fontScale: Float, count: Int): List<LevelColumn> {
+    val labelH = 22f * fontScale.coerceAtLeast(1f) * d
+    val w = area.width / count.coerceAtLeast(1)
+    return (0 until count).map { i ->
+        val left = area.left + i * w
+        LevelColumn(
+            whole = Rect(left, area.top, left + w, area.bottom),
+            label = Rect(left, area.top, left + w, area.top + labelH),
+            track = Rect(left + 3f * d, area.top + labelH + 4f * d, left + w - 3f * d, area.bottom - 2f * d),
+        )
+    }
+}
+
+/** A ModSeq's level as typed: from 0 to 1, a position between its target's brackets. */
+internal val STEP_LEVEL = Param("level", 0f, 1f, 0.5f)
+
+/**
+ * The knob a ModSeq drives, when it drives exactly one: followed through the patch as the engine
+ * has it, boxes and all, so a ModSeq patched out of a box to a cutoff two boxes away still finds
+ * it. A modulation cable names its knob outright; a cable into a driven knob's own jack -- a
+ * level, a gain -- names the jack, which is that knob's. Null for none, or for several, when a
+ * step's number says 0 to 1 instead (Forrest, 2026-10-04).
+ */
+internal fun Patch.modSeqTarget(module: PatchModule): ParamRow? {
+    val from = PortRef(module.id, PortDirection.OUTPUT, 0)
+    val targets = engineConnections().filter { it.from == from }.mapNotNull { cable ->
+        val owner = module(cable.to.moduleId) ?: return@mapNotNull null
+        val index = when (cable.to.dir) {
+            PortDirection.MOD -> cable.to.index
+            PortDirection.INPUT -> owner.type.params.indexOfFirst { it.drivenBy == cable.to.index }
+            else -> -1
+        }
+        if (index < 0 || index >= owner.type.params.size) null else ParamRow(owner, index)
+    }.distinct()
+    return targets.singleOrNull()
+}
+
+/**
+ * What a step at [level] means at [target]: the value it sweeps the knob to, between the knob's
+ * brackets and as the graph maps it -- geometrically where the knob is -- said as the knob's row
+ * says it, or as the option's name for a knob of whole options. "0.50" with no single target.
+ */
+internal fun Patch.levelLabel(target: ParamRow?, level: Float): String {
+    if (target == null) return "%.2f".format(level)
+    val range = rangeOf(target.owner, target.index) ?: return "%.2f".format(level)
+    val param = target.param
+    val value = if (param.curve == ParamCurve.EXPONENTIAL && range.low > 0f && range.high > 0f) {
+        range.low * Math.pow((range.high / range.low).toDouble(), level.toDouble()).toFloat()
+    } else {
+        range.low + level * (range.high - range.low)
+    }
+    if (param.curve == ParamCurve.STEPPED) {
+        return choiceWord(param, param.indexOf(value)).ifEmpty { target.format(value) }
+    }
+    return target.format(value)
+}
+
+/** A stepped knob's option [i], named as its buttons name it; waveforms, drawn there, by name. */
+internal fun choiceWord(param: Param, i: Int): String = when (param.choice) {
+    Choice.DIVISION -> intervalOf(i.toFloat()).label
+    Choice.ARP -> ARP_MODES.getOrNull(i).orEmpty()
+    Choice.FILTER -> FILTER_TYPES.getOrNull(i).orEmpty()
+    Choice.SLOPE -> SLOPES.getOrNull(i).orEmpty()
+    Choice.NOISE -> NOISE_TYPES.getOrNull(i).orEmpty()
+    Choice.REVERB -> REVERB_TYPES.getOrNull(i).orEmpty()
+    Choice.WAVE -> WAVE_NAMES.getOrNull(i).orEmpty()
+    Choice.NUMBER -> (param.min + i).toInt().toString()
+    // A preset is chosen from its own page, off the header, and never a row.
+    Choice.PRESET -> ""
+}
+
+/** The waveforms by name, in kWaves' order: for a label, since a row draws them instead. */
+internal val WAVE_NAMES = listOf("saw", "square", "tri", "sine")
+
+/** A ModSeq's bar graph; see [levelColumns]. The playing step is drawn at full strength. */
+private fun DrawScope.drawLevels(
+    area: Rect,
+    d: Float,
+    module: PatchModule,
+    accent: Color,
+    measurer: TextMeasurer,
+    playingStep: Int,
+    fontScale: Float,
+    labelOf: (Float) -> String,
+) {
+    val corner = CornerRadius(4f * d, 4f * d)
+    levelColumns(area, d, fontScale, module.levelCount).forEachIndexed { i, column ->
+        val level = module.levels.getOrElse(i) { 0f }
+        val track = column.track
+        drawRoundRect(Color(0xFF12151A), track.topLeft, track.size, corner)
+        val top = column.yOf(level)
+        val playing = i == playingStep
+        drawRoundRect(
+            accent.copy(alpha = if (playing) 1f else 0.7f),
+            Offset(track.left, top), Size(track.width, (track.bottom - top).coerceAtLeast(2f * d)), corner,
+        )
+        val text = measurer.measure(
+            labelOf(level), if (playing) GridTonicLabelStyle else GridLabelStyle,
+            overflow = TextOverflow.Ellipsis, maxLines = 1,
+            constraints = Constraints(maxWidth = column.label.width.toInt().coerceAtLeast(0)),
+        )
+        drawText(
+            text,
+            topLeft = Offset(
+                column.label.center.x - text.size.width / 2f,
+                column.label.center.y - text.size.height / 2f,
+            ),
+        )
+    }
+}
+
 // ------------------------------------------------------------ stepped parameters
 
 /**
@@ -8271,18 +8476,8 @@ private fun DrawScope.drawChoices(
         if (param.choice == Choice.WAVE) {
             drawWave(box, d, i, ink)
         } else {
-            val word = when (param.choice) {
-                Choice.DIVISION -> intervalOf(i.toFloat()).label
-                Choice.ARP -> ARP_MODES.getOrNull(i).orEmpty()
-                Choice.FILTER -> FILTER_TYPES.getOrNull(i).orEmpty()
-                Choice.SLOPE -> SLOPES.getOrNull(i).orEmpty()
-                Choice.NOISE -> NOISE_TYPES.getOrNull(i).orEmpty()
-                Choice.REVERB -> REVERB_TYPES.getOrNull(i).orEmpty()
-                Choice.NUMBER -> (param.min + i).toInt().toString()
-                // Never a row: a preset is chosen from its own page, off the header, and a
-                // waveform is drawn rather than named a few lines above.
-                Choice.WAVE, Choice.PRESET -> ""
-            }
+            // A waveform is drawn rather than named, a few lines above.
+            val word = choiceWord(param, i)
             if (word.isNotEmpty()) {
                 val text = measurer.measure(word, PanelValueStyle)
                 drawText(
@@ -9234,6 +9429,9 @@ internal data class Interval(val num: Int, val den: Int, val bars: Boolean = fal
 internal const val INTERVAL_CODE = 1
 internal const val INTERVAL_RADIX = 1024
 internal const val MAX_COUNT = 1023
+
+/** How many steps a ModSeq holds. Mirrors ModSeqNode::kSteps. */
+internal const val MODSEQ_STEPS = 16
 
 /** The counts the chooser offers as tiles, 1 to 16; anything else up to [MAX_COUNT] is typed. */
 internal const val OFFERED_COUNTS = 16
@@ -10224,12 +10422,18 @@ private fun DrawScope.drawPanel(
         GridKind.PATTERN -> drawEuclidPattern(gridArea, d, module, module.type.accent, playingStep)
         GridKind.ENVELOPE ->
             drawEnvelope(gridArea, d, module, module.type.accent, measurer, fontScale)
+        GridKind.LEVELS -> {
+            val target = patch.modSeqTarget(module)
+            drawLevels(gridArea, d, module, module.type.accent, measurer, playingStep, fontScale) { level ->
+                patch.levelLabel(target, level)
+            }
+        }
         GridKind.NONE -> {}
     }
     // Neither of these scrolls: a pattern is read-only and an envelope is capped to what
     // fits, which is the whole reason MAX_SEGMENTS is a cap.
     if (module.type.grid != GridKind.NONE && module.type.grid != GridKind.PATTERN &&
-        module.type.grid != GridKind.ENVELOPE
+        module.type.grid != GridKind.ENVELOPE && module.type.grid != GridKind.LEVELS
     ) {
         drawGridScrollBar(gridArea, d, gridWindow(module, gridArea, d, scale), module.type.accent)
     }

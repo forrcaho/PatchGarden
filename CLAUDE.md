@@ -660,6 +660,18 @@ the tick it starts on. A note shorter than one step has no whole steps at all, s
 starts on the tick it does -- which is why `SeqNode::onTick` counts the tails out *after*
 the starts rather than beside the ends.
 
+**A knob of whole options reads its modulator's last sample, not its mean.** `Graph::
+modulatedValue` averages a modulator over the block, which for a waveform or a Seq's version is
+whatever option lies between the two ends of a step taken mid-block -- saw to triangle passes
+square. A range says whether its knob is stepped (`setModRange`'s `stepped`), and such a knob
+takes the block's last sample; the modulator runs before the knob it turns, so a step taken on a
+tick in this block is already the value when the knob's own tick reads it.
+
+**ModSeq is a loop of levels sent as modulation**, its steps a list of their own (`levels`)
+crossing as segment slots -- a level now and a curve one day, the Env's slot without its time --
+and labeled in the one knob it drives (`modSeqTarget`, `levelLabel`), which the panel follows
+through boxes as the engine does.
+
 **A knob that means nothing is faint, not gone.** `Param.liveWhen` names another knob and the
 value it must hold -- a Delay's time is live only while its interval is "free" -- and such a
 row is drawn at a third of its brightness and answers no finger while it does not apply.

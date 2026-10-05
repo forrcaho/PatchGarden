@@ -1130,6 +1130,45 @@ void patchingAndUnpatchingAGainFade() {
  * is, from the top after a reset. Watched through the knob it sweeps, since that is where
  * anyone would see it.
  */
+/**
+ * A knob of whole options takes the block's last sample, not its mean: a ModSeq stepping from
+ * one end of a range to the other mid-block would otherwise hand a waveform knob, for that
+ * block, whatever lies between. A knob that is not stepped still takes the mean -- watched
+ * side by side, so the test can tell the two apart at all.
+ */
+void aSteppedKnobTakesTheBlocksLastSample() {
+    std::printf("a stepped knob takes the block's last sample\n");
+    Graph graph;
+    graph.setSampleRate(48000);
+    graph.postAdd(1, NodeType::ModSeq);
+    graph.postAdd(2, NodeType::Mix);
+    graph.postAdd(3, NodeType::Mix);
+    graph.postSetParam(1, 0, 2.0f);  // two steps
+    graph.postSetParam(1, 1, 1.0f);  // a beat each
+    graph.postSetSlot(1, segmentSlot(0, 1.0f, 0.0f, 0.0f, false));
+    graph.postSetSlot(1, segmentSlot(1, 1.0f, 1.0f, 0.0f, false));
+    graph.postSetModRange(2, 0, 0.0f, 3.0f, false, /* stepped */ true);
+    graph.postSetModRange(3, 0, 0.0f, 3.0f, false);
+    graph.postConnectMod(1, 0, 2, 0);
+    graph.postConnectMod(1, 0, 3, 0);
+    // A tempo whose beat is not a whole number of blocks, so steps land mid-block.
+    graph.postSetTempo(97.0f);
+    graph.applyCommands();
+    render(graph, 64);
+    graph.setTransportRunning(true);
+    bool onlyEnds = true;
+    bool meanSawBetween = false;
+    for (int b = 0; b < 4000; ++b) {
+        graph.process(kBlockSize);
+        const float stepped = graph.paramOf(2, 0);
+        if (std::fabs(stepped) > 1e-4f && std::fabs(stepped - 3.0f) > 1e-4f) onlyEnds = false;
+        const float mean = graph.paramOf(3, 0);
+        if (mean > 0.01f && mean < 2.99f) meanSawBetween = true;
+    }
+    check(meanSawBetween, "a knob that is not stepped saw a step land mid-block, as its mean");
+    check(onlyEnds, "and the stepped one never held anything but an end");
+}
+
 void aSyncedLfoFollowsTheTransportsBeat() {
     std::printf("a synced lfo follows the transport's beat\n");
     Graph graph;
@@ -1694,6 +1733,7 @@ void aDrivenKnobMovedWithNothingPatchedRampsAcrossABlock() {
 }
 
 int main() {
+    aSteppedKnobTakesTheBlocksLastSample();
     signalReachesTheOutputWithinOneBlock();
     patchingDoesNotStep();
     unpatchingFadesTheSignalNotADcLevel();

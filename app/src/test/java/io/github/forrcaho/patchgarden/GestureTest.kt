@@ -829,6 +829,40 @@ class GestureTest {
         assertEquals("and the knob is where the finger left it", 0.7f, ParamRow(lfo, rate).positionOf(after), 0.02f)
     }
 
+    // ------------------------------------------------------------------ ModSeq
+
+    /** A ModSeq with its panel open, and its columns as the drawing lays them out. */
+    private fun Host.openModSeq(): Pair<PatchModule, List<LevelColumn>> {
+        val seq = patch.add(Types.ModSeq, Offset(40f, 40f))!!
+        compose.waitForIdle()
+        tap(body(seq))
+        val area = panelGrid(panelRect(frame), d, seq.type)
+        return seq to levelColumns(area, d, frame.fontScale, seq.levelCount)
+    }
+
+    @Test
+    fun `a ModSeq step follows the finger up its column`() {
+        val host = Host()
+        val (seq, columns) = host.openModSeq()
+        val column = columns[2]
+        host.drag(
+            Offset(column.track.center.x, column.yOf(0.2f)),
+            Offset(column.track.center.x, column.yOf(0.8f)),
+        )
+        assertEquals("where the finger stopped", 0.8f, seq.levels[2], 0.03f)
+        assertEquals("and its neighbors untouched", 0.5f, seq.levels[1])
+    }
+
+    @Test
+    fun `a ModSeq step's number is typed on the keypad`() {
+        val host = Host()
+        val (seq, columns) = host.openModSeq()
+        host.tap(columns[5].label.center)
+        listOf("0", ".", "2", "5", KEY_OK).forEach(host::key)
+        assertEquals(0.25f, seq.levels[5], 1e-4f)
+        assertTrue("the panel it was typed into is still open", seq.expanded)
+    }
+
     // ------------------------------------------------------------------ subpatch controls
 
     @Test

@@ -1358,6 +1358,50 @@ void ReverbNode::setParam(int32_t index, float value) {
     plate_.set(size_, damp_);
 }
 
+// ---------------------------------------------------------------- ModSeq
+
+ModSeqNode::ModSeqNode() {
+    for (float &level : level_) level = 0.5f;
+}
+
+void ModSeqNode::tick(int32_t offset, int64_t count) {
+    if (pendingCount_ < kMaxPending) {
+        pending_[pendingCount_].offset = offset;
+        pending_[pendingCount_].count = count;
+        ++pendingCount_;
+    }
+}
+
+void ModSeqNode::process(int32_t frames) {
+    float *o = out(0);
+    int32_t next = 0;
+    for (int32_t i = 0; i < frames; ++i) {
+        while (next < pendingCount_ && pending_[next].offset <= i) {
+            const int64_t length = length_ > 0 ? length_ : 1;
+            step_ = static_cast<int32_t>(((pending_[next].count % length) + length) % length);
+            ++next;
+        }
+        o[i] = level_[step_ < 0 ? 0 : step_];
+    }
+    pendingCount_ = 0;
+}
+
+void ModSeqNode::setParam(int32_t index, float value) {
+    switch (index) {
+        case 0: length_ = static_cast<int32_t>(clampf(value, 1.0f, static_cast<float>(kSteps)) + 0.5f); break;
+        case 1: interval_ = intervalOf(value); break;
+        default: break;
+    }
+    // A shorter loop than the step it is on goes back inside it rather than reading past it.
+    if (step_ >= length_) step_ %= length_;
+}
+
+void ModSeqNode::setSlot(const SlotValue &slot) {
+    if (slot.kind != SlotKind::Segment) return;
+    if (slot.index < 0 || slot.index >= kSteps) return;
+    level_[slot.index] = clampf(slot.segment.level, 0.0f, 1.0f);
+}
+
 // ---------------------------------------------------------------- factory
 
 Node *makeNode(NodeType type) {
@@ -1370,6 +1414,7 @@ Node *makeNode(NodeType type) {
         case NodeType::Noise: return new NoiseNode();
         case NodeType::Delay: return new DelayNode();
         case NodeType::Reverb: return new ReverbNode();
+        case NodeType::ModSeq: return new ModSeqNode();
         case NodeType::PolyIn: return new PolyInNode();
         case NodeType::PolySum: return new PolySumNode();
         case NodeType::Osc: return new OscNode();
