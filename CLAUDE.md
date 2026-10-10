@@ -80,7 +80,11 @@ adb shell run-as io.github.forrcaho.patchgarden od -A d -t d4 -N 40 files/record
 
 **Two representations of the patch, never the same object.** Kotlin's `Patch` is UI truth
 in Compose state; the C++ `Graph` is audio truth on the callback thread. Everything
-crosses as POD commands through a lock-free SPSC queue (`spsc_queue.h`).
+crosses as POD commands through a lock-free SPSC queue (`spsc_queue.h`). It holds 256, and a
+post that finds it full **waits for the audio thread to drain it**, a millisecond at a time for
+up to a quarter of a second (`posted` in `native_bridge.cpp`), where it used to drop the command without a word -- a patch
+with long sequences sends hundreds of slots when it loads. Not the scale list or a font's synth,
+which hand a pointer over and free it on failure.
 
 **`GraphSync` diffs rather than hooks.** It compares a shadow of what the engine has
 against the current `Patch` and emits the difference, so one path handles an edit, a file
@@ -127,6 +131,7 @@ being edited out from under it.
 | `nodes.{h,cpp}` | the module set, DaisySP-backed |
 | `reverb.h` | Reverb's two algorithms, a Freeverb room and a Dattorro plate, header-only |
 | `processors.{h,cpp}` | notes in, notes out: Chance, Chord, Arp, Euclid |
+| `Seq.kt` | the Seq's timing and versions: length in beats or bars, a change of step, note colors, the versions menu |
 | `Arranger.kt` | the Arranger's model, and its table's layout, choosers and drawing |
 | `Activity.kt` | what the sequencers on the canvas are doing: versions, playheads, an Arranger's place |
 | `soundfont.{h,cpp}` | the SF node over TinySoundFont; a SoundFont loaded once and shared |
@@ -363,18 +368,18 @@ Kotlin and `EnvNode` in C++ are **the same expression on purpose**, because an e
 sounds unlike its own picture is worse than one with no picture.
 
 **A slot-indexed list crosses as one command, and there is one of everything for it.**
-Steps, dots, segments and an Arranger's sections are the same shape -- a positional list the
+Steps, a Seq's notes, segments and an Arranger's sections are the same shape -- a positional list the
 interface edits and the engine keeps a slot per entry -- so they share `SlotValue` (a tag plus a
-union of `StepSlot`/`DotSlot`/`SegmentSlot`/`SectionSlot`), one `Node::setSlot`, one
+union of `StepSlot`/`SeqNoteSlot`/`SegmentSlot`/`SectionSlot`), one `Node::setSlot`, one
 `CommandType::SetSlot`, one apply case, one JNI shim and one `GraphSync.diffSlots` (or
 `diffKeyed`, for entries that say their own slot). **The payload stays typed**: a node
-reads `slot.dot.velocity`, because `nodes.cpp` is where the DSP is read and clarity there
+reads `slot.note.velocity`, because `nodes.cpp` is where the DSP is read and clarity there
 beats the packing it would save. What is *not* typed is the JNI shim, whose ten arguments are
 the union of all the kinds -- the one place in the crossing that is not self-describing, and
-the reason `AudioEngine`'s typed wrappers are the only callers. A dot's versions made
+the reason `AudioEngine`'s typed wrappers are the only callers. A note's versions made
 it eleven. `SlotKind` is a
 cross-boundary contract like `NodeType` and is asserted against `node.h` the same way; a
-disagreement there would read a segment as a dot rather than merely dropping it.
+disagreement there would read a segment as a note rather than merely dropping it.
 
 **A long press in a pointer loop catches Compose's timeout, not kotlinx's.**
 `AwaitPointerEventScope` overrides `withTimeout` and throws
@@ -657,40 +662,69 @@ past the highest number in use anywhere in the patch -- on a `PatchModule.name` 
 module has and that falls back to the type's name, so a file written before names still
 draws "Subpatch".
 
-**A dot carries its own velocity, and the lock is what a vertical drag means.** Every voice
+**A Seq's notes are `SeqNote`s** -- they were dots, after Bespoke's DotSequencer, until Forrest
+found the name confusing (2026-10-09); "dot" survives only in the history and in the format notes
+above.
+
+**A note carries its own velocity, and the lock is what a vertical drag means.** Every voice
 already consumed velocity -- an `Osc` as amplitude, a `Pluck` as strike accent, an `FM` as
 both index and output, so on an FM it has always meant brightness -- and every source wrote
-1.0, so the feature was a number nobody could choose. A drag on a dot decides its axis once,
+1.0, so the feature was a number nobody could choose. A drag on a note decides its axis once,
 on the first move, as the canvas loop does: across is the length, down the grid is the
-degree. The lock chip on the panel pins the dots in place, which leaves a vertical drag
-nothing to move and it sets velocity instead, drawn as how much of the dot is filled. That
+degree. The lock chip on the panel pins the notes in place, which leaves a vertical drag
+nothing to move and it sets velocity instead, drawn as how much of the note is filled. That
 it is stated as a *lock* rather than as a velocity mode is the whole reason it reads: "can a
-dot move" is a fact about the dots, where "what does a vertical drag mean" is a fact about
-the tool, and only the first is something a finger is already asking. A long-press per note
-was the alternative and was rejected on the arithmetic -- sixteen notes is sixteen
-long-presses, six seconds of waiting before any of the drags.
+note move" is a fact about the notes, where "what does a vertical drag mean" is a fact about
+the tool, and only the first is something a finger is already asking. **A tap under the lock
+changes nothing** -- it added and removed notes for a build, and took in another version's, which
+was the fault Forrest found; the versions menu still opens, since choosing versions moves nothing.
 
-**A Seq's notes belong to versions, and a version knob chooses.** A dot carries the versions
-it is in as bits (`Dot.versions`); `version` plays one, **0 is silence**, so one knob says
-whether and which; `versions` in the header counts them. **A change of version restarts the
+**A Seq's notes belong to versions, and a version knob chooses.** A note carries the versions
+it is in as bits (`SeqNote.versions`); `version` plays one, **0 is off**, so one knob says
+whether and which; `versions` in the header counts them. The knob's buttons are "off" and the
+versions there are, it starts on 1, and **exposed it reaches only the versions there are**
+(`exposedParam`, and `followVersionRange` keeps the range there as versions come and go): over
+all eight, a modulator at its middle asked a two-version Seq for version four, nothing played, and
+it read as "0 is the default". **A change of version restarts the
 loop** at the next tick (`SeqNode`), so the cable that says "play B'" also says "from the top" --
 not on the first value a new node is sent, and back to the top with the transport. The grid
 edits the version shown (`shownVersion`, view state; 0 is **all**): a new note is that
-version's, a shared note tapped leaves it alone, one dragged is split first (`ownDot`) so the
-others keep theirs, a faint note is taken in by a tap. Overlap is judged only among notes that
-share a version, since they never sound together otherwise.
+version's, a shared note tapped leaves it alone, one dragged is split first (`ownSeqNote`) so the
+others keep theirs -- which is how one note has a different velocity in each version -- and a
+faint note is taken in by a tap. **Notes that end up identical but for their versions merge back
+into one** (`tidySeqNotes`), so a note edited away and back is shared again. A long press on a note
+opens its versions menu -- "All", exclusive, or some versions ticked, and nothing changes until
+**OK** -- on a Seq with more than one. Overlap is judged only among notes that share a version,
+since they never sound together otherwise. **A note is drawn in its versions' colors**: one
+version's hue (`versionColor`), barber-pole stripes of each for several, gray (`SHARED_NOTE_COLOR`)
+for all of them, and the Seq's own accent while it has only one; in the all view, where two
+versions' notes overlap the overlap is striped too. The sounding highlight marks only notes in the
+version playing.
 
-**A dot's length is its duration, in quarter steps.** `Seq` had a `gate` knob for one day:
-it took Steps' place in the Add menu, a dot's length was whole steps, nothing could be
-shorter than one, and the knob shortened the last step of every note at once. A length in
-quarter steps says that per note and says more, so the knob went -- Steps' half step is a
-length of 2. This is Bespoke's model and was `DotSeq`'s own design: **a gap between two
-notes is made by shortening the first**, and it is drawn that way, a half-step note being
-half a cell wide. The whole steps of a length are counted in ticks, so a stopped transport
-holds a note as it holds a `Steps` note; the part step left over is counted in frames from
-the tick it starts on. A note shorter than one step has no whole steps at all, so its part
-starts on the tick it does -- which is why `SeqNode::onTick` counts the tails out *after*
-the starts rather than beside the ends.
+**A note lasts whole steps, and a shorter note is a finer step** (Forrest, 2026-10-09). Lengths were
+quarter steps for a while -- Bespoke's model, a gap made by shortening the first note -- and read as
+confusing; now every note starts and ends on a division, and the way to a shorter one is to divide
+the beat further. The whole steps are counted in ticks, so a stopped transport holds a note as it
+holds a `Steps` note. **The sequence's length is said in beats or bars**, on the step chooser's
+second line ("for [2] beats | bars"), up to 16 bars (`MAX_SEQ_BARS`), with the grid scrolling
+sideways past what fits (`seqScroll`, view state; a sideways drag on empty cells). The engine
+still counts steps: `len` is steps, `lenBars` only says which unit the length is shown in, and
+`setSeqLength` and `changeStep` work out the steps -- so a change of meter keeps the steps rather
+than the bars, which is the compromise of storing steps. **A change of step carries the notes**
+(`changeStep`): exactly when the new step divides the old; when it is finer and does not, by
+Forrest's rule -- each old step becomes as many new ones as fit (half beats to fifths: two), so a
+note keeps twice its steps and the beat's leftover fifth is silent, counted from the note's own
+start; when it is coarser, each note snaps into the step it starts in and grows to cover what it
+covered, and notes of one version that then collide at one pitch are resolved (`resolveCollisions`).
+The length in beats is kept throughout.
+
+**A note put on the grid is heard**, running or not -- added, taken in, grabbed, and again at each
+new pitch a drag carries it to, for its own length. It is an `Audition` command to the Seq, which
+plays it through its own note output in frames rather than ticks (`SeqNode::audition`), so it is
+heard only where the Seq is patched and the output is on, which is what Forrest chose.
+**`tempo_` is beats per frame, not per minute** (see `setTiming`): the audition read it as bpm
+for a build and held every note for hours, and its `node_test` agreed because it made the same
+assumption -- `graph_test` now hears one end through the graph.
 
 **A knob of whole options reads its modulator's last sample, not its mean.** `Graph::
 modulatedValue` averages a modulator over the block, which for a waveform or a Seq's version is
@@ -716,13 +750,13 @@ nesting needs: exposed, one Arranger's lane drives a verse's Arranger in a box. 
 segment slots at scene * 8 + lane; songs as `SectionSlot`s at song * 64 + section, every song
 there could be followed by an empty one that ends it, compared by slot (`diffKeyed`) since a song
 growing shifts the flat list but not the engine. A Seq's or an Arranger's version, wherever a
-modulator's values are labeled, reads "silent" and "v1". The panel is a table: a cell or a head
+modulator's values are labeled, reads "off" and "v1". The panel is a table: a cell or a head
 opens a chooser that owns the panel until a tap off it, a drag along the heads scrolls the
 sections and one down the names scrolls the lanes (past four at font scale 1.5), and a drag on the
 cells does nothing, since cells are tapped -- Forrest's choice, so the two never compete.
 
 **The canvas shows what the sequencers are doing** (`Activity.kt`), so an Arranger can be followed
-without opening anything: a Seq says its version and is dimmed while silent, every sequencer has a
+without opening anything: a Seq says its version and is dimmed while off, every sequencer has a
 playhead along its foot, and a closed Arranger says its scene, "bar 2 of 4" and how far through the
 song. Polled once a frame for the modules in view, as an open panel polls its own. An Arranger's
 `position()` is two numbers in one -- section * 4096 + steps into it (`kStepStride` /
@@ -737,7 +771,8 @@ listening to.
 
 **Timed in beats but not by the transport reads `tempo_`.** `setTiming` hands every node the
 running rate, which is zero while stopped so anything stepping in beats holds still, *and*
-the tempo, which is not. A synced Delay reads the second: half a beat is half a beat long
+the tempo, which is not -- as **beats per frame**, the same units as the first, never beats per
+minute. A synced Delay reads the second: half a beat is half a beat long
 whether or not anything is playing, and reading the first made a stopped delay no length at all. It
 also hands over `beat_`, where the transport is at the block's first frame, for what has to be
 *in phase* with it and not just at its rate: a synced LFO reads its phase straight off it, so

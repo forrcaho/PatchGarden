@@ -79,6 +79,16 @@ bool Graph::postSetSlot(int64_t id, const SlotValue &slot) {
     return commands_.push(cmd);
 }
 
+bool Graph::postAudition(int64_t id, int32_t degree, float velocity, double beats) {
+    Command cmd;
+    cmd.type = CommandType::Audition;
+    cmd.id = id;
+    cmd.paramIndex = degree;
+    cmd.value = velocity;
+    cmd.beats = beats;
+    return commands_.push(cmd);
+}
+
 bool Graph::postSetScales(ScaleList *list) {
     Command cmd;
     cmd.type = CommandType::SetScales;
@@ -532,6 +542,11 @@ void Graph::applyCommands() {
                 // Bounds-checked by the node, as a param is: the interface's list can be
                 // longer than the node's room for it and the node is what knows its own.
                 nodes_[slot].node->setSlot(cmd.slot);
+                break;
+            }
+            case CommandType::Audition: {
+                const int32_t slot = indexOf(cmd.id);
+                if (slot >= 0) nodes_[slot].node->audition(cmd.paramIndex, cmd.value, cmd.beats);
                 break;
             }
             case CommandType::SetScales:

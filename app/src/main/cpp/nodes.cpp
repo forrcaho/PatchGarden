@@ -581,7 +581,7 @@ void SeqNode::setSlot(const SlotValue &slot) {
     const SeqNoteSlot &d = slot.note;
     noteStep_[i] = std::max(0, std::min(d.step, kSteps - 1));
     noteDegree_[i] = d.degree;
-    noteLength_[i] = std::max(0, std::min(d.length, kSteps * kSubsteps));
+    noteLength_[i] = std::max(0, std::min(d.length, kSteps));
     noteVelocity_[i] = clampf(d.velocity, 0.0f, 1.0f);
     noteVersions_[i] = d.versions;
 }
@@ -616,10 +616,9 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
     lastCount_ = count;
 
     // Ends before starts, so a note followed at once by another at the same degree is two
-    // notes rather than one whose Off lands after the second's On. Only the notes that end
-    // on a tick: one with a part step left is counted out in frames below.
+    // notes rather than one whose Off lands after the second's On.
     for (int32_t h = 0; h < heldCount_;) {
-        if (held_[h].gateLeft < 0 && held_[h].tail == 0 && held_[h].endCount <= count) {
+        if (held_[h].endCount <= count) {
             release(notes, h, offset);
         } else {
             ++h;
@@ -653,52 +652,82 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
         on.cents = transposeCents_;
         on.velocity = noteVelocity_[d];
         if (!notes.push(on)) break;
-        // Whole steps in ticks, the part step in frames. A length under one step has no
-        // whole steps at all, so its part starts on this very tick -- which is why the
-        // pass below runs after the starts rather than beside the ends above.
-        held_[heldCount_++] = Held{
-                on.id, on.degree, beat,
-                count + noteLength_[d] / kSubsteps,
-                noteLength_[d] % kSubsteps,
-                -1,
-        };
-    }
-
-    // A note whose whole steps have run out starts counting its part step, in frames worked
-    // out at this tick's tempo. With the transport stopped there is nothing to count, so it
-    // ends on the tick after instead, as every note did before a length had a part.
-    for (int32_t h = 0; h < heldCount_; ++h) {
-        Held &held = held_[h];
-        if (held.gateLeft >= 0 || held.tail == 0 || held.endCount > count) continue;
-        const int64_t frames = beatsPerFrame_ > 0.0
-                ? static_cast<int64_t>(held.tail * interval.num /
-                                       (kSubsteps * interval.den * beatsPerFrame_))
-                : 0;
-        if (frames > 0) held.gateLeft = frames; else held.tail = 0;
+        // Whole steps, counted in ticks: a note ends on the tick its last step runs out, so a
+        // stopped transport holds it as it holds everything else. A shorter note is a finer step,
+        // which is where a length between two steps went (Forrest, 2026-10-09).
+        held_[heldCount_++] = Held{on.id, on.degree, beat, count + noteLength_[d]};
     }
 }
 
 void SeqNode::process(int32_t frames) {
     NoteBuffer &notes = notesOut(0);
     notes.clear();
-    int32_t next = 0;
-    for (int32_t i = 0; i < frames; ++i) {
-        while (next < pendingCount_ && pending_[next].offset <= i) {
-            onTick(notes, static_cast<uint16_t>(i), pending_[next].count);
-            ++next;
-        }
-        if (!running_) continue;
-        for (int32_t h = 0; h < heldCount_;) {
-            // A sample early rather than late, as Steps' gate: late would need an offset
-            // past the end of the block on the frame the gate runs out on.
-            if (held_[h].gateLeft > 0 && --held_[h].gateLeft == 0) {
-                release(notes, h, static_cast<uint16_t>(i));
-            } else {
-                ++h;
-            }
-        }
+    for (int32_t next = 0; next < pendingCount_; ++next) {
+        const auto offset = static_cast<uint16_t>(std::clamp<int32_t>(pending_[next].offset, 0, frames - 1));
+        onTick(notes, offset, pending_[next].count);
     }
     pendingCount_ = 0;
+
+    // Auditions: each started at the top of the first block after it was asked for, and ended
+    // in frames -- running or not, since a note put on a stopped grid is still meant to be heard.
+    for (int32_t a = 0; a < auditionCount_;) {
+        Audition &audition = auditions_[a];
+        if (audition.ending != 0) {
+            NoteEvent off;
+            off.id = audition.ending;
+            off.kind = NoteKind::Off;
+            off.offset = 0;
+            notes.push(off);
+            audition.ending = 0;
+        }
+        if (!audition.started) {
+            NoteEvent on;
+            on.id = audition.id;
+            on.kind = NoteKind::On;
+            on.offset = 0;
+            on.degree = audition.degree;
+            on.beat = static_cast<int64_t>(std::floor(beat_));
+            on.cents = transposeCents_;
+            on.velocity = audition.velocity;
+            notes.push(on);
+            audition.started = true;
+        }
+        if (audition.framesLeft <= frames) {
+            NoteEvent off;
+            off.id = audition.id;
+            off.kind = NoteKind::Off;
+            off.offset = static_cast<uint16_t>(std::clamp<int64_t>(audition.framesLeft - 1, 0, frames - 1));
+            notes.push(off);
+            auditions_[a] = auditions_[--auditionCount_];
+        } else {
+            audition.framesLeft -= frames;
+            ++a;
+        }
+    }
+}
+
+void SeqNode::audition(int32_t degree, float velocity, double beats) {
+    // tempo_ is beats per frame at the tempo, running or not -- not beats per minute, which this
+    // read it as for a build, and every audition held for hours (see setTiming). 120bpm until a
+    // block has said, as a Delay assumes.
+    const double perFrame = tempo_ > 0.0 ? tempo_ : 2.0 / static_cast<double>(sampleRate_);
+    const auto frames = static_cast<int64_t>(std::max(beats, 0.0) / perFrame);
+    const Audition fresh{
+            nextNoteId_++, degree, clampf(velocity, 0.0f, 1.0f), std::max<int64_t>(frames, 1), false, 0,
+    };
+    if (auditionCount_ < kMaxAuditions) {
+        auditions_[auditionCount_++] = fresh;
+        return;
+    }
+    // Full: the oldest gives way to the newest touch, which is the one being listened to -- and is
+    // still ended, at the top of the next block, so nothing downstream is left holding it.
+    int32_t oldest = 0;
+    for (int32_t a = 1; a < auditionCount_; ++a) {
+        if (auditions_[a].id < auditions_[oldest].id) oldest = a;
+    }
+    const uint32_t ending = auditions_[oldest].started ? auditions_[oldest].id : 0;
+    auditions_[oldest] = fresh;
+    auditions_[oldest].ending = ending;
 }
 
 void SeqNode::heldNotes(int32_t port, NoteBuffer &into) const {

@@ -143,7 +143,7 @@ internal fun DrawScope.drawActivity(
             CornerRadius(PatchModule.CORNER * unit, PatchModule.CORNER * unit),
         )
         if (showLabels) {
-            val text = measurer.measure("silent", ActivityQuietStyle)
+            val text = measurer.measure("off", ActivityQuietStyle)
             drawText(text, alpha = alpha, topLeft = Offset(body.left + inset, body.top + (PatchModule.PORT_PITCH * unit - text.size.height) / 2f))
         }
         return

@@ -115,6 +115,9 @@ public:
      */
     bool postSetSlot(int64_t id, const SlotValue &slot);
 
+    /** Plays a note on note sequencer [id] now, for [beats]; see Node::audition. */
+    bool postAudition(int64_t id, int32_t degree, float velocity, double beats);
+
     /** One step of a sequence, as a degree of the patch's scales. */
     bool postSetStep(int64_t id, int32_t index, int32_t degree, bool gate) {
         return postSetSlot(id, stepSlot(index, degree, gate));
@@ -195,7 +198,7 @@ public:
 private:
     enum class CommandType : int32_t {
         Add, Remove, Connect, Disconnect, SetParam, SetTempo, ResetTransport,
-        SetScales, SetModRange, ConnectMod, DisconnectMod, SetResource, SetSlot,
+        SetScales, SetModRange, ConnectMod, DisconnectMod, SetResource, SetSlot, Audition,
     };
 
     struct Command {
@@ -211,6 +214,8 @@ private:
         float value = 0.0f;
         /** SetModRange only: the high end, and whether the sweep between them is geometric. */
         float high = 0.0f;
+        /** Audition only: how long the note sounds, in beats. paramIndex is its degree, value its velocity. */
+        double beats = 0.0;
         bool exponential = false;
         /** SetModRange only: whether the knob is whole options; see postSetModRange. */
         bool stepped = false;

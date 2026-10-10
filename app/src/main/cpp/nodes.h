@@ -469,19 +469,16 @@ private:
  */
 class SeqNode : public Node {
 public:
-    /** Mirrored by SEQ_STEPS in PatchCanvas.kt. */
-    static constexpr int32_t kSteps = 32;
-    /** Mirrored by MAX_SEQ_NOTES in PatchCanvas.kt. */
-    static constexpr int32_t kMaxNotes = 128;
     /**
-     * Divisions of a step a note's length is counted in. Mirrored by SEQ_SUBSTEPS.
-     *
-     * Four, which is what a finger can place on a cell a finger can hit: at 32 columns a
-     * cell is 20dp and a quarter of it is 5dp, which is already past what a drag can aim
-     * at and is only reachable on a short loop. It also makes Steps' half step -- the
-     * length the retired `gate` knob defaulted to -- an exact 2.
+     * The longest loop, in steps. Mirrored by SEQ_STEPS in PatchCanvas.kt. A sequence's length is
+     * said in beats or bars, and sixteen bars of quarter beats is 256 steps; this leaves room for
+     * finer steps than that.
      */
-    static constexpr int32_t kSubsteps = 4;
+    static constexpr int32_t kSteps = 1024;
+    /** Mirrored by MAX_SEQ_NOTES in PatchCanvas.kt. */
+    static constexpr int32_t kMaxNotes = 512;
+    /** Notes auditioned at once: a few taps in quick succession, each heard out. */
+    static constexpr int32_t kMaxAuditions = 4;
     /** Notes sounding at once. Two chords of eight overlapping, which no voice here can play anyway. */
     static constexpr int32_t kMaxHeld = 16;
     /** Mirrored by MAX_VERSIONS in PatchCanvas.kt: the bits a note's versions are. */
@@ -497,9 +494,17 @@ public:
     Interval interval() const override { return interval_; }
     void tick(int32_t offset, int64_t count) override;
     void heldNotes(int32_t port, NoteBuffer &into) const override;
+    /**
+     * Plays a note now, for [beats] at the tempo, whether or not the transport is running: a note
+     * added or moved on the grid is heard. Out of the same notes output as the sequence, so it
+     * sounds through whatever the Seq is patched to.
+     */
+    void audition(int32_t degree, float velocity, double beats) override;
 
     /** Notes sounding now, for tests. */
     int32_t notesHeld() const { return heldCount_; }
+    /** Auditioned notes still sounding, for tests. */
+    int32_t auditionsHeld() const { return auditionCount_; }
 
 private:
     static constexpr int32_t kMaxPending = 4;
@@ -508,12 +513,8 @@ private:
         uint32_t id;
         int32_t degree;
         int64_t beat;
-        /** The tick its whole steps run out on: where it ends, or where its part step starts. */
+        /** The tick it ends on: a note lasts whole steps. */
         int64_t endCount;
-        /** Quarter steps past [endCount], 0 for a note that ends on the tick. */
-        int32_t tail;
-        /** Frames of that part step still to sound, or -1 until [endCount] has come. */
-        int64_t gateLeft;
     };
 
     void onTick(NoteBuffer &notes, uint16_t offset, int64_t count);
@@ -554,6 +555,19 @@ private:
     Held held_[kMaxHeld] = {};
     int32_t heldCount_ = 0;
     uint32_t nextNoteId_ = 1;
+
+    /** A note being auditioned: started at the first block after it was asked for, ended in frames. */
+    struct Audition {
+        uint32_t id;
+        int32_t degree;
+        float velocity;
+        int64_t framesLeft;
+        bool started;
+        /** The note this slot was taken from, still to be ended, or 0. */
+        uint32_t ending;
+    };
+    Audition auditions_[kMaxAuditions] = {};
+    int32_t auditionCount_ = 0;
 };
 
 /**

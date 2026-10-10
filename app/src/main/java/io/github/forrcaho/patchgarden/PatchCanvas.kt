@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -46,6 +47,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
@@ -212,7 +214,7 @@ data class LiveWhen(val param: Int, val value: Int, val unless: Boolean = false)
  * reading it needs no translation from the word "saw". DIVISION is a step's length in
  * beats ([Interval]), and the one choice a panel shows in its header rather than as a row.
  */
-enum class Choice { NUMBER, WAVE, DIVISION, PRESET, ARP, FILTER, SLOPE, NOISE, REVERB }
+enum class Choice { NUMBER, WAVE, DIVISION, PRESET, ARP, FILTER, SLOPE, NOISE, REVERB, VERSION }
 
 data class Param(
     val name: String,
@@ -366,7 +368,11 @@ data class Step(val degree: Int, val on: Boolean = true)
 data class SeqNote(
     val step: Int,
     val degree: Int,
-    val length: Int = SEQ_SUBSTEPS,
+    /**
+     * Whole steps. It was quarter steps until 2026-10-09, so a note could end partway through one;
+     * Forrest found that confusing, and a shorter note is a finer step now.
+     */
+    val length: Int = 1,
     val velocity: Float = 1f,
     /**
      * Which of the Seq's versions it is in, as bits: bit 0 is version 1. "Common" is in all of
@@ -814,7 +820,7 @@ object Types {
         params = listOf(
             // A bar a step, as ModSeq's: a section's length is counted in these.
             intervalParam(default = Interval(1, 1, bars = true).code),
-            Param("version", 0f, MAX_SONGS.toFloat(), 1f, "", STEP, short = "ver"),
+            Param("version", 0f, MAX_SONGS.toFloat(), 1f, "", STEP, Choice.VERSION, short = "ver"),
             Param("versions", 1f, MAX_SONGS.toFloat(), 1f, "", STEP, header = true),
             // Loop (0) or stop (1) at the end of the song: a switch in the header.
             Param("end", 0f, 1f, 0f, "", STEP, header = true),
@@ -870,27 +876,29 @@ object Types {
      * lengthen or shorten it, tap one to remove it. The grid shows as many steps as the
      * sequence is long. Called DotSeq for a night, after Bespoke's DotSequencer.
      *
-     * A note's length is its duration, in quarter steps, so a gap between two notes is made
-     * by shortening the first -- which is Bespoke's model and was this module's own design.
-     * It had a `gate` knob for a day: taking Steps' place in the menu, it could not express
-     * Steps' half step, because a length was whole steps and a note could not be shorter than
-     * one. A length in quarter steps says that per note instead. Order mirrors
-     * SeqNode::setParam -- length, transpose, interval.
+     * A note's length is whole steps (it was quarter steps until 2026-10-09), so a shorter note
+     * is a finer step; the sequence's length is said in beats or bars, and changing the step
+     * carries the notes across (Seq.kt). Order mirrors SeqNode::setParam -- length (in steps),
+     * transpose, interval, version, versions, and lenBars, which the engine ignores.
      */
     val Seq = ModuleType(
         "Seq", emptyList(), listOf(Port("notes", N)),
         Color(SEQ_ACCENT),
         params = listOf(
-            Param("len", 1f, SEQ_STEPS.toFloat(), 16f, "", STEP),
+            // The loop, in steps, which is what the engine counts -- but chosen and said in beats or
+            // bars, beside the step in its chooser (Forrest, 2026-10-09), so it lives in the header.
+            Param("len", 1f, SEQ_STEPS.toFloat(), 16f, "", STEP, header = true),
             Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
             intervalParam(),
             // The version playing, from 1, or 0 for silence -- so one knob says whether and which,
             // and an Arranger lane of version numbers is a whole song's worth of this Seq. A change
             // restarts the loop at the next tick (SeqNode). Exposable like any knob, and whole
             // options, so a modulator's step lands on a version rather than between two.
-            Param("version", 0f, MAX_VERSIONS.toFloat(), 1f, "", STEP, short = "ver"),
+            Param("version", 0f, MAX_VERSIONS.toFloat(), 1f, "", STEP, Choice.VERSION, short = "ver"),
             // How many versions there are, in the header; the engine has no use for it.
             Param("versions", 1f, MAX_VERSIONS.toFloat(), 1f, "", STEP, header = true),
+            // Whether the length is said in bars (1) or beats (0); the engine has no use for it.
+            Param("lenBars", 0f, 1f, 1f, "", STEP, header = true),
         ),
         grid = GridKind.NOTES,
         engine = NodeType.Seq, category = Category.NOTES,
@@ -1646,6 +1654,7 @@ class PatchModule(
             if (count >= MAX_SONGS || type.versionsParam < 0) return false
             songs.add(songs.getOrElse(shownSong) { defaultSongs().first() })
             setParam(type.versionsParam, (count + 1).toFloat())
+            followVersionRange(count, count + 1)
             shownVersion = count + 1
             return true
         }
@@ -1657,8 +1666,21 @@ class PatchModule(
             if ((note.versions and shown) != 0) seqNotes[i] = note.copy(versions = note.versions or bit)
         }
         setParam(type.versionsParam, (count + 1).toFloat())
+        followVersionRange(count, count + 1)
         shownVersion = count + 1
         return true
+    }
+
+    /**
+     * An exposed version knob whose range reached the last version, from [from] versions to [to]:
+     * it goes on reaching the last one, so a version added is one a modulator can choose.
+     */
+    private fun followVersionRange(from: Int, to: Int) {
+        val knob = type.versionParam
+        val range = modRanges[knob] ?: return
+        if (range.high.roundToInt() == from || range.high.roundToInt() > to) {
+            modRanges = modRanges + (knob to range.copy(high = to.toFloat(), low = minOf(range.low, to.toFloat())))
+        }
     }
 
     /**
@@ -1680,6 +1702,7 @@ class PatchModule(
             seqNotes.addAll(renumbered)
         }
         setParam(type.versionsParam, (count - 1).toFloat())
+        followVersionRange(count, count - 1)
         val knob = type.versionParam
         if (knob >= 0) {
             val playing = params.getOrElse(knob) { 1f }.roundToInt()
@@ -1702,7 +1725,7 @@ class PatchModule(
 
     fun setSeqNoteLength(index: Int, length: Int) {
         val note = seqNotes.getOrNull(index) ?: return
-        if (note.length != length) seqNotes[index] = note.copy(length = length.coerceIn(1, SEQ_STEPS * SEQ_SUBSTEPS))
+        if (note.length != length) seqNotes[index] = note.copy(length = length.coerceIn(1, SEQ_STEPS))
     }
 
     fun setSeqNoteVelocity(index: Int, velocity: Float) {
@@ -1750,6 +1773,12 @@ class PatchModule(
     var notesLocked by mutableStateOf(false)
 
     /**
+     * The first step a Seq's grid shows, when its loop is longer than fits -- up to sixteen bars,
+     * scrolled sideways (Forrest, 2026-10-09). View state, like [gridBottom].
+     */
+    var seqScroll by mutableIntStateOf(0)
+
+    /**
      * The parameters given a jack, by index, and what each sweeps between.
      *
      * An immutable map replaced whole on every edit, like the patch's scale list, so two of
@@ -1795,10 +1824,24 @@ class PatchModule(
 
     /** How knob [index]'s row reads; see [RowView]. */
     fun rowView(index: Int): RowView {
+        // A version knob's row offers off and the versions there are, not every one there could be.
+        if (index == type.versionParam) return RowView(exposedParam(index), 1f, flipped = false)
         val param = type.params[index]
         val other = param.reciprocal ?: return RowView(param, 1f, flipped = false)
         return if (showsPeriod == other.isPeriod) RowView(other.param, other.scale, flipped = true)
         else RowView(param, 1f, flipped = false)
+    }
+
+    /**
+     * Knob [index] as its row and a new range see it: a version knob reaches only as far as the
+     * versions there are, so exposing one sweeps off to the last of them -- where it swept all
+     * eight, and a modulator resting at its middle asked for a version that did not exist, which
+     * played nothing. Any other knob is its own declaration.
+     */
+    fun exposedParam(index: Int): Param {
+        val param = type.params[index]
+        if (index != type.versionParam) return param
+        return param.copy(max = versionCount.toFloat())
     }
 
     /**
@@ -2110,6 +2153,9 @@ internal fun panelGrid(panel: Rect, d: Float, type: ModuleType? = null): Rect {
  */
 internal const val PANEL_ROW_MIN = 60f
 
+/** What a row of buttons needs beyond [PANEL_ROW_MIN]: its label sits above the buttons. */
+internal const val BUTTON_ROW_EXTRA = 20f
+
 /** What a grid took of the body before the knobs' own height decided it, and their floor now. */
 private const val GRID_SHARE = 0.66f
 
@@ -2147,10 +2193,19 @@ private class PanelSplit(
 private fun panelSplit(panel: Rect, d: Float, type: ModuleType, count: Int): PanelSplit {
     val body = panelBody(panel, d).height
     val rows = maxOf(count, 1)
-    fun split(most: Float, least: Float): PanelSplit {
+    // A row of buttons is taller than a slider's floor -- a label above buttons where a slider has
+    // a label beside its reading -- and at the floor its label drew behind its buttons: the
+    // Arranger's version row on the emulator, then the Seq's once its length row went. Rows share
+    // the area evenly, so the extra is every row's or it is none of them.
+    val buttons = count == type.rowParams.size && type.rowParams.any { type.params[it].buttons }
+    val rowMin = PANEL_ROW_MIN + if (buttons) BUTTON_ROW_EXTRA else 0f
+    fun split(most: Float, least: Float, fit: Boolean = false): PanelSplit {
         val columns = if (rows * PANEL_ROW_MIN * d > most) 2 else 1
         val deepest = if (columns == 2) (rows + 1) / 2 else rows
-        return PanelSplit((deepest * PANEL_ROW_MIN * d).coerceIn(least, most), columns, deepest)
+        // The floor never passes the ceiling: on a short panel (a phone held upright) what the
+        // rows need can be more than the grid can give up, and the grid's floor wins.
+        val floor = (if (fit) maxOf(least, deepest * rowMin * d) else least).coerceAtMost(most)
+        return PanelSplit((deepest * PANEL_ROW_MIN * d).coerceIn(floor, most), columns, deepest)
     }
     return when {
         // No grid: the knobs have the whole body, as every panel did before grids.
@@ -2163,13 +2218,11 @@ private fun panelSplit(panel: Rect, d: Float, type: ModuleType, count: Int): Pan
         type.grid == GridKind.PATTERN ->
             split(body * (1f - PATTERN_GRID_SHARE), body * (1f - PATTERN_GRID_SHARE))
         // An Arranger's table needs every row it can get -- four lanes only just fit at the
-        // reference device's text size -- and its knob is one, the version: what that row needs,
-        // which as a row of buttons is a little more than a slider's floor. At the floor alone
-        // its label was drawn behind its buttons on the emulator at font scale 1.5.
-        type.grid == GridKind.SONG -> split(body * GRID_FLOOR, rows * (PANEL_ROW_MIN + 20f) * d)
+        // reference device's text size -- and its knob is one, the version: what that row needs.
+        type.grid == GridKind.SONG -> split(body * GRID_FLOOR, 0f, fit = true)
         // A sequence or a drone grid is the thing being edited: the knobs take what they
         // need between the third they always had and half, and the grid keeps the rest.
-        else -> split(body * GRID_FLOOR, body * (1f - GRID_SHARE))
+        else -> split(body * GRID_FLOOR, body * (1f - GRID_SHARE), fit = true)
     }
 }
 
@@ -2745,11 +2798,12 @@ internal fun DrawScope.drawIntervalTile(rect: Rect, d: Float, label: String, cho
  * chips hang. The tuning chip that used to sit beside it is one of those now: the scale
  * belongs to the patch, and a control for it inside one sequencer changed all the others.
  */
-internal fun panelIntervalChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
+internal fun panelIntervalChip(panel: Rect, d: Float, fontScale: Float = 1f, type: ModuleType? = null): Rect {
     val height = 28f * d
     // Wide enough for "16/15 beats", the longest a step can say -- 65dp of 12sp Roboto in 72dp
     // of room -- and wider with the text: a label in sp in a box in dp -- see Frame.fontScale.
-    val width = INTERVAL_CHIP_W * fontScale.coerceAtLeast(1f) * d
+    // A Seq's says its length as well -- "1/4 beat · 4 bars" -- so it is wider.
+    val width = (if (type?.grid == GridKind.NOTES) SEQ_CHIP_W else INTERVAL_CHIP_W) * fontScale.coerceAtLeast(1f) * d
     return Rect(
         Offset(panel.right - width - 14f * d, panel.top + (PatchModule.PANEL_HEADER * d - height) / 2f),
         Size(width, height),
@@ -2765,7 +2819,8 @@ internal fun panelIntervalChip(panel: Rect, d: Float, fontScale: Float = 1f): Re
  * it to outgrow the box.
  */
 internal fun panelLockChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
-    val interval = panelIntervalChip(panel, d, fontScale)
+    // Only a Seq has a lock, and a Seq's interval chip is the wide one.
+    val interval = panelIntervalChip(panel, d, fontScale, Types.Seq)
     val width = 40f * d
     return Rect(
         Offset(interval.left - 10f * d - width, interval.top),
@@ -2859,6 +2914,8 @@ internal fun panelPresetChip(panel: Rect, d: Float): Rect {
 
 internal const val PRESET_CHIP_W = 240f
 internal const val INTERVAL_CHIP_W = 88f
+/** A Seq's interval chip, which says its length as well as its step. */
+internal const val SEQ_CHIP_W = 140f
 /** A preset page's scroll that means "wherever the chosen preset is"; see [PresetPage.resolve]. */
 internal const val SCROLL_TO_CHOSEN = -1
 internal const val PRESET_TILE_W = 188f
@@ -2995,9 +3052,18 @@ internal class IntervalChooser(
     val grid: Rect?,
     /** In fixed time, the row the module's own time knob is drawn and dragged in; else null. */
     val slider: Rect? = null,
+    /** Where a Seq's second sentence begins -- "for" -- or null for any other module. */
+    val lengthWords: Rect? = null,
 ) {
-    /** What a tap at [at] picks: the open grid before anything under it, or null for nothing. */
-    fun pickAt(at: Offset): IntervalPick? = targets.lastOrNull { it.first.contains(at) }?.second
+    /**
+     * What a tap at [at] picks: the open grid before anything under it, or null for nothing. The
+     * grid's ground covers what is under it, gaps and all -- a Seq's length line is, and a tap
+     * between two tiles picked its dropdown.
+     */
+    fun pickAt(at: Offset): IntervalPick? {
+        val under = grid?.takeIf { it.contains(at) }
+        return targets.lastOrNull { it.first.contains(at) && (under == null || it.second.inGrid) }?.second
+    }
 }
 
 /** The chooser for [step], with [open]'s grid showing if one is; see [IntervalChooser]. */
@@ -3008,6 +3074,8 @@ internal fun intervalChooser(
     canBeFree: Boolean,
     step: Interval,
     open: IntervalPart? = null,
+    /** A Seq's length, which gets a sentence of its own under the step's; null for any other module. */
+    length: LengthView? = null,
 ): IntervalChooser {
     val body = panelBody(panel, d)
     val text = fontScale.coerceAtLeast(1f)
@@ -3050,9 +3118,29 @@ internal fun intervalChooser(
     targets += inBars to IntervalPick.Bars(true)
     val readout = Offset(body.right - 34f * d, y + dropH / 2f)
 
+    // A Seq's length, said under its step: "for [4] beats | bars" (Forrest, 2026-10-09). Laid out
+    // to line up with the step's sentence, so the two read as one decision about time.
+    var lengthWords: Rect? = null
+    var lengthDrop: Rect? = null
+    if (length != null) {
+        val lineY = y + dropH + 18f * d
+        lengthWords = Rect(Offset(left, lineY), Size(dropW, dropH))
+        lengthDrop = Rect(Offset(divisions.right + 14f * d, lineY), Size(dropW, dropH))
+        val top = lineY + (dropH - chipH) / 2f
+        val lBeats = Rect(Offset(lengthDrop.right + 14f * d, top), Size(unitW, chipH))
+        val lBars = Rect(Offset(lBeats.right + gap, top), Size(unitW, chipH))
+        targets += lengthDrop to IntervalPick.Open(IntervalPart.LENGTH)
+        targets += lBeats to IntervalPick.LengthBars(false)
+        targets += lBars to IntervalPick.LengthBars(true)
+    }
+
     var grid: Rect? = null
     if (open != null) {
-        val anchor = if (open == IntervalPart.DIVISIONS) divisions else beats
+        val anchor = when (open) {
+            IntervalPart.DIVISIONS -> divisions
+            IntervalPart.BEATS -> beats
+            IntervalPart.LENGTH -> lengthDrop ?: beats
+        }
         val columns = 9
         val tileW = 43f * text * d
         val tileH = maxOf(44f, 29f * text) * d
@@ -3071,7 +3159,7 @@ internal fun intervalChooser(
         targets += cell(OFFERED_COUNTS, span = 2) to IntervalPick.Other(open)
         grid = ground
     }
-    return IntervalChooser(targets, words, readout, grid)
+    return IntervalChooser(targets, words, readout, grid, lengthWords = lengthWords)
 }
 
 internal fun panelTiles(panel: Rect, d: Float, count: Int): List<Rect> =
@@ -3132,7 +3220,7 @@ internal fun panelCellAt(
     }
 
     if (module.type.grid == GridKind.NOTES) {
-        return seqColumnAt(area, seqColumns(module), at.x) to window.degreeAt(row)
+        return seqColumnAt(area, seqWindow(module, area, d), at.x) to window.degreeAt(row)
     }
 
     val cellWidth = area.width / module.type.stepCount
@@ -3145,15 +3233,33 @@ internal fun panelCellAt(
  * sixteen and dims those past the loop, because thirty-two at once is a 20dp cell -- a short
  * loop gets cells a finger can hit, and a long one is the choice to pay for detail.
  */
-internal fun seqColumns(module: PatchModule): Int =
-    module.params.getOrElse(0) { 16f }.roundToInt().coerceIn(1, SEQ_STEPS)
+internal fun seqColumns(module: PatchModule): Int = module.seqSteps
 
-/** The column under [x], clamped to the grid, so a drag past either end holds at it. */
-internal fun seqColumnAt(area: Rect, columns: Int, x: Float): Int =
-    ((x - area.left) / (area.width / columns)).toInt().coerceIn(0, columns - 1)
+/**
+ * Which steps a Seq's grid shows: [shown] of its [steps], from [first]. A short loop gets cells as
+ * wide as it can; a long one stops at [SEQ_CELL_MIN] a cell and scrolls sideways.
+ */
+internal data class SeqWindow(val first: Int, val shown: Int, val steps: Int) {
+    val maxFirst: Int get() = (steps - shown).coerceAtLeast(0)
+    val scrolls: Boolean get() = steps > shown
+}
+
+/** The narrowest a Seq's column gets before its grid scrolls instead, in dp. */
+internal const val SEQ_CELL_MIN = 24f
+
+internal fun seqWindow(module: PatchModule, area: Rect, d: Float): SeqWindow {
+    val steps = module.seqSteps
+    val fit = (area.width / (SEQ_CELL_MIN * d)).toInt().coerceAtLeast(1)
+    val shown = minOf(steps, fit)
+    return SeqWindow(module.seqScroll.coerceIn(0, (steps - shown).coerceAtLeast(0)), shown, steps)
+}
+
+/** The step under [x] in [window], clamped to what shows, so a drag past either end holds at it. */
+internal fun seqColumnAt(area: Rect, window: SeqWindow, x: Float): Int =
+    window.first + ((x - area.left) / (area.width / window.shown)).toInt().coerceIn(0, window.shown - 1)
 
 /** How many steps a note reaches into, which is what it covers on the grid. */
-internal val SeqNote.stepsSpanned: Int get() = (length + SEQ_SUBSTEPS - 1) / SEQ_SUBSTEPS
+internal val SeqNote.stepsSpanned: Int get() = length
 
 /** The note covering [column] at [degree], or -1. A note covers every step it reaches into. */
 internal fun PatchModule.seqNoteAt(column: Int, degree: Int): Int =
@@ -3164,9 +3270,9 @@ internal fun PatchModule.faintSeqNoteAt(column: Int, degree: Int): Int =
     seqNotes.indexOfFirst { !shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
 
 /**
- * How long note [index] may grow, in quarter steps: to the end of the grid, or to the next
- * note at its degree, whichever is first -- two notes at one pitch cannot overlap, since the
- * second's start would be heard as nothing.
+ * How long note [index] may grow, in steps: to the end of the loop, or to the next note at its
+ * degree that shares a version with it, whichever is first -- two such notes cannot overlap,
+ * since the second's start would be heard as nothing.
  */
 internal fun PatchModule.seqNoteRoom(index: Int): Int {
     val note = seqNotes[index]
@@ -3174,18 +3280,7 @@ internal fun PatchModule.seqNoteRoom(index: Int): Int {
         it !== note && it.degree == note.degree && it.step > note.step && (it.versions and note.versions) != 0
     }
         .minOfOrNull { it.step } ?: seqColumns(this)
-    return ((minOf(next, seqColumns(this)) - note.step) * SEQ_SUBSTEPS).coerceAtLeast(1)
-}
-
-/**
- * The quarter step under [x], counted from the grid's left edge and clamped to it.
- *
- * What a stretch measures against. The column is not enough any more: a note may end partway
- * through a step, so where inside the cell the finger is decides the length.
- */
-internal fun seqSubstepAt(area: Rect, columns: Int, x: Float): Int {
-    val per = area.width / (columns * SEQ_SUBSTEPS)
-    return ((x - area.left) / per).toInt().coerceIn(0, columns * SEQ_SUBSTEPS - 1)
+    return (minOf(next, seqColumns(this)) - note.step).coerceAtLeast(1)
 }
 
 /**
@@ -3784,7 +3879,7 @@ class Patch {
         if (jackChip(box, row) != ChipState.OFF) return false
         val owner = row.owner
         if (!owner.isDriven(row.index) && !owner.isExposed(row.index)) {
-            val param = owner.type.params[row.index]
+            val param = owner.exposedParam(row.index)
             if (!expose(owner, row.index, initialModRange(param, owner.params[row.index]))) return false
         }
         var target = controlJack(owner, row.index) ?: return false
@@ -5425,6 +5520,13 @@ fun PatchCanvas(
      * the app leaves it to the default.
      */
     camera: Camera = rememberCamera(),
+    /**
+     * Plays a note just put on or moved on a Seq's grid, for its own length (Forrest, 2026-10-09).
+     * The engine's by default, heard only while the output is on; a gesture test listens here.
+     */
+    audition: (PatchModule, SeqNote) -> Unit = { module, note ->
+        AudioEngine.audition(module.id, note.degree, note.velocity, module.noteBeats(note, patch.beatsPerBar))
+    },
 ) {
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -5517,7 +5619,12 @@ fun PatchCanvas(
     var versionDelete by remember { mutableStateOf<Int?>(null) }
     // An Arranger's chooser, over a cell or a section's head.
     var arrangerPop by remember { mutableStateOf<ArrangerPop?>(null) }
+    // A Seq note's versions menu, held open over its grid.
+    var noteMenu by remember { mutableStateOf<NoteMenu?>(null) }
+    // Through rememberUpdatedState, as every value the gesture loop reads must be.
+    val auditionNote by rememberUpdatedState(audition)
     LaunchedEffect(openModule?.id) {
+        noteMenu = null
         intervalMenu = false
         intervalDropdown = null
         versionMenu = false
@@ -5826,6 +5933,38 @@ fun PatchCanvas(
                                 return@awaitEachGesture
                             }
 
+                            // A Seq note's versions menu owns the panel while it is open: "All"
+                            // ticks every version and nothing else, a version's tick toggles it and
+                            // clears "All", OK sets them -- only with something ticked -- and a tap
+                            // off the menu closes it with the note as it was.
+                            val menu = noteMenu
+                            if (open.type.grid == GridKind.NOTES && menu != null) {
+                                waitForUpRelease()
+                                val layout = noteMenuLayout(
+                                    panelBody(panel, frame.density), frame.density, frame.fontScale,
+                                    open.versionCount, menu.anchor,
+                                )
+                                if (!layout.ground.contains(down.position)) {
+                                    noteMenu = null
+                                    return@awaitEachGesture
+                                }
+                                when (val pick = layout.pickAt(down.position)) {
+                                    NoteMenuPick.All -> noteMenu = menu.copy(all = true, bits = 0)
+                                    is NoteMenuPick.Version -> noteMenu = menu.copy(
+                                        all = false, bits = (if (menu.all) 0 else menu.bits) xor (1 shl (pick.n - 1)),
+                                    )
+                                    NoteMenuPick.Ok -> {
+                                        val chosen = menu.chosen(open.everyVersion)
+                                        if (chosen != 0) {
+                                            open.setNoteVersions(menu.index, chosen)
+                                            noteMenu = null
+                                        }
+                                    }
+                                    null -> {}
+                                }
+                                return@awaitEachGesture
+                            }
+
                             // An Arranger's chooser owns the panel while it is open, as the strip
                             // does: a tap on a tile picks, a drag on the slider sets the cell and
                             // follows the finger, the reading is typed, and a tap anywhere else
@@ -5883,9 +6022,11 @@ fun PatchCanvas(
                             // the chooser if there is not -- one step back at a time.
                             val intervalParam = open.type.intervalParam
                             if (intervalParam >= 0 && intervalMenu) {
+                                // Laid out as the drawing lays it out, length line and all: the first
+                                // build drew a Seq's length and hit-tested a chooser without it.
                                 val chooser = intervalChooser(
                                     panel, frame.density, frame.fontScale, open.type.canBeFree,
-                                    open.interval, intervalDropdown,
+                                    open.interval, intervalDropdown, open.lengthView(patch.beatsPerBar),
                                 )
                                 val pick = chooser.pickAt(down.position)
                                 // Fixed time's slider is the module's own knob, taken hold of the
@@ -5933,16 +6074,33 @@ fun PatchCanvas(
                                         intervalDropdown = null
                                         interaction = Interaction.Typing(NumberTarget.IntervalCount(open.id, pick.part))
                                     }
+                                    is IntervalPick.Count -> {
+                                        intervalDropdown = null
+                                        if (pick.part == IntervalPart.LENGTH) {
+                                            open.setSeqLength(pick.n, open.lengthInBars, patch.beatsPerBar)
+                                        } else {
+                                            open.changeStep(open.interval.with(pick), patch.beatsPerBar)
+                                        }
+                                    }
+                                    is IntervalPick.LengthBars -> {
+                                        intervalDropdown = null
+                                        // The number stays and the unit changes, as the step's switch does.
+                                        val count = open.lengthCount(patch.beatsPerBar)
+                                        open.setSeqLength(
+                                            (count.num.toDouble() / count.den).roundToInt().coerceAtLeast(1),
+                                            pick.on, patch.beatsPerBar,
+                                        )
+                                    }
                                     else -> {
                                         intervalDropdown = null
-                                        open.setParam(intervalParam, open.interval.with(pick).code.toFloat())
+                                        open.changeStep(open.interval.with(pick), patch.beatsPerBar)
                                     }
                                 }
                                 return@awaitEachGesture
                             }
 
                             if (intervalParam >= 0 &&
-                                panelIntervalChip(panel, frame.density, frame.fontScale).contains(down.position)
+                                panelIntervalChip(panel, frame.density, frame.fontScale, open.type).contains(down.position)
                             ) {
                                 waitForUpRelease()
                                 intervalDropdown = null
@@ -6014,7 +6172,7 @@ fun PatchCanvas(
                                         else patch.exposeThrough(open, row)
                                     open.isExposed(index) -> patch.unexpose(open, index)
                                     else -> {
-                                        val param = open.type.params[index]
+                                        val param = open.exposedParam(index)
                                         patch.expose(open, index, initialModRange(param, open.params[index]))
                                     }
                                 }
@@ -6398,62 +6556,125 @@ fun PatchCanvas(
                                 // version has, which only a tap can take -- into this version.
                                 var hit = open.seqNoteAt(column, degree)
                                 val faint = if (hit < 0) open.faintSeqNoteAt(column, degree) else -1
-                                val columns = seqColumns(open)
+                                val view = seqWindow(open, gridArea, frame.density)
                                 val startVelocity = open.seqNotes.getOrNull(hit)?.velocity ?: 1f
                                 // Where in the note the finger landed, so a long one carried
                                 // by its third step does not jump to put its start under the
                                 // finger. It is held by the part that was grabbed.
                                 val grabbed = column - (open.seqNotes.getOrNull(hit)?.step ?: column)
-                                var lengthwise = false
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.pressed } ?: break
-                                    val travel = change.position - down.position
-                                    if (!moved && travel.getDistance() > slop) {
-                                        moved = true
-                                        lengthwise = abs(travel.x) >= abs(travel.y)
-                                        // A drag edits the version shown's own note: one it shares
-                                        // with others is split first, so they keep the old one.
-                                        if (hit >= 0) hit = open.ownSeqNote(hit)
-                                    }
-                                    if (moved && hit >= 0 && lengthwise) {
-                                        // In quarter steps, so a drag can end a note partway
-                                        // through a cell -- which is the whole of what the
-                                        // retired gate knob did, said per note.
-                                        val under = seqSubstepAt(gridArea, columns, change.position.x)
-                                        val note = open.seqNotes[hit]
-                                        val from = note.step * SEQ_SUBSTEPS
-                                        open.setSeqNoteLength(hit, (under - from + 1).coerceIn(1, open.seqNoteRoom(hit)))
-                                    } else if (moved && hit >= 0 && open.notesLocked) {
-                                        // Relative to where the note already was, so a pass
-                                        // over a phrase never jumps to wherever the finger
-                                        // happens to have landed. Up is louder.
-                                        open.setSeqNoteVelocity(
-                                            hit,
-                                            startVelocity - travel.y / (VELOCITY_TRAVEL * frame.density),
-                                        )
-                                    } else if (moved && hit >= 0) {
-                                        // Both axes once it is moving: the drag was vertical
-                                        // to begin with, but a note being carried to another
-                                        // degree usually wants a different step too.
-                                        panelCellAt(
-                                            panel, frame.density, open, change.position, gridScale,
-                                        )?.let { (toColumn, toDegree) ->
-                                            open.moveSeqNote(hit, toColumn - grabbed, toDegree)
+                                val locked = open.notesLocked
+
+                                // A tap, a drag, or a long press -- decided before anything changes.
+                                var held = false
+                                var first: Offset? = null
+                                try {
+                                    withTimeout(longPressMs) {
+                                        while (true) {
+                                            val change = awaitPointerEvent().changes.firstOrNull() ?: break
+                                            if (!change.pressed) break
+                                            if ((change.position - down.position).getDistance() > slop) {
+                                                first = change.position
+                                                break
+                                            }
                                         }
-                                    } else if (moved) {
-                                        val rows = (change.position.y - down.position.y) / rowHeight
-                                        open.gridBottom = window.scrolledBy(rows.roundToInt())
                                     }
+                                } catch (_: PointerEventTimeoutCancellationException) {
+                                    // Compose's own timeout, not kotlinx's: see CLAUDE.md.
+                                    held = true
+                                }
+
+                                if (held) {
+                                    // Held on a note: its versions, chosen in a menu of their own
+                                    // with an OK (Forrest, 2026-10-09). A Seq of one version has none
+                                    // to choose.
+                                    val target = if (hit >= 0) hit else faint
+                                    if (target >= 0 && open.versionCount > 1) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        noteMenu = NoteMenu.of(open, target, down.position)
+                                    }
+                                    waitForUpRelease()
+                                    return@awaitEachGesture
+                                }
+
+                                val start = first
+                                if (start == null) {
+                                    // A tap. With the notes locked it changes nothing at all: the
+                                    // lock pins the notes, and a tap that added or took one away
+                                    // under it was the fault Forrest found.
+                                    if (!locked) {
+                                        when {
+                                            hit >= 0 -> open.removeShownSeqNote(hit)
+                                            faint >= 0 -> {
+                                                open.adoptSeqNote(faint)
+                                                auditionNote(open, open.seqNotes[faint])
+                                            }
+                                            else -> {
+                                                val note = SeqNote(column, degree, versions = open.shownBits)
+                                                if (open.addSeqNote(note)) auditionNote(open, note)
+                                            }
+                                        }
+                                        open.tidySeqNotes()
+                                    }
+                                    return@awaitEachGesture
+                                }
+
+                                // A drag: which kind is decided once, on the first move, from the
+                                // direction it went -- across is the length, down the grid the degree.
+                                val travel = start - down.position
+                                val lengthwise = abs(travel.x) >= abs(travel.y)
+                                if (hit >= 0 && !(locked && lengthwise)) {
+                                    // A drag edits the version shown's own note: one it shares with
+                                    // others is split first, so they keep the old one.
+                                    hit = open.ownSeqNote(hit)
+                                    if (!locked) auditionNote(open, open.seqNotes[hit])
+                                }
+                                val fromScroll = view.first
+                                var lastDegree = open.seqNotes.getOrNull(hit)?.degree
+                                fun follow(at: Offset) {
+                                    val moved = at - down.position
+                                    when {
+                                        hit < 0 && lengthwise -> {
+                                            // Across empty cells: along the loop, in whole steps from
+                                            // where the drag began.
+                                            val steps = (moved.x / (gridArea.width / view.shown)).roundToInt()
+                                            open.seqScroll = (fromScroll - steps).coerceIn(0, view.maxFirst)
+                                        }
+                                        hit < 0 -> {
+                                            // Down the screen is down in pitch, so dragging the grid
+                                            // downward brings higher degrees into view.
+                                            open.gridBottom = window.scrolledBy((moved.y / rowHeight).roundToInt())
+                                        }
+                                        locked && lengthwise -> {}
+                                        locked -> open.setSeqNoteVelocity(
+                                            // Relative to where it was, so a pass over a phrase never
+                                            // jumps to wherever the finger happens to land. Up is louder.
+                                            hit, startVelocity - moved.y / (VELOCITY_TRAVEL * frame.density),
+                                        )
+                                        lengthwise -> {
+                                            val note = open.seqNotes[hit]
+                                            val under = seqColumnAt(gridArea, view, at.x)
+                                            open.setSeqNoteLength(hit, (under - note.step + 1).coerceIn(1, open.seqNoteRoom(hit)))
+                                        }
+                                        else -> {
+                                            // Both axes once it is moving: the drag was vertical to begin
+                                            // with, but a note carried to another degree usually wants a
+                                            // different step too. Heard again at each new pitch.
+                                            panelCellAt(panel, frame.density, open, at, gridScale)?.let { (toColumn, toDegree) ->
+                                                if (open.moveSeqNote(hit, toColumn - grabbed, toDegree) && toDegree != lastDegree) {
+                                                    lastDegree = toDegree
+                                                    auditionNote(open, open.seqNotes[hit])
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                follow(start)
+                                while (true) {
+                                    val change = awaitPointerEvent().changes.firstOrNull { it.pressed } ?: break
+                                    follow(change.position)
                                     change.consume()
                                 }
-                                if (!moved) {
-                                    when {
-                                        hit >= 0 -> open.removeShownSeqNote(hit)
-                                        faint >= 0 -> open.adoptSeqNote(faint)
-                                        else -> open.addSeqNote(SeqNote(column, degree, versions = open.shownBits))
-                                    }
-                                }
+                                if (hit >= 0) open.tidySeqNotes()
                                 return@awaitEachGesture
                             }
 
@@ -6913,7 +7134,7 @@ fun PatchCanvas(
                     open, patch, panelRect(frame), d, screenMeasurer, playing, playingStep,
                     intervalMenu, intervalDropdown, VersionView(versionMenu, versionDelete), liveParams, sfView,
                     patch.scales.getOrElse(playingEntry) { patch.scales.first() }.rootCents,
-                    frame.fontScale, arrangerPop,
+                    frame.fontScale, arrangerPop, noteMenu,
                 )
             }
 
@@ -7603,7 +7824,10 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
         // Typed as the row reads -- a period in seconds where the row shows one -- and stored as
         // the knob is; see RowView.
         is NumberTarget.Knob -> module?.takeIf { target.index in it.type.params.indices }?.rowView(target.index)?.param
-        is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let { countParam(target.part, it.interval) }
+        is NumberTarget.IntervalCount -> module?.takeIf { it.type.intervalParam >= 0 }?.let {
+            if (target.part == IntervalPart.LENGTH) lengthParam(it.lengthInBars, patch.beatsPerBar)
+            else countParam(target.part, it.interval)
+        }
         is NumberTarget.Level -> STEP_LEVEL.takeIf { module?.levels?.indices?.contains(target.index) == true }
         is NumberTarget.ArrangerCell -> STEP_LEVEL.takeIf { module?.scenes?.indices?.contains(target.scene) == true }
         is NumberTarget.SectionSteps -> SECTION_STEPS.takeIf { module?.shownSections?.indices?.contains(target.at) == true }
@@ -7622,6 +7846,8 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
             param.format((module?.segments?.get(target.index)?.time ?: 0f) * 1000f)
         target is NumberTarget.SegmentLevel ->
             param.format(module?.segments?.get(target.index)?.level ?: 0f)
+        target is NumberTarget.IntervalCount && target.part == IntervalPart.LENGTH ->
+            module?.lengthCount(patch.beatsPerBar)?.let { (it.num.toDouble() / it.den).roundToInt() }?.toString() ?: "1"
         target is NumberTarget.IntervalCount -> (module?.interval?.count(target.part) ?: 1).toString()
         target is NumberTarget.Level -> param.format(module?.levels?.getOrNull(target.index) ?: 0f)
         target is NumberTarget.ArrangerCell ->
@@ -7680,9 +7906,13 @@ private fun NumberKeypad(patch: Patch, target: NumberTarget, onDone: () -> Unit)
                 is NumberTarget.SectionSteps -> module?.setSectionSteps(target.at, value.roundToInt())
                 is NumberTarget.IntervalCount -> {
                     val m = module ?: return
-                    val index = m.type.intervalParam
-                    if (index < 0) return
-                    m.setParam(index, m.interval.withCount(target.part, value.roundToInt()).code.toFloat())
+                    if (m.type.intervalParam < 0) return
+                    if (target.part == IntervalPart.LENGTH) {
+                        m.setSeqLength(value.roundToInt(), m.lengthInBars, patch.beatsPerBar)
+                    } else {
+                        // Through changeStep, so a Seq's notes and length are carried across.
+                        m.changeStep(m.interval.withCount(target.part, value.roundToInt()), patch.beatsPerBar)
+                    }
                 }
                 is NumberTarget.Knob -> {
                     val m = module ?: return
@@ -8617,7 +8847,14 @@ private fun DrawScope.drawEuclidPattern(area: Rect, d: Float, module: PatchModul
 
 /**
  * A note sequencer's grid: the same rows of degrees as a sequence, with each note drawn as one
- * bar across the steps it lasts, so a long note looks long.
+ * bar across the steps it lasts, so a long note looks long, and as much of it filled as it is
+ * struck hard -- Bespoke's way, which keeps a quiet note's outline a whole note.
+ *
+ * Colors say versions (Forrest, 2026-10-09): a note in every version is gray, a note in one is
+ * that version's color, and one in several but not all is striped in theirs -- and in the all
+ * view, where notes of different versions overlap at one pitch, the overlap is striped too. In one
+ * version's view, that version's notes are solid and the rest faint outlines. While the transport
+ * runs, only notes the version playing has are lit as they sound.
  */
 private fun DrawScope.drawSeqGrid(
     area: Rect,
@@ -8628,19 +8865,22 @@ private fun DrawScope.drawSeqGrid(
     measurer: TextMeasurer,
     playingStep: Int,
     beatsPerBar: Int = 4,
+    /** The version the engine is playing: only its notes are lit as they sound. */
+    playingVersion: Int = 1,
 ) {
-    val columns = seqColumns(module)
+    val view = seqWindow(module, area, d)
     val window = gridWindow(module, area, d, scale)
     val rows = window.rows
-    val cellW = area.width / columns
+    val cellW = area.width / view.shown
     val cellH = area.height / rows
     val inset = 1f * d
     val radius = CornerRadius(3f * d, 3f * d)
+    val end = view.first + view.shown
 
-    if (playingStep in 0 until columns) {
+    if (playingStep in view.first until end) {
         drawRect(
             color = GridPlayhead,
-            topLeft = Offset(area.left + playingStep * cellW, area.top),
+            topLeft = Offset(area.left + (playingStep - view.first) * cellW, area.top),
             size = Size(cellW, area.height),
         )
     }
@@ -8649,7 +8889,7 @@ private fun DrawScope.drawSeqGrid(
         val degree = window.degreeAt(row)
         val tonic = degree.mod(scale.size) == 0
         val top = area.top + row * cellH
-        repeat(columns) { column ->
+        repeat(view.shown) { column ->
             drawRoundRect(
                 color = if (tonic) GridTonic else GridCell,
                 topLeft = Offset(area.left + column * cellW + inset, top + inset),
@@ -8664,90 +8904,120 @@ private fun DrawScope.drawSeqGrid(
         drawText(label, topLeft = Offset(area.left - label.size.width - 8f * d, top + (cellH - label.size.height) / 2f))
     }
 
-    drawBeatLines(area, d, columns, module.interval, beatsPerBar)
+    drawBeatLines(area, d, view.steps, module.interval, beatsPerBar, view.first, view.shown)
 
-    val substep = cellW / SEQ_SUBSTEPS
+    // Where a note's steps fall on screen, clipped to the window; null when none of it shows.
+    fun span(step: Int, length: Int): Pair<Float, Float>? {
+        val from = maxOf(step, view.first)
+        val to = minOf(step + length, end)
+        if (to <= from) return null
+        return area.left + (from - view.first) * cellW to area.left + (to - view.first) * cellW
+    }
+
     module.seqNotes.forEach { note ->
-        if (note.step >= columns) return@forEach
-        // Its own width, in quarter steps, clipped to the grid: a note that ends partway
-        // through a cell is drawn ending there, because that is when the note ends.
-        val left = area.left + note.step * cellW
-        val right = minOf(left + note.length * substep, area.right)
-        val sounding = playingStep in note.step until note.step + note.stepsSpanned
+        val (left, right) = span(note.step, note.stepsSpanned) ?: return@forEach
+        val sounding = playingStep in note.step until note.step + note.stepsSpanned && note.playsIn(playingVersion)
+        val colors = module.noteColors(note)
         if (note.degree in window.bottom..window.top) {
             val row = window.top - note.degree
             val rect = Rect(
                 Offset(left + inset, area.top + row * cellH + inset),
-                Size(maxOf(right - left - inset * 2f, substep / 2f), cellH - inset * 2f),
+                Size(maxOf(right - left - inset * 2f, cellW / 2f), cellH - inset * 2f),
             )
             val corner = CornerRadius(cellH / 3f, cellH / 3f)
-            // How hard it is struck, as how much of it is filled -- Bespoke's DotSequencer
-            // shows velocity this way and it is the right answer here too: the note keeps its
-            // full outline, so a quiet note is still a note at that step rather than a
-            // smaller thing that has to be aimed at. Filled from the bottom, because that is
-            // the direction the drag that sets it goes.
-            // Versions: a note in every version is the Seq's color; one in the version shown
-            // and not every version is that version's color, outlined where others share it;
-            // one in another version only is faint, an outline a tap can take into this one.
-            // With two versions, Forrest's three colors exactly.
-            val shown = module.shows(note)
-            val color = when {
-                module.versionCount <= 1 || note.versions == module.everyVersion -> accent
-                module.shownVersion == 0 -> versionColor(Integer.numberOfTrailingZeros(note.versions) + 1)
-                else -> versionColor(module.shownVersion)
-            }
-            if (!shown) {
-                // In the color of the version it is in, so a faint note says whose it is.
-                val whose = if (note.versions == module.everyVersion) accent
-                    else versionColor(Integer.numberOfTrailingZeros(note.versions) + 1)
-                drawRoundRect(
-                    whose.copy(alpha = 0.45f), rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d),
-                )
+            if (!module.shows(note)) {
+                // Another version's, faint: an outline in its color, so it says whose it is.
+                drawRoundRect(colors.first().copy(alpha = 0.45f), rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d))
                 return@forEach
             }
-            drawRoundRect(color.copy(alpha = 0.3f), rect.topLeft, rect.size, corner)
+            drawNoteFill(rect, corner, colors, 0.3f, d)
             val fill = rect.height * note.velocity.coerceIn(0f, 1f)
             clipRect(rect.left, rect.bottom - fill, rect.right, rect.bottom) {
-                drawRoundRect(color, rect.topLeft, rect.size, corner)
-            }
-            if (color != accent && note.versions != module.shownBits && module.shownVersion != 0) {
-                drawRoundRect(accent, rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d))
+                drawNoteFill(rect, corner, colors, 1f, d)
             }
             if (sounding) {
-                drawRoundRect(
-                    GridPlaying, rect.topLeft, rect.size, CornerRadius(cellH / 3f, cellH / 3f),
-                    style = Stroke(width = 2f * d),
-                )
+                drawRoundRect(GridPlaying, rect.topLeft, rect.size, corner, style = Stroke(width = 2f * d))
             }
         } else {
             // Out of sight above or below: a mark on that edge across the steps it lasts, so
             // a stretch of grid is never silently empty -- as a sequence's scrolled notes.
             val above = note.degree > window.top
             val y = if (above) area.top else area.bottom - 3f * d
-            // Another version's, faint here as on the grid.
             val alpha = when {
                 !module.shows(note) -> 0.2f
                 sounding -> 1f
                 else -> 0.6f
             }
-            drawRect(
-                accent.copy(alpha = alpha),
-                Offset(left + inset, y),
-                Size(maxOf(right - left - inset * 2f, substep / 2f), 3f * d),
-            )
+            drawRect(colors.first().copy(alpha = alpha), Offset(left + inset, y), Size(maxOf(right - left - inset * 2f, cellW / 2f), 3f * d))
         }
+    }
+
+    // In the all view, where notes of different versions overlap at one pitch, the overlap is
+    // striped in all of their colors, so two notes on top of each other read as two.
+    if (module.shownVersion == 0 && module.versionCount > 1) {
+        val notes = module.seqNotes.filter { it.degree in window.bottom..window.top }
+        for (a in notes.indices) for (b in a + 1 until notes.size) {
+            val x = notes[a]
+            val y = notes[b]
+            if (x.degree != y.degree || (x.versions and y.versions) != 0) continue
+            val from = maxOf(x.step, y.step)
+            val to = minOf(x.step + x.stepsSpanned, y.step + y.stepsSpanned)
+            if (to <= from) continue
+            val (left, right) = span(from, to - from) ?: continue
+            val row = window.top - x.degree
+            val rect = Rect(Offset(left + inset, area.top + row * cellH + inset), Size(right - left - inset * 2f, cellH - inset * 2f))
+            val colors = (module.noteColors(x) + module.noteColors(y)).distinct()
+            drawNoteFill(rect, CornerRadius(cellH / 3f, cellH / 3f), colors, 1f, d)
+        }
+    }
+
+    // Where the grid has scrolled to along the loop: a thumb at its foot.
+    if (view.scrolls) {
+        val track = Rect(area.left, area.bottom + 3f * d, area.right, area.bottom + 6f * d)
+        drawRect(Color(0xFF2B323C), track.topLeft, track.size)
+        drawRect(
+            accent,
+            Offset(track.left + track.width * view.first / view.steps, track.top),
+            Size(track.width * view.shown / view.steps, track.height),
+        )
     }
 }
 
 /**
- * Version [version]'s color on a Seq's grid, from 1: hues clear of the greens a Seq's own notes
- * are, so a version's own note never reads as a common one.
+ * A note's ground in [colors] -- one solid, several as diagonal stripes, a barber pole -- clipped to
+ * its rounded [rect].
  */
+private fun DrawScope.drawNoteFill(rect: Rect, corner: CornerRadius, colors: List<Color>, alpha: Float, d: Float) {
+    if (colors.size <= 1) {
+        drawRoundRect(colors.firstOrNull()?.copy(alpha = alpha) ?: Color.Gray, rect.topLeft, rect.size, corner)
+        return
+    }
+    val outline = Path().apply { addRoundRect(RoundRect(rect, corner)) }
+    clipPath(outline) {
+        val w = 6f * d
+        var x = rect.left - rect.height
+        var i = 0
+        while (x < rect.right) {
+            val stripe = Path().apply {
+                moveTo(x, rect.bottom)
+                lineTo(x + w, rect.bottom)
+                lineTo(x + w + rect.height, rect.top)
+                lineTo(x + rect.height, rect.top)
+                close()
+            }
+            drawPath(stripe, colors[i % colors.size].copy(alpha = alpha))
+            x += w
+            i++
+        }
+    }
+}
+
 internal fun versionColor(version: Int): Color = VERSION_COLORS[(version - 1).mod(VERSION_COLORS.size)]
 
+// No gray among them: gray is a note in every version (SHARED_NOTE_COLOR), and the eighth was one.
 private val VERSION_COLORS = listOf(
     Color(0xFFE8B04A), Color(0xFF6FB6F0), Color(0xFFF08A9A), Color(0xFFB79CF0),
-    Color(0xFF5ED6D0), Color(0xFFF0A060), Color(0xFFD8E070), Color(0xFFE0E0E0),
+    Color(0xFF5ED6D0), Color(0xFFF0A060), Color(0xFFD8E070), Color(0xFFE070D0),
 )
 
 private fun DrawScope.drawStepGrid(
@@ -8932,10 +9202,13 @@ internal fun beatLines(columns: Int, step: Interval, beatsPerBar: Int): List<Pai
  * the module's own interval -- so five to a beat reads as fives and a bar of five as twenty-five
  * steps. In the gaps between cells, where they cover nothing.
  */
-private fun DrawScope.drawBeatLines(area: Rect, d: Float, columns: Int, interval: Interval, beatsPerBar: Int) {
-    val cellW = area.width / columns
+private fun DrawScope.drawBeatLines(
+    area: Rect, d: Float, columns: Int, interval: Interval, beatsPerBar: Int, first: Int = 0, shown: Int = columns,
+) {
+    val cellW = area.width / shown
     beatLines(columns, interval, beatsPerBar).forEach { (column, bar) ->
-        val x = area.left + column * cellW
+        if (column <= first || column >= first + shown) return@forEach
+        val x = area.left + (column - first) * cellW
         drawLine(
             color = if (bar) GridBar else GridBeat,
             start = Offset(x, area.top),
@@ -9024,7 +9297,7 @@ internal fun Patch.levelLabel(target: ParamRow?, level: Float): String {
         // are the versions by name, as the mockup Forrest decided from had them.
         if (target.index == target.owner.type.versionParam) {
             val n = param.indexOf(value) + param.min.roundToInt()
-            return if (n <= 0) "silent" else "v$n"
+            return if (n <= 0) "off" else "v$n"
         }
         return choiceWord(param, param.indexOf(value)).ifEmpty { target.format(value) }
     }
@@ -9041,6 +9314,8 @@ internal fun choiceWord(param: Param, i: Int): String = when (param.choice) {
     Choice.REVERB -> REVERB_TYPES.getOrNull(i).orEmpty()
     Choice.WAVE -> WAVE_NAMES.getOrNull(i).orEmpty()
     Choice.NUMBER -> (param.min + i).toInt().toString()
+    // A version knob's options: off, then the versions by number (Forrest, 2026-10-09).
+    Choice.VERSION -> if (param.min + i <= 0f) "off" else (param.min + i).toInt().toString()
     // A preset is chosen from its own page, off the header, and never a row.
     Choice.PRESET -> ""
 }
@@ -9912,23 +10187,11 @@ internal const val STEP_COUNT = 16
 /** Cells in a drone's grid; mirrors DroneNode::kCells, which is capped by a scale's degrees. */
 internal const val DRONE_CELLS = 64
 
-/** Steps on a note sequencer's grid. Mirrors SeqNode::kSteps. */
-internal const val SEQ_STEPS = 32
-
 /**
- * Divisions of a step a note's length is counted in. Mirrors SeqNode::kSubsteps.
- *
- * A note's length *is* its duration -- that is what a note sequencer is, and it is Bespoke's
- * model. It was whole steps once, which meant nothing could be shorter than a step, and a
- * `gate` knob was added to take a share off the last step of every note at once when Seq
- * took Steps' place in the menu. Quarter steps say the same thing per note and say more, so
- * the knob went: Steps' half step is a length of 2.
- *
- * Four, which is what a finger can place on a cell a finger can hit. At 32 columns a cell
- * is 20dp and a quarter of it is 5dp, past what a drag can aim at -- but 32 columns is the
- * longest loop there is, and a short one has room to spare.
+ * The longest loop a note sequencer has, in steps. Mirrors SeqNode::kSteps. A sequence's length
+ * is said in beats or bars, at most [MAX_SEQ_BARS], and this is room for that at fine steps.
  */
-internal const val SEQ_SUBSTEPS = 4
+internal const val SEQ_STEPS = 1024
 
 /**
  * The quietest a note can be dragged to.
@@ -9979,7 +10242,7 @@ internal const val MAX_BUTTONS = 16
 internal const val SEQ_ACCENT = 0xFFD8F0AC
 
 /** Notes one sequencer holds. Mirrors SeqNode::kMaxNotes. */
-internal const val MAX_SEQ_NOTES = 128
+internal const val MAX_SEQ_NOTES = 512
 
 /**
  * Segments one envelope holds. Mirrors EnvNode::kMaxSegments.
@@ -10175,7 +10438,7 @@ internal val ModuleType.canBeFree: Boolean
     get() = intervalParam >= 0 && params.any { it.liveWhen == LiveWhen(intervalParam, FREE_INTERVAL) }
 
 /** Which number of the chooser's sentence: "[divisions] divisions of [beats] beats". */
-enum class IntervalPart { DIVISIONS, BEATS }
+enum class IntervalPart { DIVISIONS, BEATS, LENGTH }
 
 /** What a tap on the step-length chooser picks; see [intervalChooser]. */
 internal sealed interface IntervalPick {
@@ -10197,9 +10460,15 @@ internal sealed interface IntervalPick {
     /** beats | bars, at the sentence's end. */
     data class Bars(val on: Boolean) : IntervalPick
 
+    /** beats | bars, at the end of a Seq's second sentence: what its length is said in. */
+    data class LengthBars(val on: Boolean) : IntervalPick
+
     /** freq | period, in fixed time: how the module's own time knob reads; see [RowView]. */
     data class Show(val period: Boolean) : IntervalPick
 }
+
+/** Whether [this] is one of the open grid's tiles, which cover whatever is under the grid. */
+internal val IntervalPick.inGrid: Boolean get() = this is IntervalPick.Count || this is IntervalPick.Other
 
 /** How many of [part] this step is: the beats or bars, or the divisions. One, while free. */
 internal fun Interval.count(part: IntervalPart): Int = when {
@@ -10217,7 +10486,7 @@ internal fun Interval.with(pick: IntervalPick): Interval = when (pick) {
     IntervalPick.Fixed -> Interval.FREE
     is IntervalPick.Count -> withCount(pick.part, pick.n)
     is IntervalPick.Bars -> (if (free) Interval(1, 1) else this).copy(bars = pick.on)
-    is IntervalPick.Open, is IntervalPick.Other, is IntervalPick.Show -> this
+    is IntervalPick.Open, is IntervalPick.Other, is IntervalPick.Show, is IntervalPick.LengthBars -> this
 }
 
 /** [this] step with one number of the sentence set to [n], clamped to 1..[MAX_COUNT]. */
@@ -10242,6 +10511,16 @@ internal fun countParam(part: IntervalPart, step: Interval) = Param(
     },
     1f, MAX_COUNT.toFloat(), 1f, curve = ParamCurve.STEPPED,
 )
+
+/** A Seq's length as typed: up to [MAX_SEQ_BARS] bars, or that many bars' worth of beats. */
+internal fun lengthParam(bars: Boolean, beatsPerBar: Int) = Param(
+    if (bars) "bars" else "beats", 1f,
+    (if (bars) MAX_SEQ_BARS else MAX_SEQ_BARS * beatsPerBar.coerceAtLeast(1)).toFloat(), 4f,
+    curve = ParamCurve.STEPPED,
+)
+
+/** A Seq's length as its chooser shows it: how many, rounded, and in which unit. */
+internal data class LengthView(val count: Int, val bars: Boolean)
 
 /** The transport's rate. The range mirrors kMinTempo and kMaxTempo in transport.h. */
 internal val TEMPO = Param("tempo", 20f, 300f, 120f, " bpm")
@@ -10934,6 +11213,8 @@ private fun DrawScope.drawPanel(
     fontScale: Float = 1f,
     /** An Arranger's chooser, when one is open over its table. */
     arrangerPop: ArrangerPop? = null,
+    /** A Seq note's versions menu, when one is open over its grid. */
+    noteMenu: NoteMenu? = null,
 ) {
     val corner = CornerRadius(14f * d, 14f * d)
 
@@ -11013,7 +11294,12 @@ private fun DrawScope.drawPanel(
     val intervalParam = module.type.intervalParam
     val chosenInterval = module.interval
     if (intervalParam >= 0) {
-        drawChip(panelIntervalChip(panel, d, fontScale), d, module.stepLabel, intervalMenu, scaleAccent, measurer)
+        val chipLabel = if (module.type.grid == GridKind.NOTES) {
+            "${module.stepLabel} \u00b7 ${module.lengthLabel(patch.beatsPerBar)}"
+        } else {
+            module.stepLabel
+        }
+        drawChip(panelIntervalChip(panel, d, fontScale, module.type), d, chipLabel, intervalMenu, scaleAccent, measurer)
     }
 
     // Only where there are notes to pin: it is the lock on their position, not a panel
@@ -11050,7 +11336,14 @@ private fun DrawScope.drawPanel(
             topLeft = panelBody(panel, d).topLeft,
             size = panelBody(panel, d).size,
         )
-        val chooser = intervalChooser(panel, d, fontScale, module.type.canBeFree, chosenInterval, intervalDropdown)
+        val lengthView = module.lengthView(patch.beatsPerBar)
+        val chooser = intervalChooser(
+            panel, d, fontScale, module.type.canBeFree, chosenInterval, intervalDropdown, lengthView,
+        )
+        chooser.lengthWords?.let { words ->
+            val text = measurer.measure("for", PanelParamStyle)
+            drawText(text, topLeft = Offset(words.right - text.size.width, words.center.y - text.size.height / 2f))
+        }
         chooser.words?.let { words ->
             val text = measurer.measure(chosenInterval.words(), PanelParamStyle)
             drawText(text, topLeft = Offset(words.left, words.center.y - text.size.height / 2f))
@@ -11059,22 +11352,32 @@ private fun DrawScope.drawPanel(
             val text = measurer.measure(chosenInterval.readout(), PanelValueStyle)
             drawText(text, topLeft = Offset(end.x - text.size.width, end.y - text.size.height / 2f))
         }
-        chooser.grid?.let { ground ->
-            drawRoundRect(ChipFill, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d))
-            drawRoundRect(
-                ChipEdge, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d),
-                style = Stroke(width = 1.5f * d),
-            )
-        }
-        chooser.targets.forEach { (rect, pick) ->
+        // The open grid over everything else, the length line under it included.
+        val (inGrid, rest) = chooser.targets.partition { it.second.inGrid }
+        (rest + listOf(null) + inGrid).forEach { target ->
+            if (target == null) {
+                chooser.grid?.let { ground ->
+                    drawRoundRect(ChipFill, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d))
+                    drawRoundRect(
+                        ChipEdge, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d),
+                        style = Stroke(width = 1.5f * d),
+                    )
+                }
+                return@forEach
+            }
+            val (rect, pick) = target
+            // A count of the length part is the Seq's length, not one of the step's two numbers.
+            fun countOf(part: IntervalPart) =
+                if (part == IntervalPart.LENGTH) lengthView?.count ?: 1 else chosenInterval.count(part)
             val (label, lit) = when (pick) {
                 IntervalPick.Tempo -> "tempo" to !chosenInterval.free
                 IntervalPick.Fixed -> "fixed" to chosenInterval.free
-                is IntervalPick.Open -> chosenInterval.count(pick.part).toString() to (intervalDropdown == pick.part)
-                is IntervalPick.Count -> pick.n.toString() to (chosenInterval.count(pick.part) == pick.n)
+                is IntervalPick.Open -> countOf(pick.part).toString() to (intervalDropdown == pick.part)
+                is IntervalPick.Count -> pick.n.toString() to (countOf(pick.part) == pick.n)
                 // Lit when what is chosen is past the tiles, so the grid always shows where it is.
-                is IntervalPick.Other -> "other\u2026" to (chosenInterval.count(pick.part) > OFFERED_COUNTS)
+                is IntervalPick.Other -> "other\u2026" to (countOf(pick.part) > OFFERED_COUNTS)
                 is IntervalPick.Bars -> (if (pick.on) "bars" else "beats") to (chosenInterval.bars == pick.on)
+                is IntervalPick.LengthBars -> (if (pick.on) "bars" else "beats") to (lengthView?.bars == pick.on)
                 is IntervalPick.Show -> (if (pick.period) "period" else "freq") to (module.showsPeriod == pick.period)
             }
             if (pick is IntervalPick.Open) drawDropdown(rect, d, label, lit, measurer)
@@ -11099,9 +11402,15 @@ private fun DrawScope.drawPanel(
             gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
         )
         GridKind.DRONE -> drawDroneGrid(gridArea, d, module, scale, module.type.accent)
-        GridKind.NOTES -> drawSeqGrid(
-            gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
-        )
+        GridKind.NOTES -> {
+            // The version the engine is playing: modulated, what the engine says; else the knob.
+            val knob = module.type.versionParam
+            val playingVersion = (live[knob] ?: module.params.getOrElse(knob) { 1f }).roundToInt()
+            drawSeqGrid(
+                gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
+                playingVersion,
+            )
+        }
         GridKind.PATTERN -> drawEuclidPattern(gridArea, d, module, module.type.accent, playingStep)
         GridKind.ENVELOPE ->
             drawEnvelope(gridArea, d, module, module.type.accent, measurer, fontScale)
@@ -11187,6 +11496,27 @@ private fun DrawScope.drawPanel(
         drawKnobRow(row, d, entry, value, range, accent, faint, measurer, scale, rootCents, patch.beatsPerBar)
     }
     if (versions.open && module.type.versionsParam >= 0) drawVersionStrip(panel, d, module, versions, measurer, fontScale)
+    if (noteMenu != null && module.type.grid == GridKind.NOTES) {
+        val layout = noteMenuLayout(panelBody(panel, d), d, fontScale, module.versionCount, noteMenu.anchor)
+        val ground = layout.ground
+        drawRoundRect(Color(0xFF1F232A), ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d))
+        drawRoundRect(ChipEdge, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d), style = Stroke(width = 1.5f * d))
+        layout.tiles.forEach { (rect, pick) ->
+            when (pick) {
+                NoteMenuPick.All -> drawIntervalTile(rect, d, if (noteMenu.all) "\u2713 All" else "All", noteMenu.all, measurer)
+                is NoteMenuPick.Version -> {
+                    val on = !noteMenu.all && noteMenu.bits and (1 shl (pick.n - 1)) != 0
+                    drawIntervalTile(rect, d, if (on) "\u2713 ${pick.n}" else "${pick.n}", on, measurer)
+                    // Each version's own color along its foot, as its notes are drawn.
+                    drawRect(versionColor(pick.n), Offset(rect.left + 6f * d, rect.bottom - 5f * d), Size(rect.width - 12f * d, 3f * d))
+                }
+                NoteMenuPick.Ok -> drawChip(
+                    rect, d, "OK", false, scaleAccent, measurer,
+                    enabled = noteMenu.chosen(module.everyVersion) != 0,
+                )
+            }
+        }
+    }
     if (arrangerPop != null && module.type.grid == GridKind.SONG) {
         val table = arrangerTable(gridArea, d, fontScale, module)
         arrangerChooser(patch, module, table, panelBody(panel, d), d, fontScale, arrangerPop)?.let { chooser ->

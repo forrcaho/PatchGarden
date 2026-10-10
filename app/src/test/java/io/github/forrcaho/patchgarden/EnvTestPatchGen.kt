@@ -37,7 +37,7 @@ class EnvTestPatchGen {
         // heard through and a gap between them so the release is not covered by the next.
         seq.setParam(0, 16f)
         listOf(0, 4, 8, 12).forEachIndexed { i, step ->
-            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], SEQ_SUBSTEPS * 2))
+            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], 2))
         }
         // A sine, so the shape is the only thing moving.
         osc.setParam(0, 3f)
@@ -97,7 +97,7 @@ class EnvTestPatchGen {
         // A step a beat at 120bpm: four notes, each half a beat long and four beats apart.
         seq.setParam(0, 16f)
         listOf(0, 4, 8, 12).forEachIndexed { i, step ->
-            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], SEQ_SUBSTEPS / 2))
+            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], 1))
         }
         osc.setParam(0, 3f) // a sine
 

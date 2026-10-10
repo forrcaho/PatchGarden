@@ -186,7 +186,8 @@ class IntervalTest {
     @Test
     fun `a grid offers 1 to 16 and other, under its own number`() {
         IntervalPart.entries.forEach { part ->
-            val chooser = intervalChooser(panel, d, 1.5f, true, Interval(2, 3), open = part)
+            // With a length, as a Seq's has, so its own grid has a number to open under.
+            val chooser = intervalChooser(panel, d, 1.5f, true, Interval(2, 3), open = part, length = LengthView(4, true))
             val counts = chooser.targets.mapNotNull { (it.second as? IntervalPick.Count)?.takeIf { c -> c.part == part }?.n }
             assertEquals((1..16).toList(), counts)
             assertNotNull(chooser.targets.singleOrNull { it.second == IntervalPick.Other(part) })

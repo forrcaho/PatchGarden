@@ -83,6 +83,8 @@ class GestureTest {
         var canUndo by mutableStateOf(false)
         var undone = 0
         var outputSwitched = 0
+        /** Every note a Seq's grid auditioned, in order. */
+        val auditions = mutableListOf<SeqNote>()
         lateinit var camera: Camera
 
         init {
@@ -94,6 +96,7 @@ class GestureTest {
                     onToggleOutput = { outputSwitched++ },
                     library = library,
                     camera = camera,
+                    audition = { _, note -> auditions += note },
                 )
             }
             compose.waitForIdle()
@@ -684,19 +687,138 @@ class GestureTest {
     }
 
     @Test
-    fun `a note dragged across is stretched, in quarter steps`() {
+    fun `a note dragged across is stretched, in whole steps`() {
         val rig = SeqRig()
         val at = rig.cell(2, 2)
         rig.host.tap(at)
-        val before = rig.seq.seqNotes.single().length
-        // From the note's right end to three steps further on.
+        // From the note to three steps further on: it covers steps 2 to 5.
         rig.host.drag(at, rig.cell(5, 2))
-        assertTrue("stretched: $before -> ${rig.seq.seqNotes.single().length}", rig.seq.seqNotes.single().length > before)
+        assertEquals(4, rig.seq.seqNotes.single().length)
         assertEquals("and still where it started", 2, rig.seq.seqNotes.single().step)
     }
 
+    /** A note put on the grid is heard, whether or not the transport runs (Forrest, 2026-10-09). */
     @Test
-    fun `with the seqNotes locked, a drag down a note is its velocity`() {
+    fun `a note added by a tap is auditioned, and a tap that takes one away is not`() {
+        val rig = SeqRig()
+        val at = rig.cell(3, 2)
+        rig.host.tap(at)
+        assertEquals(listOf(rig.seq.seqNotes.single()), rig.host.auditions)
+        rig.host.tap(at)
+        assertEquals("taking it away plays nothing", 1, rig.host.auditions.size)
+    }
+
+    /** Moved, it is heard as it is picked up and again at each new pitch it lands on. */
+    @Test
+    fun `a note dragged up the grid plays at each new pitch`() {
+        val rig = SeqRig()
+        val at = rig.cell(3, 6)
+        rig.host.tap(at)
+        rig.host.auditions.clear()
+        rig.host.drag(at, rig.cell(3, 2), steps = 24)
+        val degrees = rig.host.auditions.map { it.degree }
+        assertTrue("picked up and then each row: $degrees", degrees.size >= 4)
+        assertEquals("ending where it was put", rig.seq.seqNotes.single().degree, degrees.last())
+        assertEquals("never twice running at one pitch", degrees, degrees.zipWithNext().map { it.first } + degrees.last())
+    }
+
+    /**
+     * The lock pins the notes: a tap adds nothing and takes nothing away -- Forrest found both still
+     * happening under it -- and a drag down a note is its velocity, as it was.
+     */
+    @Test
+    fun `with the notes locked, a tap changes nothing`() {
+        val rig = SeqRig()
+        val note = rig.cell(1, 3)
+        rig.host.tap(note)
+        rig.host.tap(panelLockChip(rig.panel, rig.host.d, rig.host.frame.fontScale).center)
+        assertTrue(rig.seq.notesLocked)
+        rig.host.tap(rig.cell(5, 3))
+        rig.host.tap(note)
+        assertEquals("nothing added, nothing taken away", listOf(1), rig.seq.seqNotes.map { it.step })
+    }
+
+    /** Held, a note offers its versions: "All" or some of them, with an OK (Forrest, 2026-10-09). */
+    @Test
+    fun `a long press on a note opens its versions, and OK sets them`() {
+        val rig = SeqRig()
+        rig.seq.addVersion()
+        rig.seq.addVersion()
+        rig.seq.shownVersion = 1
+        val at = rig.cell(2, 2)
+        rig.host.tap(at)
+        assertEquals("a note added in version 1's view is version 1's", 0b001, rig.seq.seqNotes.single().versions)
+        rig.host.hold(at)
+        val layout = noteMenuLayout(
+            panelBody(rig.panel, rig.host.d), rig.host.d, rig.host.frame.fontScale, rig.seq.versionCount, at,
+        )
+        rig.host.tap(layout.tiles.single { it.second == NoteMenuPick.Version(3) }.first.center)
+        assertEquals("nothing changes before OK", 0b001, rig.seq.seqNotes.single().versions)
+        rig.host.tap(layout.tiles.single { it.second == NoteMenuPick.Ok }.first.center)
+        assertEquals(0b101, rig.seq.seqNotes.single().versions)
+    }
+
+    /** A loop longer than fits scrolls along by a sideways drag on empty cells. */
+    @Test
+    fun `a sideways drag on empty cells scrolls a long loop`() {
+        val rig = SeqRig()
+        rig.seq.setParam(0, 256f)
+        compose.waitForIdle()
+        val view = seqWindow(rig.seq, rig.grid, rig.host.d)
+        assertTrue(view.scrolls)
+        val cellW = rig.grid.width / view.shown
+        val from = Offset(rig.grid.right - cellW * 2f, rig.grid.top + rig.grid.height / 2f)
+        rig.host.drag(from, from - Offset(cellW * 6f, 0f))
+        assertEquals("six steps along", 6, rig.seq.seqScroll)
+        assertTrue("and no note was made", rig.seq.seqNotes.isEmpty())
+    }
+
+    /** The length is chosen beside the step, in beats or bars: "for [8] bars". */
+    @Test
+    fun `the chooser's second line sets a Seq's length`() {
+        val rig = SeqRig()
+        val d = rig.host.d
+        val text = rig.host.frame.fontScale
+        rig.host.tap(panelIntervalChip(rig.panel, d, text, Types.Seq).center)
+        fun chooser(open: IntervalPart?) = intervalChooser(
+            rig.panel, d, text, false, rig.seq.interval, open, LengthView(4, true),
+        )
+        rig.host.tap(chooser(null).targets.single { it.second == IntervalPick.Open(IntervalPart.LENGTH) }.first.center)
+        rig.host.tap(chooser(IntervalPart.LENGTH).targets.single { it.second == IntervalPick.Count(IntervalPart.LENGTH, 8) }.first.center)
+        assertEquals("eight bars of a beat a step", 32, rig.seq.seqSteps)
+        rig.host.tap(chooser(null).targets.single { it.second == IntervalPick.LengthBars(false) }.first.center)
+        assertEquals("eight beats", 8, rig.seq.seqSteps)
+    }
+
+    /**
+     * The divisions' grid opens over the length line, and a tap in a gap between two of its tiles
+     * picked the length's dropdown under it -- the emulator showed that line through the gaps. A
+     * gap is nothing, as it is anywhere else in the grid: it closes the grid.
+     */
+    @Test
+    fun `an open grid covers the length line under it, gaps and all`() {
+        val rig = SeqRig()
+        val d = rig.host.d
+        val text = rig.host.frame.fontScale
+        rig.host.tap(panelIntervalChip(rig.panel, d, text, Types.Seq).center)
+        fun chooser(open: IntervalPart?) =
+            intervalChooser(rig.panel, d, text, false, rig.seq.interval, open, LengthView(4, true))
+        rig.host.tap(chooser(null).targets.single { it.second == IntervalPick.Open(IntervalPart.DIVISIONS) }.first.center)
+        val open = chooser(IntervalPart.DIVISIONS)
+        val drop = open.targets.single { it.second == IntervalPick.Open(IntervalPart.LENGTH) }.first
+        val tiles = open.targets.filter { it.second.inGrid }.map { it.first }
+        // A point on the length's dropdown, inside the grid, on no tile.
+        val gap = (0..40).flatMap { i -> (0..10).map { j -> Offset(drop.left + drop.width * i / 40f, drop.top + drop.height * j / 10f) } }
+            .first { p -> drop.contains(p) && open.grid!!.contains(p) && tiles.none { it.contains(p) } }
+        rig.host.tap(gap)
+        // Had the gap opened the length's grid, this is its 8.
+        rig.host.tap(chooser(IntervalPart.LENGTH).targets.single { it.second == IntervalPick.Count(IntervalPart.LENGTH, 8) }.first.center)
+        assertEquals("the length is untouched", "4 bars", rig.seq.lengthLabel(rig.host.patch.beatsPerBar))
+        assertEquals(Interval(1, 1), rig.seq.interval)
+    }
+
+    @Test
+    fun `with the notes locked, a drag down a note is its velocity`() {
         val rig = SeqRig()
         val at = rig.cell(4, 3)
         rig.host.tap(at)
@@ -739,8 +861,8 @@ class GestureTest {
         rig.pickVersion(VersionPick.Add)
         rig.host.drag(at, rig.cell(4, 2))
         val (v1, v2) = rig.seq.seqNotes.partition { it.versions == 0b01 }
-        assertEquals("version 1 keeps a note one step long", SEQ_SUBSTEPS, v1.single().length)
-        assertTrue("version 2's is longer", v2.single().length > SEQ_SUBSTEPS)
+        assertEquals("version 1 keeps a note one step long", 1, v1.single().length)
+        assertTrue("version 2's is longer", v2.single().length > 1)
     }
 
     @Test
@@ -982,7 +1104,7 @@ class GestureTest {
     }
 
     @Test
-    fun `a cell of a lane on a Seq's version offers silent and the versions, and a pick sets the scene`() {
+    fun `a cell of a lane on a Seq's version offers off and the versions, and a pick sets the scene`() {
         val rig = ArrangerRig { host, arranger ->
             val seq = host.patch.add(Types.Seq, Offset(300f, 40f))!!
             seq.addVersion()
@@ -990,7 +1112,7 @@ class GestureTest {
             check(host.patch.connect(out(arranger), PortRef(seq.id, PortDirection.MOD, Types.Seq.versionParam)))
         }
         rig.host.tap(rig.table.cellOf(0, 0)!!.center)
-        assertEquals(listOf("silent", "v1", "v2"), rig.chooser(ArrangerPop.Cell(0, 0)).tiles.map { it.third })
+        assertEquals(listOf("off", "v1", "v2"), rig.chooser(ArrangerPop.Cell(0, 0)).tiles.map { it.third })
         rig.host.tap(rig.tile(ArrangerPop.Cell(0, 0), ArrangerPick.Level(1f)))
         assertEquals(1f, rig.arranger.scenes[0].levels[0])
     }

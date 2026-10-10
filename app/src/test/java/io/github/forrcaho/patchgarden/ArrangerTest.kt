@@ -184,7 +184,7 @@ class ArrangerTest {
     }
 
     @Test
-    fun `a lane is named by its knob and says a Seq's versions as silent and v1`() {
+    fun `a lane is named by its knob and says a Seq's versions as off and v1`() {
         val patch = Patch()
         val arranger = patch.add(Types.Arranger, Offset.Zero)!!
         val seq = patch.add(Types.Seq, Offset(200f, 0f))!!
@@ -194,7 +194,7 @@ class ArrangerTest {
         assertEquals(seq.title to "version", patch.laneName(arranger, 0))
         val options = patch.laneOptions(arranger, 0)
         assertNotNull(options)
-        assertEquals(listOf("silent", "v1", "v2"), options!!.map { it.second })
+        assertEquals(listOf("off", "v1", "v2"), options!!.map { it.second })
         assertEquals(listOf(0f, 0.5f, 1f), options.map { it.first })
         assertEquals("a lane with nothing patched takes a slider", null, patch.laneOptions(arranger, 1))
     }

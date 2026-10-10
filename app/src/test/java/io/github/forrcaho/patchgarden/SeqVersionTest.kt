@@ -59,7 +59,7 @@ class SeqVersionTest {
         assertEquals("split: the original keeps version 1", 0b01, seq.seqNotes[1].versions)
         assertEquals("and the copy to edit is version 2's", 0b10, seq.seqNotes[edited].versions)
         seq.setSeqNoteLength(edited, 8)
-        assertEquals("so version 1's note is the length it was", SEQ_SUBSTEPS, seq.seqNotes[1].length)
+        assertEquals("so version 1's note is the length it was", 1, seq.seqNotes[1].length)
         assertEquals("a note version 2 has alone is edited in place", edited, seq.ownSeqNote(edited))
 
         seq.removeShownSeqNote(seq.seqNotes.indexOfFirst { it.step == 5 })

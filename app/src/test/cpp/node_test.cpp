@@ -2576,8 +2576,8 @@ void anSfWithoutItsFontIsSilent() {
     check(peak(voiceIdle(sf, 200)) > 0.05f, "and sounds once it has one");
 }
 
-/** Whole steps, in the quarter steps a note's length is counted in. See SeqNode. */
-constexpr int32_t Q(int32_t steps) { return steps * SeqNode::kSubsteps; }
+/** A note's length, in steps: whole steps since 2026-10-09, where it was quarter steps. */
+constexpr int32_t Q(int32_t steps) { return steps; }
 
 /** Ticks [seqNotes] once at [count] and returns what it said. */
 NoteBuffer tickNotes(SeqNode &seqNotes, int64_t count, int32_t offset = 0) {
@@ -2805,13 +2805,12 @@ int firstOnDegree(const NoteBuffer &notes) {
 }
 
 /**
- * A length that is not a whole number of steps ends partway through one.
- *
- * This is what the `gate` knob used to do to every note at once, and why it went: a length
- * in quarter steps says it per note. Steps' half step is a length of 2.
+ * A note lasts whole steps and ends on the tick its last one runs out -- where it was quarter
+ * steps, and a note could end partway through one. A shorter note is a finer step now (Forrest,
+ * 2026-10-09), so nothing is counted out in frames between two ticks any more.
  */
-void aNoteEndsPartwayThroughAStep() {
-    std::printf("a note whose length is not whole steps ends inside one\n");
+void aNoteLastsWholeSteps() {
+    std::printf("a note lasts whole steps, ending on a tick\n");
     // 120bpm is two beats a second; an eighth-note step is half a beat, 12000 frames.
     const double beatsPerFrame = 2.0 / kRate;
     const int32_t stepFrames = 12000;
@@ -2833,29 +2832,52 @@ void aNoteEndsPartwayThroughAStep() {
 
     SeqNode seq;
     seq.setParam(2, kEighth);
-    seq.setSlot(seqNoteSlot(0, 0, 0, Q(1) + 2, 1.0f)); // a step and a half
+    seq.setSlot(seqNoteSlot(0, 0, 0, 2, 1.0f)); // two steps
     check(countKind(tickAt(seq, 0), NoteKind::On) == 1, "starts");
     check(offsIn(seq, stepFrames - kBlockSize) == 0, "sounds all through its first step");
-    tickAt(seq, 1);
-    check(offsIn(seq, stepFrames / 2 - 2 * kBlockSize) == 0, "and the first half of the next");
-    check(offsIn(seq, 4 * kBlockSize) == 1, "and ends halfway through it");
-    check(countKind(tickAt(seq, 2), NoteKind::Off) == 0, "not again on the next tick");
+    check(countKind(tickAt(seq, 1), NoteKind::Off) == 0, "and on into its second");
+    check(offsIn(seq, stepFrames - kBlockSize) == 0, "with nothing ending between ticks");
+    check(countKind(tickAt(seq, 2), NoteKind::Off) == 1, "then ends on the tick after its last step");
+}
 
-    // Shorter than a step: it has no whole steps at all, so its part starts on the tick it
-    // does -- the case that has to be counted out after the starts rather than before them.
-    SeqNode half;
-    half.setParam(2, kEighth);
-    half.setSlot(seqNoteSlot(0, 0, 0, 2, 1.0f));
-    check(countKind(tickAt(half, 0), NoteKind::On) == 1, "a half-step note starts");
-    check(offsIn(half, stepFrames / 2 - 2 * kBlockSize) == 0, "and holds half a step");
-    check(offsIn(half, 4 * kBlockSize) == 1, "then ends, without waiting for a tick");
+/**
+ * A note put on the grid is heard (Forrest, 2026-10-09): an audition plays now, through the notes
+ * output, for the beats it is given at the tempo -- with the transport stopped as well as running
+ * -- and a fifth before the first four are done takes the oldest's place without leaving it held.
+ */
+void anAuditionPlaysForItsBeats() {
+    std::printf("an audition plays for its beats, stopped or running\n");
+    SeqNode seq;
+    seq.prepare(kRate);
+    // Stopped, at 120bpm: half a beat is a quarter of a second, 12000 frames.
+    auto block = [&]() {
+        // The tempo as the graph hands it over: beats per frame, here 120bpm.
+        seq.setTiming(0.0, false, nullptr, 2.0 / kRate, 3.0);
+        seq.process(kBlockSize);
+        return *seq.noteOutput(0);
+    };
+    seq.audition(7, 0.6f, 0.5);
+    const NoteBuffer first = block();
+    check(countKind(first, NoteKind::On) == 1, "it starts at once, with the transport stopped");
+    check(first.count == 1 && first.events[0].degree == 7 && first.events[0].velocity == 0.6f,
+          "at its degree and velocity");
+    int offs = 0;
+    int blocks = 1;
+    while (offs == 0 && blocks < 2000) {
+        offs += countKind(block(), NoteKind::Off);
+        ++blocks;
+    }
+    check(offs == 1, "it ends");
+    check(std::abs(blocks * kBlockSize - 12000) <= kBlockSize, "after half a beat at the tempo");
+    check(seq.auditionsHeld() == 0, "and nothing is left held");
 
-    SeqNode legato;
-    legato.setParam(2, kEighth);
-    legato.setSlot(seqNoteSlot(0, 0, 0, Q(1), 1.0f));
-    tickAt(legato, 0);
-    check(offsIn(legato, stepFrames - kBlockSize) == 0, "a whole-step note sounds its whole step");
-    check(countKind(tickAt(legato, 1), NoteKind::Off) == 1, "and ends on the tick after");
+    for (int32_t i = 0; i < SeqNode::kMaxAuditions; ++i) seq.audition(i, 1.0f, 4.0);
+    block();
+    seq.audition(9, 1.0f, 4.0);
+    const NoteBuffer crowded = block();
+    check(countKind(crowded, NoteKind::Off) == 1 && countKind(crowded, NoteKind::On) == 1,
+          "a fifth ends the oldest and starts itself");
+    check(seq.auditionsHeld() == SeqNode::kMaxAuditions, "keeping four");
 }
 
 /**
@@ -4106,7 +4128,8 @@ int main() {
     aNoteEndsBeforeTheNextStarts();
     notesLoopAtTheLength();
     aJumpInTimeEndsWhatWasHeld();
-    aNoteEndsPartwayThroughAStep();
+    aNoteLastsWholeSteps();
+    anAuditionPlaysForItsBeats();
     aDroneTransposeMovesWhatItHolds();
     chanceDecidesEachNoteOnce();
     chordMakesEveryNoteAChord();

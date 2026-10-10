@@ -278,8 +278,8 @@ private fun restoreSeqNotes(module: PatchModule, stored: JSONArray?) {
             SeqNote(
                 d.optInt(0).coerceIn(0, SEQ_STEPS - 1),
                 d.optInt(1),
-                // In quarter steps since format 10; see SEQ_SUBSTEPS.
-                d.optInt(2, SEQ_SUBSTEPS).coerceIn(1, SEQ_STEPS * SEQ_SUBSTEPS),
+                // Whole steps since format 23.
+                d.optInt(2, 1).coerceIn(1, SEQ_STEPS),
                 // Absent in a format 10 file, where every note was struck at full.
                 d.optDouble(3, 1.0).toFloat().takeIf { it.isFinite() }
                     ?.coerceIn(MIN_VELOCITY, 1f) ?: 1f,

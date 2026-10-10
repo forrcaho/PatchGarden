@@ -538,7 +538,7 @@ private fun DrawScope.drawCentered(measurer: TextMeasurer, text: String, style: 
 /**
  * The table: lane names, heads, cells, the "+" column and corner, and where it has scrolled. A
  * cell says its value in its knob's terms and shows how far between the brackets it is as a bar
- * along its foot; "silent" is drawn faint. The section playing is underlined, when the song
+ * along its foot; "off" is drawn faint. The section playing is underlined, when the song
  * playing is the one shown.
  */
 internal fun DrawScope.drawArranger(
@@ -600,7 +600,7 @@ internal fun DrawScope.drawArranger(
         val level = module.scenes.getOrNull(section.scene)?.levels?.getOrNull(lane) ?: 0f
         val target = patch.laneTarget(module, lane)
         val word = patch.levelLabel(target, level)
-        val silent = word == "silent"
+        val silent = word == "off"
         val playing = at == playingSection
         drawRoundRect(
             if (silent) Color(0xFF1A1E24) else ChipFill, rect.topLeft, rect.size, corner,

@@ -581,6 +581,68 @@ No xruns. The `fm` capture also carried tones at whole multiples of the modulato
 under the first sidebands, that fell 27dB when the carrier fell 13dB: third order, after the
 oscillator -- `Out`'s limiter, below.
 
+### The Seq reworked, from Forrest's notes of 2026-10-09
+
+Forrest's list, written after using the Seq through the Arranger, and built overnight at his word
+before he slept, with his answers to eight questions asked first. Each is the note, then what was
+built.
+
+- **"Dot" names are confusing.** Bespoke's DotSequencer's word. The notes are `SeqNote`s in the
+  code (`92ded6e`), and the file's key is `notes`, which is what made it **format 23, reading nothing
+  older**.
+- **Fractional lengths are confusing; a note should start and end on a division**, and a shorter
+  note comes from dividing the beat further. Lengths are whole steps again. The quarter steps went,
+  and the frames `SeqNode` counted a part step in went with them.
+- **The length in beats or bars, not steps**, with the step count following the divisions. The step
+  chooser has a second line, "for [n] beats | bars", up to 16 bars (Forrest's pick), and the grid
+  scrolls sideways past what fits, at 24dp a column at the narrowest. The engine still counts steps:
+  `len` is steps and `lenBars` only says which unit is shown, so a change of meter keeps the steps
+  rather than the bars -- the price of not teaching the column arithmetic the meter.
+- **Changing the divisions carries the notes.** Exactly when the new step divides the old; finer
+  and not dividing, by Forrest's rule -- half beats to fifths puts each note on twice the steps and
+  leaves the fifth fifth silent, counted from the note's start; coarser, each note snaps into the
+  step it starts in and grows to cover what it covered (his pick of three), and notes of one
+  version that then collide at one pitch are resolved. Seen on the emulator going from half beats
+  to fifths: four of each beat's five filled.
+- **Version 0 means nothing plays, and should say "off"; 1 should be the default.** The chip,
+  the knob's buttons and every label say "off". 1 *was* the knob's default; what Forrest saw was a
+  version knob exposed over all eight, so a modulator at its middle asked a two-version Seq for
+  version four and nothing played. Exposed, it now reaches only the versions there are, and the
+  range follows as versions are added and deleted. The knob's row is "off" and then the versions
+  (his pick).
+- **The lock let taps add and delete notes, and a tap on another version's outline colored it
+  in.** A tap under the lock now does nothing at all.
+- **Notes in several versions but not all, a different velocity per version, overlap across
+  versions, shown with barber-pole stripes; a shared note when it is the same for all.** A hue per
+  version (his pick): v1 amber, v2 blue, v3 rose and on; a note in several is striped in theirs, one
+  in all of them gray, and in the all view an overlap of two versions' notes is striped. A note
+  dragged in one version's view is split off first, so a velocity can differ per version, and notes
+  that end up identical but for their versions merge back into one.
+- **A long-press menu for a note's versions:** "All", exclusive, or several versions ticked, and
+  **OK** to confirm. Built so, on a Seq with more than one version.
+- **Adding or moving a note plays it, running or not.** An `Audition` command to the Seq, played
+  through its own notes output for the note's own length (his pick), heard only with the output on
+  (his pick), and again at each new pitch a drag carries it to (his pick).
+- **While running, only the version playing is highlighted**, and **shared notes are gray**: both
+  as above.
+
+**Found on the emulator, after every test was green:** an audition never ended. `SeqNode` read
+`tempo_` as beats per minute, where `setTiming` hands it over as beats per frame -- so a fifth of a
+beat lasted about eighty hours -- and its `node_test` passed 120 in the same argument, making the
+same mistake, so the two agreed. A `graph_test` now hears an audition end through the graph,
+stopped and running; on the emulator it is 105ms, its 100 and the gate ramp, at the right pitch, and
+a drag across two rows plays three. Also found: the layout threw on a short panel, since a row of
+buttons asked for more than the grid can give up (the version row's label had drawn behind its
+buttons, so a row of buttons now gets the height its label needs where there is room -- Steps'
+length row as well); and the step grid opened over the new length line, which showed through
+between its tiles and took a tap in a gap. A post that finds the command queue full now waits for
+it to drain rather than dropping the command, since a 16-bar Seq loaded with a patch is hundreds of
+slots.
+
+**Not done:** the phone was not connected, so none of this is on it, and none of it has been
+played or heard. Two things to look at there: the version strip marks the version shown in the
+selection blue, which is close to v2's blue; and whether the stripes read at the phone's size.
+
 ### Out's limiter, replaced 2026-10-05
 
 **It saturated everything.** DaisySP's `Limiter` runs every sample through `SoftLimit`,
@@ -725,6 +787,8 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
 
 ### Still to be heard on the phone
 
+- **The Seq reworked** (2026-10-09, above): not installed there yet. Auditions by ear, the
+  versions menu and the stripes by finger and eye, and a change of step on a real sequence.
 - **The Arranger** (item 5, 2026-10-05): ABAB′ by ear, the table by finger at the phone's own
   size, and a song nested a level down -- an Arranger in a box driven by another's lane.
 - **The output limiter** (above, 2026-10-05): whether a patch that hits it now sounds turned

@@ -218,6 +218,16 @@ public:
     virtual void prepare(int32_t sampleRate) { sampleRate_ = sampleRate; }
 
     /**
+     * Plays one note now, for [beats] at the tempo -- a note sequencer's grid auditioning what was
+     * just put on it. Only a sequencer of notes has anything to play.
+     */
+    virtual void audition(int32_t degree, float velocity, double beats) {
+        (void) degree;
+        (void) velocity;
+        (void) beats;
+    }
+
+    /**
      * A knob moved. Values arrive in real units -- hertz, seconds, beats per minute --
      * rather than normalized, because the range and the curve belong to the thing being
      * described and the interface should be able to say "440 Hz" rather than "0.63".

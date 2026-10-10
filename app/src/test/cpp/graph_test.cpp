@@ -837,6 +837,40 @@ void aNoteCableSoundsAndOrdersTheGraph() {
           "and it keeps sounding");
 }
 
+/**
+ * An audition is a note a Seq plays when one is put on its grid, for that note's length whether
+ * or not the transport runs. Found on the emulator: one played through a Seq on version off, into
+ * an Osc, and was still sounding seconds later when the stream stopped.
+ */
+void anAuditionEndsThroughTheGraph() {
+    std::printf("an audition ends through the graph\n");
+    for (const bool running : {false, true}) {
+        Graph graph;
+        graph.setSampleRate(48000);
+        graph.postAdd(1, NodeType::Osc);
+        graph.postAdd(2, NodeType::Seq);
+        graph.postAdd(3, NodeType::Out);
+        graph.postSetParam(2, 3, 0.0f); // version off: the loop plays nothing
+        graph.postConnect(2, 0, 1, 0);
+        graph.postConnect(1, 0, 3, 0);
+        graph.postSetTempo(120.0f);
+        graph.applyCommands();
+        graph.setTransportRunning(running);
+        render(graph, 100);
+        check(graph.postAudition(2, 1, 1.0f, 0.2), "the audition is queued");
+        graph.applyCommands();
+        const auto heard = render(graph, 50);  // 33ms
+        check(energy(heard.data(), static_cast<int32_t>(heard.size())) > 0.0f,
+              std::string("an audition is heard, ") + (running ? "running" : "stopped"));
+        render(graph, 200);                    // past its 100ms and the gate ramp
+        const auto after = render(graph, 50);
+        // Against what it was while sounding: the output's own tail settles for a while after.
+        const float during = energy(heard.data(), static_cast<int32_t>(heard.size()));
+        check(energy(after.data(), static_cast<int32_t>(after.size())) < during * 1e-3f,
+              std::string("and ends at its length, ") + (running ? "running" : "stopped"));
+    }
+}
+
 void notesAndSignalsDoNotPatchToEachOther() {
     std::printf("notes and signals do not patch to each other\n");
     Graph graph;
@@ -1747,6 +1781,7 @@ void aDrivenKnobMovedWithNothingPatchedRampsAcrossABlock() {
 }
 
 int main() {
+    anAuditionEndsThroughTheGraph();
     aSteppedKnobTakesTheBlocksLastSample();
     signalReachesTheOutputWithinOneBlock();
     patchingDoesNotStep();

@@ -1,11 +1,34 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <chrono>
 #include <string>
+#include <thread>
 
 #include "audio_engine.h"
 #include "nodes.h"
 #include "soundfont.h"
+
+namespace {
+
+/**
+ * A post that finds the command queue full waits for the audio thread to drain it, a millisecond
+ * at a time, rather than dropping the command: the queue holds 256, and a patch with long
+ * sequences sends hundreds of slots at once when it loads -- every one past the 256th used to be
+ * lost without a word. Only here, where the interface calls in while a stream is running to drain
+ * the queue, and only for posts that can be made again: the scale list and a font's synth hand a
+ * pointer over and free it on failure.
+ */
+template <typename Post>
+jboolean posted(Post post) {
+    for (int tries = 0; tries < 250; ++tries) {
+        if (post()) return JNI_TRUE;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return JNI_FALSE;
+}
+
+} // namespace
 
 namespace {
 
@@ -100,33 +123,33 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeStatus(JNIEnv *env, jobjec
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeAddNode(JNIEnv *, jobject,
                                                               jlong id, jint type) {
-    return engine().graph().postAdd(id, static_cast<NodeType>(type)) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postAdd(id, static_cast<NodeType>(type)); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeRemoveNode(JNIEnv *, jobject, jlong id) {
-    return engine().graph().postRemove(id) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postRemove(id); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeConnect(JNIEnv *, jobject,
                                                               jlong srcId, jint srcPort,
                                                               jlong dstId, jint dstPort) {
-    return engine().graph().postConnect(srcId, srcPort, dstId, dstPort) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postConnect(srcId, srcPort, dstId, dstPort); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeDisconnect(JNIEnv *, jobject,
                                                                  jlong srcId, jint srcPort,
                                                                  jlong dstId, jint dstPort) {
-    return engine().graph().postDisconnect(srcId, srcPort, dstId, dstPort) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postDisconnect(srcId, srcPort, dstId, dstPort); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetParam(JNIEnv *, jobject,
                                                                jlong id, jint index,
                                                                jfloat value) {
-    return engine().graph().postSetParam(id, index, value) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postSetParam(id, index, value); });
 }
 
 JNIEXPORT jboolean JNICALL
@@ -135,24 +158,24 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetModRange(JNIEnv *, jobj
                                                                   jfloat low, jfloat high,
                                                                   jboolean exponential,
                                                                   jboolean stepped) {
-    return engine().graph().postSetModRange(id, index, low, high, exponential == JNI_TRUE,
-                                            stepped == JNI_TRUE)
-                   ? JNI_TRUE
-                   : JNI_FALSE;
+    return posted([&] {
+        return engine().graph().postSetModRange(id, index, low, high, exponential == JNI_TRUE,
+                                                stepped == JNI_TRUE);
+    });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeConnectMod(JNIEnv *, jobject,
                                                                  jlong srcId, jint srcPort,
                                                                  jlong dstId, jint index) {
-    return engine().graph().postConnectMod(srcId, srcPort, dstId, index) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postConnectMod(srcId, srcPort, dstId, index); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeDisconnectMod(JNIEnv *, jobject,
                                                                     jlong srcId, jint srcPort,
                                                                     jlong dstId, jint index) {
-    return engine().graph().postDisconnectMod(srcId, srcPort, dstId, index) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postDisconnectMod(srcId, srcPort, dstId, index); });
 }
 
 /**
@@ -188,7 +211,7 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetSlot(JNIEnv *, jobject,
         default:
             return JNI_FALSE;
     }
-    return engine().graph().postSetSlot(id, slot) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postSetSlot(id, slot); });
 }
 
 /**
@@ -307,12 +330,18 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeParamOf(JNIEnv *, jobject,
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetTempo(JNIEnv *, jobject, jfloat bpm) {
-    return engine().graph().postSetTempo(bpm) ? JNI_TRUE : JNI_FALSE;
+    return posted([&] { return engine().graph().postSetTempo(bpm); });
 }
 
 JNIEXPORT jboolean JNICALL
 Java_io_github_forrcaho_patchgarden_AudioEngine_nativeResetTransport(JNIEnv *, jobject) {
     return engine().graph().postResetTransport() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_forrcaho_patchgarden_AudioEngine_nativeAudition(JNIEnv *, jobject, jlong id, jint degree,
+                                                               jfloat velocity, jdouble beats) {
+    return posted([&] { return engine().graph().postAudition(id, degree, velocity, beats); });
 }
 
 JNIEXPORT jdouble JNICALL

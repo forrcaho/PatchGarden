@@ -35,13 +35,15 @@ class SeqNoteTest {
     fun `a tap lands on the step and degree under it, as many steps as the loop is long`() {
         val (_, seq) = seq()
         val area = panelGrid(panel, d, seq.type)
-        listOf(4, 16, 32).forEach { length ->
+        listOf(4, 16, 32, 64).forEach { length ->
             seq.setParam(0, length.toFloat())
             assertEquals(length, seqColumns(seq))
             val window = gridWindow(seq, area, d, Scale.Chromatic)
-            repeat(length) { column ->
-                val at = Offset(area.left + (column + 0.5f) * area.width / length, area.top + 0.5f * area.height / window.rows)
-                assertEquals(column to window.top, panelCellAt(panel, d, seq, at, Scale.Chromatic))
+            // As many as fit, the rest a scroll away.
+            val view = seqWindow(seq, area, d)
+            repeat(view.shown) { k ->
+                val at = Offset(area.left + (k + 0.5f) * area.width / view.shown, area.top + 0.5f * area.height / window.rows)
+                assertEquals(view.first + k to window.top, panelCellAt(panel, d, seq, at, Scale.Chromatic))
             }
         }
         assertNull("outside the grid is not a cell", panelCellAt(panel, d, seq, Offset(area.left - 5f, area.center.y)))
@@ -50,60 +52,64 @@ class SeqNoteTest {
     @Test
     fun `a note covers every step it lasts, and grows only as far as there is room`() {
         val (_, seq) = seq()
-        seq.addSeqNote(SeqNote(2, 5, 3 * SEQ_SUBSTEPS))
-        seq.addSeqNote(SeqNote(8, 5, SEQ_SUBSTEPS))
-        seq.addSeqNote(SeqNote(3, 9, SEQ_SUBSTEPS))
+        seq.addSeqNote(SeqNote(2, 5, 3))
+        seq.addSeqNote(SeqNote(8, 5, 1))
+        seq.addSeqNote(SeqNote(3, 9, 1))
         assertEquals(0, seq.seqNoteAt(2, 5))
         assertEquals(0, seq.seqNoteAt(4, 5))
         assertEquals(-1, seq.seqNoteAt(5, 5))
         assertEquals("another degree is another note", 2, seq.seqNoteAt(3, 9))
-        assertEquals("up to the next note at its degree", 6 * SEQ_SUBSTEPS, seq.seqNoteRoom(0))
-        assertEquals("and the last runs to the end of the loop", (16 - 8) * SEQ_SUBSTEPS, seq.seqNoteRoom(1))
+        assertEquals("up to the next note at its degree", 6, seq.seqNoteRoom(0))
+        assertEquals("and the last runs to the end of the loop", 16 - 8, seq.seqNoteRoom(1))
     }
 
     /**
-     * A note's length is its duration, in quarter steps, which is what took Seq's `gate` knob
-     * away: the knob shortened the last step of every note at once, and a length says it per
-     * note. Steps' half step is a length of 2.
+     * A note lasts whole steps (Forrest, 2026-10-09). It was quarter steps, so a note could end
+     * partway through one, and that read as confusing: a shorter note is a finer step now.
      */
     @Test
-    fun `a note can be shorter than a step, and still covers the step it is in`() {
+    fun `a note lasts whole steps, one at the least`() {
         val (_, seq) = seq()
-        seq.addSeqNote(SeqNote(2, 5, 2)) // half a step
-        assertEquals("one step long on the grid", 1, seq.seqNotes[0].stepsSpanned)
-        assertEquals("and the step it is in is its own", 0, seq.seqNoteAt(2, 5))
-        assertEquals("but no further", -1, seq.seqNoteAt(3, 5))
-
-        seq.setSeqNoteLength(0, 1)
-        assertEquals("a quarter step is the shortest there is", 1, seq.seqNotes[0].length)
+        seq.addSeqNote(SeqNote(2, 5))
+        assertEquals("a new note is one step", 1, seq.seqNotes[0].length)
+        seq.setSeqNoteLength(0, 3)
+        assertEquals(3, seq.seqNotes[0].stepsSpanned)
         seq.setSeqNoteLength(0, 0)
-        assertEquals(1, seq.seqNotes[0].length)
+        assertEquals("never shorter than a step", 1, seq.seqNotes[0].length)
 
-        assertTrue("and Seq has no gate knob to do it globally", Types.Seq.params.none { it.name == "gate" })
-        assertEquals("five knobs: two of them in the header, the interval and how many versions",
-            listOf("len", "transp", "interval", "version", "versions"), Types.Seq.params.map { it.name })
+        assertTrue("and Seq has no gate knob", Types.Seq.params.none { it.name == "gate" })
+        assertEquals("six knobs: four of them in the header -- length, interval, versions and the length's unit",
+            listOf("len", "transp", "interval", "version", "versions", "lenBars"), Types.Seq.params.map { it.name })
     }
 
-    /** Where a stretch measures to: quarter steps across the grid, clamped to it. */
+    /**
+     * A long loop shows what fits and scrolls sideways (Forrest chose sixteen bars and a scroll,
+     * 2026-10-09): a column never narrower than SEQ_CELL_MIN, and the step under a finger counted
+     * from the first one showing.
+     */
     @Test
-    fun `a stretch lands on the quarter step under the finger`() {
+    fun `a long loop shows a window of its steps, and the step under a finger counts from it`() {
         val (_, seq) = seq()
         val area = panelGrid(panel, d, seq.type)
-        val columns = seqColumns(seq)
-        val per = area.width / (columns * SEQ_SUBSTEPS)
-        listOf(0, 1, 2, 3, 7, columns * SEQ_SUBSTEPS - 1).forEach { q ->
-            assertEquals(q, seqSubstepAt(area, columns, area.left + (q + 0.5f) * per))
-        }
-        assertEquals("past the left edge holds at the first", 0, seqSubstepAt(area, columns, area.left - 99f))
-        assertEquals(
-            "and past the right at the last",
-            columns * SEQ_SUBSTEPS - 1,
-            seqSubstepAt(area, columns, area.right + 99f),
-        )
+        seq.setParam(0, 256f)
+        val window = seqWindow(seq, area, d)
+        assertTrue("more steps than fit", window.scrolls)
+        assertTrue("no column narrower than the floor", area.width / window.shown >= SEQ_CELL_MIN * d - 0.01f)
+        assertEquals(0, seqColumnAt(area, window, area.left + 1f))
+        seq.seqScroll = 40
+        val scrolled = seqWindow(seq, area, d)
+        assertEquals(40, scrolled.first)
+        assertEquals("from the first step showing", 40, seqColumnAt(area, scrolled, area.left + 1f))
+        assertEquals("and past either edge holds at what shows", 40 + scrolled.shown - 1, seqColumnAt(area, scrolled, area.right + 99f))
+        seq.seqScroll = 9999
+        assertEquals("scrolled no further than the end", scrolled.maxFirst, seqWindow(seq, area, d).first)
+
+        seq.setParam(0, 8f)
+        assertFalse("a short loop fits whole", seqWindow(seq, area, d).scrolls)
     }
 
     @Test
-    fun `a sequencer holds so many seqNotes and no more`() {
+    fun `a sequencer holds so many notes and no more`() {
         val (_, seq) = seq()
         repeat(MAX_SEQ_NOTES) { assertTrue(seq.addSeqNote(SeqNote(it % SEQ_STEPS, it / SEQ_STEPS))) }
         assertFalse(seq.addSeqNote(SeqNote(0, 99)))
@@ -111,7 +117,7 @@ class SeqNoteTest {
     }
 
     @Test
-    fun `seqNotes round-trip through the file, and a file off the grid is clamped onto it`() {
+    fun `notes round-trip through the file, and a file off the grid is clamped onto it`() {
         val (patch, seq) = seq()
         seq.addSeqNote(SeqNote(0, 0, 4))
         seq.addSeqNote(SeqNote(31, -3, 1, 0.25f))
@@ -123,7 +129,7 @@ class SeqNoteTest {
         // are dropped, and a note left in none is put in the first rather than lost.
         val wild = json.replace("[31,-3,1,0.25,1]", "[99,-3,500,7,512]")
         assertEquals(
-            SeqNote(SEQ_STEPS - 1, -3, SEQ_STEPS * SEQ_SUBSTEPS, 1f),
+            SeqNote(99, -3, 500, 1f),
             patchFromJson(wild)!!.modules.first { it.type == Types.Seq }.seqNotes[1],
         )
     }
@@ -175,16 +181,16 @@ class SeqNoteTest {
     @Test
     fun `a note moves to another step and degree, and stops at what is in the way`() {
         val (_, seq) = seq()
-        seq.addSeqNote(SeqNote(0, 0, 2 * SEQ_SUBSTEPS))
-        seq.addSeqNote(SeqNote(6, 4, SEQ_SUBSTEPS))
+        seq.addSeqNote(SeqNote(0, 0, 2))
+        seq.addSeqNote(SeqNote(6, 4, 1))
 
         assertTrue(seq.moveSeqNote(0, 3, 4))
-        assertEquals(SeqNote(3, 4, 2 * SEQ_SUBSTEPS), seq.seqNotes[0])
+        assertEquals(SeqNote(3, 4, 2), seq.seqNotes[0])
 
         // Two notes at one degree cannot overlap -- the second's start would be heard as
         // nothing -- so the move is refused and the note stays where the finger last left it.
         assertFalse("into the one at step 6", seq.moveSeqNote(0, 5, 4))
-        assertEquals(SeqNote(3, 4, 2 * SEQ_SUBSTEPS), seq.seqNotes[0])
+        assertEquals(SeqNote(3, 4, 2), seq.seqNotes[0])
         assertTrue("but past it is fine", seq.moveSeqNote(0, 7, 4))
 
         // Off the end of the loop holds at the last step rather than leaving the grid.
@@ -202,7 +208,7 @@ class SeqNoteTest {
     }
 
     @Test
-    fun `a duplicate and an undo keep the seqNotes`() {
+    fun `a duplicate and an undo keep the notes`() {
         val (patch, seq) = seq()
         seq.addSeqNote(SeqNote(1, 2, 3))
         assertEquals(listOf(SeqNote(1, 2, 3)), patch.duplicate(seq)!!.seqNotes.toList())

@@ -169,11 +169,31 @@ class PatchModelTest {
             "a knobless grid reaches further down than a sequencer's",
             panelGrid(panel, 1f, gridOnly).bottom > panelGrid(panel, 1f, Types.Steps).bottom,
         )
-        assertEquals(
-            "and a sequencer's is unchanged",
-            panelGrid(panel, 1f).bottom,
-            panelGrid(panel, 1f, Types.Steps).bottom,
+        // A sequencer's knobs take what they need -- Steps' length is a row of buttons, whose
+        // label sits above them and needs more than a slider's floor -- but never past half.
+        val body = panelBody(panel, 1f)
+        assertTrue(
+            "and a sequencer's keeps at least half the body",
+            panelGrid(panel, 1f, Types.Steps).height >= body.height * 0.5f - 0.01f,
         )
+    }
+
+    /** At the floor a row of buttons drew its label behind its buttons: the Arranger's, then the Seq's. */
+    @Test
+    fun `a row of buttons gets the height its label needs, where there is room`() {
+        // Tall enough for the rows a button row needs inside half the body, short enough that the
+        // share the knobs always had is not already that much.
+        val panel = Rect(0f, 0f, 1000f, 450f)
+        val grid = panelGrid(panel, 1f, Types.Seq)
+        val body = panelBody(panel, 1f)
+        val rows = Types.Seq.rowParams.size
+        assertTrue(
+            "${body.bottom - grid.bottom} for $rows rows",
+            body.bottom - grid.bottom >= rows * (PANEL_ROW_MIN + BUTTON_ROW_EXTRA) - 0.01f,
+        )
+        // And on a panel too short for that, the grid's floor wins rather than the layout throwing,
+        // which it did on the emulator for a build.
+        panelGrid(Rect(0f, 0f, 1000f, 300f), 1f, Types.Seq)
     }
 
     @Test

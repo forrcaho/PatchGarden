@@ -186,6 +186,14 @@ object AudioEngine {
     /** The transport's rate, in beats per minute. The engine clamps it to what it supports. */
     fun setTempo(bpm: Float): Boolean = available && started && nativeSetTempo(bpm)
 
+    /**
+     * Plays a note on note sequencer [id] now, for [beats] at the tempo: a note added or moved on its
+     * grid is heard. Not part of the patch, so not sent through the diff, and heard only while the
+     * output is on, which gates everything (Forrest, 2026-10-09).
+     */
+    fun audition(id: Long, degree: Int, velocity: Float, beats: Double): Boolean =
+        available && started && nativeAudition(id, degree, velocity, beats)
+
     /** Sends the transport back to the start of bar one. Not part of the patch, so not undoable. */
     fun resetTransport(): Boolean = available && started && nativeResetTransport()
 
@@ -307,6 +315,7 @@ object AudioEngine {
     private external fun nativeParamOf(id: Long, index: Int): Float
     private external fun nativeSetTempo(bpm: Float): Boolean
     private external fun nativeResetTransport(): Boolean
+    private external fun nativeAudition(id: Long, degree: Int, velocity: Float, beats: Double): Boolean
     private external fun nativeTransportBeat(): Double
     private external fun nativeCollectGarbage()
     private external fun nativeStatus(): String

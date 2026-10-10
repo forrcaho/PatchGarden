@@ -763,9 +763,12 @@ class SteppedParamTest {
      */
     // Not the codes picked from a page rather than slid to: an SF preset, and an interval, which
     // has two million of them since format 20 and is chosen in the chooser, never by travel.
+    // Knobs a slider drags through: not a preset or a step, chosen from pages of their own, nor a
+    // Seq's length, which is chosen in beats or bars beside its step and counts up to 1024 steps.
     private fun stepped() =
         Types.byName.values.flatMap { it.params }
             .filter { it.curve == ParamCurve.STEPPED && it.choice != Choice.PRESET && it.choice != Choice.DIVISION }
+            .filter { it !== Types.Seq.params[0] }
 
     @Test
     fun `the option count is the span plus one`() {
@@ -1390,7 +1393,7 @@ class SoundFontSyncTest {
 class SeqNoteSyncTest {
 
     @Test
-    fun `seqNotes cross by slot, and only when they change`() {
+    fun `notes cross by slot, and only when they change`() {
         val patch = Patch()
         val seq = patch.add(Types.Seq, Offset.Zero)!!
         seq.addSeqNote(SeqNote(0, 0, 2))
