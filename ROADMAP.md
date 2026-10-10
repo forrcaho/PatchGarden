@@ -663,6 +663,16 @@ F♯ G♯ A. Found there: the third row sent Steps' panel to two columns, where 
 buttons ran into each other; a row of buttons too narrow for them is now a bar with a reading.
 Not on the phone, not heard.
 
+**Measured on the phone, 2026-10-10**, both nights' work, from a test patch loaded as a file (the
+phone's own format 22 patch was refused and kept at `patch.rejected.json`, as designed): a
+three-version Seq on C major with `degree` at 2 plays E F G A on every bar; with the version off, a
+note tapped onto the grid sounds for 505ms -- its beat and the gate ramp -- at 493.8Hz, degree 4
+moved to B; MMAP exclusive at a 96-frame burst, no xruns, no crash. Seen at the phone's own size:
+the stripes read, the versions menu opens on a long press with the note's versions ticked, a tap
+off it closes it without adding a note underneath, a tap under the lock changes nothing, and
+Steps' length is a bar in its two-column panel. Still for Forrest's eye: the version strip fills
+the version shown with the selection blue, close to v2's own blue.
+
 ### Out's limiter, replaced 2026-10-05
 
 **It saturated everything.** DaisySP's `Limiter` runs every sample through `SoftLimit`,
@@ -807,7 +817,8 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
 
 ### Still to be heard on the phone
 
-- **The Seq reworked** (2026-10-09, above) and **the degree knob** (2026-10-10): not installed there yet. Auditions by ear, the
+- **The Seq reworked** (2026-10-09, above) and **the degree knob** (2026-10-10): installed and
+  measured on the phone the next day (below the degree knob's entry), not yet played by Forrest. Auditions by ear, the
   versions menu and the stripes by finger and eye, and a change of step on a real sequence.
 - **The Arranger** (item 5, 2026-10-05): ABAB′ by ear, the table by finger at the phone's own
   size, and a song nested a level down -- an Arranger in a box driven by another's lane.
