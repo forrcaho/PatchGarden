@@ -191,7 +191,7 @@ class PatchJsonTest {
      * 5 to 8 joined them at format 9, which was the first change since 5 that took something
      * away: a "Group" is a type this build does not have, and Osc's and FM's knob lists lost
      * an envelope from the middle, so every index after the first moved. 9 joined them at 10,
-     * where a dot's length went from whole steps to quarter steps -- a 9 still loads and
+     * where a note's length went from whole steps to quarter steps -- a 9 still loads and
      * still plays, at a quarter of the note lengths that were written.
      */
     @Test

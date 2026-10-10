@@ -207,7 +207,7 @@ While compatibility was kept, **a table a knob indexed grew by appending, never 
 and when the knob stopped indexing it the table stayed as the way old values were read -- which
 is what kept 17 and 18 additive rather than refusals. **19 reads nothing but 19**, under the
 policy below: every synth gained a level jack, `Amp` became `Gain`, and the interval table went.
-20, 21 and 22 each read only themselves under the same policy; 22 is the Arranger. **A knob or
+20, 21 and 22 each read only themselves under the same policy; 22 is the Arranger, 23 the Seq reworked. **A knob or
 a port added to an existing module bumps the version too**, for that same reason: knobs are
 keyed by name and port indices are positional, so an 11 build would read a bandpass, ignore
 the two knobs it does not know, and autosave it as a lowpass. **Adding a module type bumps the version** even though

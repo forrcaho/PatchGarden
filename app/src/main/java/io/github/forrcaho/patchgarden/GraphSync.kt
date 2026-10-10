@@ -10,7 +10,7 @@ import android.util.Log
  */
 enum class SlotKind(val id: Int) {
     STEP(0),
-    DOT(1),
+    SEQ_NOTE(1),
     SEGMENT(2),
     SECTION(3),
 }
@@ -96,8 +96,8 @@ interface GraphCommands {
     fun setTempo(bpm: Float)
     /** Gives SF node [id] a synth over the loaded font [font], a native handle. */
     fun setFont(id: Long, font: Long)
-    /** Dot [slot] of dot sequencer [id]; a length of 0 clears the slot. */
-    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int)
+    /** Note [slot] of note sequencer [id]; a length of 0 clears the slot. */
+    fun setSeqNote(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int)
 
     /** Segment [slot] of envelope [id]; a time of 0 clears the slot. */
     fun setSegment(id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean)
@@ -182,9 +182,9 @@ object EngineCommands : GraphCommands {
         AudioEngine.setTempo(bpm)
     }
 
-    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
-        trace { "dot $id[$slot] = step $step degree $degree for $length at $velocity" }
-        AudioEngine.setDot(id, slot, step, degree, length, velocity, versions)
+    override fun setSeqNote(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
+        trace { "note $id[$slot] = step $step degree $degree for $length at $velocity" }
+        AudioEngine.setSeqNote(id, slot, step, degree, length, velocity, versions)
     }
 
     override fun setSegment(
@@ -244,7 +244,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
     private var syncedBeatsPerBar: Int? = null
     private var syncedTempo: Float? = null
     private var syncedFonts = emptyMap<Long, Long>()
-    private var syncedDots = emptyMap<Long, List<Dot>>()
+    private var syncedSeqNotes = emptyMap<Long, List<SeqNote>>()
     private var syncedSegments = emptyMap<Long, List<EnvSegment>>()
     private var syncedLevels = emptyMap<Long, List<Float>>()
     private var syncedCells = emptyMap<Long, List<SceneCell>>()
@@ -254,7 +254,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
      * One slot-indexed list, diffed against what the engine was last told, and the new
      * shadow to keep.
      *
-     * Steps, dots and segments were three near-identical copies of this, and the copies had
+     * Steps, notes and segments were three near-identical copies of this, and the copies had
      * already drifted: the steps one compared against `syncedSteps[id]` where the other two
      * compared against null for a node in [fresh]. Unreachable, because a module's type is a
      * `val` and an id is never reused by a different type -- but it is the drift, not the
@@ -318,7 +318,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         syncedBeatsPerBar = null
         syncedTempo = null
         syncedFonts = emptyMap()
-        syncedDots = emptyMap()
+        syncedSeqNotes = emptyMap()
         syncedSegments = emptyMap()
         syncedLevels = emptyMap()
         syncedCells = emptyMap()
@@ -440,14 +440,14 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
             // Fixed length: a sequencer always has every step, so none is ever vacated.
             clear = null,
         )
-        val dots = diffSlots(
-            sounding, fresh, syncedDots,
-            applies = { it.grid == GridKind.DOTS },
-            read = { it.dots.toList() },
-            send = { id, slot, dot ->
-                commands.setDot(id, slot, dot.step, dot.degree, dot.length, dot.velocity, dot.versions)
+        val seqNotes = diffSlots(
+            sounding, fresh, syncedSeqNotes,
+            applies = { it.grid == GridKind.NOTES },
+            read = { it.seqNotes.toList() },
+            send = { id, slot, note ->
+                commands.setSeqNote(id, slot, note.step, note.degree, note.length, note.velocity, note.versions)
             },
-            clear = { id, slot -> commands.setDot(id, slot, 0, 0, 0, 1f, 0) },
+            clear = { id, slot -> commands.setSeqNote(id, slot, 0, 0, 0, 1f, 0) },
         )
         // A ModSeq's steps go as segment slots -- a level, and one day a curve, without the time
         // a step already is -- through the same pass; the time only says the slot is in use.
@@ -512,7 +512,7 @@ class GraphSync(private val commands: GraphCommands = EngineCommands) {
         syncedBeatsPerBar = patch.beatsPerBar
         syncedTempo = patch.tempo
         syncedFonts = wanted
-        syncedDots = dots
+        syncedSeqNotes = seqNotes
         syncedSegments = segments
         syncedLevels = levels
         syncedCells = cells

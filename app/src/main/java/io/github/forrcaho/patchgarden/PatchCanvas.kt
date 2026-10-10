@@ -352,21 +352,21 @@ data class Param(
 data class Step(val degree: Int, val on: Boolean = true)
 
 /**
- * A note on a dot sequencer's grid: which step it starts on, which degree, how many
+ * A note on a note sequencer's grid: which step it starts on, which degree, how many
  * quarter steps it lasts, and how hard it is struck. Bespoke's DotSequencer is the shape,
  * and the reason notes are events with a start and an end rather than a gate a sequencer
  * holds for half a step.
  *
  * [velocity] is 0 to 1 and defaults to full, which is what every note in the app sounded
- * at before a dot could say otherwise -- so a file written without it comes back as the
+ * at before a note could say otherwise -- so a file written without it comes back as the
  * music it was. What it reaches is already there: an `Osc` takes it as amplitude, a
  * `Pluck` as how hard the string is struck, and an `FM` as both its index and its output,
  * so on an FM velocity has always meant brightness. Only the sources never chose it.
  */
-data class Dot(
+data class SeqNote(
     val step: Int,
     val degree: Int,
-    val length: Int = DOT_SUBSTEPS,
+    val length: Int = SEQ_SUBSTEPS,
     val velocity: Float = 1f,
     /**
      * Which of the Seq's versions it is in, as bits: bit 0 is version 1. "Common" is in all of
@@ -487,10 +487,10 @@ enum class GridKind {
     ENVELOPE,
 
     /**
-     * Columns are steps and rows are degrees, as in a sequence, but a cell holds a dot: a
-     * note with its own length, as many to a column as make a chord. See [Dot].
+     * Columns are steps and rows are degrees, as in a sequence, but a cell holds a note: a
+     * note with its own length, as many to a column as make a chord. See [SeqNote].
      */
-    DOTS,
+    NOTES,
 
     /**
      * Nothing to edit, only to see: a Euclid's pattern, one mark per step, filled where a
@@ -870,10 +870,10 @@ object Types {
      * lengthen or shorten it, tap one to remove it. The grid shows as many steps as the
      * sequence is long. Called DotSeq for a night, after Bespoke's DotSequencer.
      *
-     * A dot's length is its duration, in quarter steps, so a gap between two notes is made
+     * A note's length is its duration, in quarter steps, so a gap between two notes is made
      * by shortening the first -- which is Bespoke's model and was this module's own design.
      * It had a `gate` knob for a day: taking Steps' place in the menu, it could not express
-     * Steps' half step, because a length was whole steps and a dot could not be shorter than
+     * Steps' half step, because a length was whole steps and a note could not be shorter than
      * one. A length in quarter steps says that per note instead. Order mirrors
      * SeqNode::setParam -- length, transpose, interval.
      */
@@ -881,7 +881,7 @@ object Types {
         "Seq", emptyList(), listOf(Port("notes", N)),
         Color(SEQ_ACCENT),
         params = listOf(
-            Param("len", 1f, DOT_STEPS.toFloat(), 16f, "", STEP),
+            Param("len", 1f, SEQ_STEPS.toFloat(), 16f, "", STEP),
             Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
             intervalParam(),
             // The version playing, from 1, or 0 for silence -- so one knob says whether and which,
@@ -892,7 +892,7 @@ object Types {
             // How many versions there are, in the header; the engine has no use for it.
             Param("versions", 1f, MAX_VERSIONS.toFloat(), 1f, "", STEP, header = true),
         ),
-        grid = GridKind.DOTS,
+        grid = GridKind.NOTES,
         engine = NodeType.Seq, category = Category.NOTES,
     )
     /**
@@ -1428,14 +1428,14 @@ class PatchModule(
     }
 
     /**
-     * A dot sequencer's notes, in the order they were placed; empty on everything else.
+     * A note sequencer's notes, in the order they were placed; empty on everything else.
      * Positional like steps as far as the engine is concerned -- it keeps a slot per index --
-     * so removing one resends those after it, which for a grid's worth of dots is nothing.
+     * so removing one resends those after it, which for a grid's worth of notes is nothing.
      */
-    val dots: SnapshotStateList<Dot> = mutableStateListOf()
+    val seqNotes: SnapshotStateList<SeqNote> = mutableStateListOf()
 
     /**
-     * An envelope's segments, in order; empty on everything else. Positional like dots, so
+     * An envelope's segments, in order; empty on everything else. Positional like notes, so
      * the engine keeps a slot per index and one edit is one command.
      */
     val segments: SnapshotStateList<EnvSegment> = mutableStateListOf<EnvSegment>().apply {
@@ -1538,11 +1538,11 @@ class PatchModule(
     }
 
     /**
-     * Takes [from]'s grid state: its dots, or its envelope's segments.
+     * Takes [from]'s grid state: its notes, or its envelope's segments.
      *
      * One function rather than the same two lines in three places. A module is copied by
      * undo, by duplicate and by adopting a saved subpatch, and when segments arrived all
-     * three were copying dots and none of them knew about a second kind of grid -- so an
+     * three were copying notes and none of them knew about a second kind of grid -- so an
      * undone envelope, a duplicated one and one loaded from the library all came back as
      * the A/D/S/R default, silently and only for the module you had just been editing.
      * Cleared before it copies because an envelope is born with that default in it.
@@ -1557,11 +1557,11 @@ class PatchModule(
      * engine -- and it fails by *omission*, which is the failure a list cannot have.
      */
     val slotLists: List<List<Any>>
-        get() = listOf(steps.toList(), dots.toList(), segments.toList(), levels.toList(), scenes.toList(), songs.toList())
+        get() = listOf(steps.toList(), seqNotes.toList(), segments.toList(), levels.toList(), scenes.toList(), songs.toList())
 
     fun copyGridFrom(from: PatchModule) {
-        dots.clear()
-        dots.addAll(from.dots)
+        seqNotes.clear()
+        seqNotes.addAll(from.seqNotes)
         if (type.grid == GridKind.ENVELOPE) {
             segments.clear()
             segments.addAll(from.segments)
@@ -1581,8 +1581,8 @@ class PatchModule(
     // ---------------------------------------------------------------- versions
 
     /**
-     * Which version the dot grid shows and edits: 1 and up, or 0 for **all**, where an edit
-     * applies to a dot in every version it is in. View state, like [dotsLocked]: not saved,
+     * Which version the note grid shows and edits: 1 and up, or 0 for **all**, where an edit
+     * applies to a note in every version it is in. View state, like [notesLocked]: not saved,
      * not undone -- and independent of the version knob, which is the one playing.
      */
     var shownVersion by mutableIntStateOf(1)
@@ -1600,39 +1600,39 @@ class PatchModule(
     /** The bit of the version shown, or every version's in the all view. */
     val shownBits: Int get() = if (shownVersion == 0) everyVersion else 1 shl (shownVersion - 1)
 
-    /** Whether [dot] is in the version shown. Everything is, in the all view. */
-    fun shows(dot: Dot): Boolean = (dot.versions and shownBits) != 0
+    /** Whether [note] is in the version shown. Everything is, in the all view. */
+    fun shows(note: SeqNote): Boolean = (note.versions and shownBits) != 0
 
     /**
-     * Dot [index], made the version shown's own before it is edited: a dot that version shares
+     * Note [index], made the version shown's own before it is edited: a note that version shares
      * with others is split, the old one keeping the others and an unchanged copy going to this
      * version -- so the edit that follows changes this version's note and no one else's.
      * Returns the index to edit, which after a split is the copy's. In the all view, or for a
-     * dot already this version's alone, it is the dot itself: an edit there is meant for every
+     * note already this version's alone, it is the note itself: an edit there is meant for every
      * version it is in.
      */
-    fun ownDot(index: Int): Int {
-        val dot = dots.getOrNull(index) ?: return index
-        if (shownVersion == 0 || dot.versions == shownBits || dots.size >= MAX_DOTS) return index
-        dots[index] = dot.copy(versions = dot.versions and shownBits.inv())
-        dots.add(dot.copy(versions = shownBits))
-        return dots.size - 1
+    fun ownSeqNote(index: Int): Int {
+        val note = seqNotes.getOrNull(index) ?: return index
+        if (shownVersion == 0 || note.versions == shownBits || seqNotes.size >= MAX_SEQ_NOTES) return index
+        seqNotes[index] = note.copy(versions = note.versions and shownBits.inv())
+        seqNotes.add(note.copy(versions = shownBits))
+        return seqNotes.size - 1
     }
 
     /**
-     * Takes dot [index] out of the version shown: out of that version alone where others share
+     * Takes note [index] out of the version shown: out of that version alone where others share
      * it, and away entirely where none do -- or from every version, in the all view.
      */
-    fun removeShownDot(index: Int) {
-        val dot = dots.getOrNull(index) ?: return
-        val rest = dot.versions and shownBits.inv()
-        if (shownVersion == 0 || rest == 0) removeDot(index) else dots[index] = dot.copy(versions = rest)
+    fun removeShownSeqNote(index: Int) {
+        val note = seqNotes.getOrNull(index) ?: return
+        val rest = note.versions and shownBits.inv()
+        if (shownVersion == 0 || rest == 0) removeSeqNote(index) else seqNotes[index] = note.copy(versions = rest)
     }
 
-    /** Puts a dot another version has into the version shown too: a tap on a faint dot. */
-    fun adoptDot(index: Int) {
-        val dot = dots.getOrNull(index) ?: return
-        dots[index] = dot.copy(versions = dot.versions or shownBits)
+    /** Puts a note another version has into the version shown too: a tap on a faint note. */
+    fun adoptSeqNote(index: Int) {
+        val note = seqNotes.getOrNull(index) ?: return
+        seqNotes[index] = note.copy(versions = note.versions or shownBits)
     }
 
     /**
@@ -1652,9 +1652,9 @@ class PatchModule(
         if (count >= MAX_VERSIONS || type.versionsParam < 0) return false
         val bit = 1 shl count
         val shown = shownBits
-        dots.indices.forEach { i ->
-            val dot = dots[i]
-            if ((dot.versions and shown) != 0) dots[i] = dot.copy(versions = dot.versions or bit)
+        seqNotes.indices.forEach { i ->
+            val note = seqNotes[i]
+            if ((note.versions and shown) != 0) seqNotes[i] = note.copy(versions = note.versions or bit)
         }
         setParam(type.versionsParam, (count + 1).toFloat())
         shownVersion = count + 1
@@ -1662,8 +1662,8 @@ class PatchModule(
     }
 
     /**
-     * Version [version] gone: its bit taken out of every dot and the ones above it moved down,
-     * so the versions stay numbered 1 to n; a dot in no version is removed. The knob playing it
+     * Version [version] gone: its bit taken out of every note and the ones above it moved down,
+     * so the versions stay numbered 1 to n; a note in no version is removed. The knob playing it
      * plays the version that takes its number, or the last; the last version cannot go.
      */
     fun deleteVersion(version: Int): Boolean {
@@ -1673,11 +1673,11 @@ class PatchModule(
             songs.removeAt(version - 1)
         } else {
             val below = (1 shl (version - 1)) - 1
-            val renumbered = dots.map { dot ->
-                dot.copy(versions = (dot.versions and below) or ((dot.versions ushr version) shl (version - 1)))
+            val renumbered = seqNotes.map { note ->
+                note.copy(versions = (note.versions and below) or ((note.versions ushr version) shl (version - 1)))
             }.filter { it.versions != 0 }
-            dots.clear()
-            dots.addAll(renumbered)
+            seqNotes.clear()
+            seqNotes.addAll(renumbered)
         }
         setParam(type.versionsParam, (count - 1).toFloat())
         val knob = type.versionParam
@@ -1689,65 +1689,65 @@ class PatchModule(
         return true
     }
 
-    /** Adds [dot] unless the sequencer is full. */
-    fun addDot(dot: Dot): Boolean {
-        if (dots.size >= MAX_DOTS) return false
-        dots.add(dot)
+    /** Adds [note] unless the sequencer is full. */
+    fun addSeqNote(note: SeqNote): Boolean {
+        if (seqNotes.size >= MAX_SEQ_NOTES) return false
+        seqNotes.add(note)
         return true
     }
 
-    fun removeDot(index: Int) {
-        if (index in dots.indices) dots.removeAt(index)
+    fun removeSeqNote(index: Int) {
+        if (index in seqNotes.indices) seqNotes.removeAt(index)
     }
 
-    fun setDotLength(index: Int, length: Int) {
-        val dot = dots.getOrNull(index) ?: return
-        if (dot.length != length) dots[index] = dot.copy(length = length.coerceIn(1, DOT_STEPS * DOT_SUBSTEPS))
+    fun setSeqNoteLength(index: Int, length: Int) {
+        val note = seqNotes.getOrNull(index) ?: return
+        if (note.length != length) seqNotes[index] = note.copy(length = length.coerceIn(1, SEQ_STEPS * SEQ_SUBSTEPS))
     }
 
-    fun setDotVelocity(index: Int, velocity: Float) {
-        val dot = dots.getOrNull(index) ?: return
+    fun setSeqNoteVelocity(index: Int, velocity: Float) {
+        val note = seqNotes.getOrNull(index) ?: return
         val held = velocity.coerceIn(MIN_VELOCITY, 1f)
-        // Never to silence: a dot dragged to nothing would still draw and still take its
+        // Never to silence: a note dragged to nothing would still draw and still take its
         // step, and the only way to find out it was there would be to drag it back up.
-        if (dot.velocity != held) dots[index] = dot.copy(velocity = held)
+        if (note.velocity != held) seqNotes[index] = note.copy(velocity = held)
     }
 
     /**
-     * Moves dot [index] to [step] and [degree], unless another dot is in the way.
+     * Moves note [index] to [step] and [degree], unless another note is in the way.
      *
      * Refused rather than clamped when the target overlaps: the finger goes on moving and
-     * the dot stays where it was until the way is clear, which reads as the dot declining
-     * to pass rather than as a jump to somewhere nobody aimed at. Two dots at one degree
-     * cannot overlap for the same reason [dotRoom] exists -- the second's start would be
+     * the note stays where it was until the way is clear, which reads as the note declining
+     * to pass rather than as a jump to somewhere nobody aimed at. Two notes at one degree
+     * cannot overlap for the same reason [seqNoteRoom] exists -- the second's start would be
      * heard as nothing.
      */
-    fun moveDot(index: Int, step: Int, degree: Int): Boolean {
-        val dot = dots.getOrNull(index) ?: return false
-        val column = step.coerceIn(0, dotColumns(this) - 1)
-        if (dot.step == column && dot.degree == degree) return true
-        val blocked = dots.withIndex().any { (other, it) ->
-            other != index && it.degree == degree && (it.versions and dot.versions) != 0 &&
-                column < it.step + it.stepsSpanned && it.step < column + dot.stepsSpanned
+    fun moveSeqNote(index: Int, step: Int, degree: Int): Boolean {
+        val note = seqNotes.getOrNull(index) ?: return false
+        val column = step.coerceIn(0, seqColumns(this) - 1)
+        if (note.step == column && note.degree == degree) return true
+        val blocked = seqNotes.withIndex().any { (other, it) ->
+            other != index && it.degree == degree && (it.versions and note.versions) != 0 &&
+                column < it.step + it.stepsSpanned && it.step < column + note.stepsSpanned
         }
         if (blocked) return false
-        dots[index] = dot.copy(step = column, degree = degree)
+        seqNotes[index] = note.copy(step = column, degree = degree)
         return true
     }
 
     /**
-     * Whether this sequencer's dots are pinned where they are.
+     * Whether this sequencer's notes are pinned where they are.
      *
      * The lock on the panel, and the whole of what it does: with it on, a vertical drag on a
-     * dot has no position to change and sets the dot's velocity instead. It is stated as a
+     * note has no position to change and sets the note's velocity instead. It is stated as a
      * lock rather than as a velocity mode because that is the honest description of it --
-     * "what a vertical drag means" is a fact about the tool, "whether a dot can move" is a
-     * fact about the dots, and the second one is what a finger is asking about.
+     * "what a vertical drag means" is a fact about the tool, "whether a note can move" is a
+     * fact about the notes, and the second one is what a finger is asking about.
      *
      * View state, like [gridBottom] and which panel is open: not saved, not undone. A mode
      * you left on last week is not part of the instrument.
      */
-    var dotsLocked by mutableStateOf(false)
+    var notesLocked by mutableStateOf(false)
 
     /**
      * The parameters given a jack, by index, and what each sweeps between.
@@ -2487,7 +2487,7 @@ private fun scaleDetail(scale: Scale): String {
 private val scaleAccent = Color(0xFF6FA8E5)
 
 /**
- * The lock chip: a padlock, lit when the dots are pinned.
+ * The lock chip: a padlock, lit when the notes are pinned.
  *
  * Drawn rather than lettered, and the shackle is what says the state -- closed and centered
  * over the body when locked, lifted and hinged to one side when not. The fill says it too,
@@ -2757,7 +2757,7 @@ internal fun panelIntervalChip(panel: Rect, d: Float, fontScale: Float = 1f): Re
 }
 
 /**
- * The lock, immediately left of a dot sequencer's interval chip.
+ * The lock, immediately left of a note sequencer's interval chip.
  *
  * Derived from that chip rather than measured from the panel's edge, so the two cannot
  * drift apart when either moves. Square and drawn as a glyph rather than a word, which is
@@ -2800,7 +2800,7 @@ internal fun panelEndChip(panel: Rect, d: Float, fontScale: Float = 1f): Rect {
 
 /** What a tap on the version strip picks. */
 internal sealed interface VersionPick {
-    /** The all view, where an edit applies to a dot in every version it is in. */
+    /** The all view, where an edit applies to a note in every version it is in. */
     data object All : VersionPick
     data class Version(val n: Int) : VersionPick
     /** A new version, copying the one shown. */
@@ -3131,8 +3131,8 @@ internal fun panelCellAt(
         return degree to degree
     }
 
-    if (module.type.grid == GridKind.DOTS) {
-        return dotColumnAt(area, dotColumns(module), at.x) to window.degreeAt(row)
+    if (module.type.grid == GridKind.NOTES) {
+        return seqColumnAt(area, seqColumns(module), at.x) to window.degreeAt(row)
     }
 
     val cellWidth = area.width / module.type.stepCount
@@ -3141,40 +3141,40 @@ internal fun panelCellAt(
 }
 
 /**
- * A dot sequencer's columns: as many as the sequence is long. Unlike Steps, which draws all
+ * A note sequencer's columns: as many as the sequence is long. Unlike Steps, which draws all
  * sixteen and dims those past the loop, because thirty-two at once is a 20dp cell -- a short
  * loop gets cells a finger can hit, and a long one is the choice to pay for detail.
  */
-internal fun dotColumns(module: PatchModule): Int =
-    module.params.getOrElse(0) { 16f }.roundToInt().coerceIn(1, DOT_STEPS)
+internal fun seqColumns(module: PatchModule): Int =
+    module.params.getOrElse(0) { 16f }.roundToInt().coerceIn(1, SEQ_STEPS)
 
 /** The column under [x], clamped to the grid, so a drag past either end holds at it. */
-internal fun dotColumnAt(area: Rect, columns: Int, x: Float): Int =
+internal fun seqColumnAt(area: Rect, columns: Int, x: Float): Int =
     ((x - area.left) / (area.width / columns)).toInt().coerceIn(0, columns - 1)
 
-/** How many steps a dot reaches into, which is what it covers on the grid. */
-internal val Dot.stepsSpanned: Int get() = (length + DOT_SUBSTEPS - 1) / DOT_SUBSTEPS
+/** How many steps a note reaches into, which is what it covers on the grid. */
+internal val SeqNote.stepsSpanned: Int get() = (length + SEQ_SUBSTEPS - 1) / SEQ_SUBSTEPS
 
-/** The dot covering [column] at [degree], or -1. A dot covers every step it reaches into. */
-internal fun PatchModule.dotAt(column: Int, degree: Int): Int =
-    dots.indexOfFirst { shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
+/** The note covering [column] at [degree], or -1. A note covers every step it reaches into. */
+internal fun PatchModule.seqNoteAt(column: Int, degree: Int): Int =
+    seqNotes.indexOfFirst { shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
 
-/** A dot covering [column] at [degree] in a version other than the one shown, or -1: a faint one. */
-internal fun PatchModule.faintDotAt(column: Int, degree: Int): Int =
-    dots.indexOfFirst { !shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
+/** A note covering [column] at [degree] in a version other than the one shown, or -1: a faint one. */
+internal fun PatchModule.faintSeqNoteAt(column: Int, degree: Int): Int =
+    seqNotes.indexOfFirst { !shows(it) && it.degree == degree && column >= it.step && column < it.step + it.stepsSpanned }
 
 /**
- * How long dot [index] may grow, in quarter steps: to the end of the grid, or to the next
- * dot at its degree, whichever is first -- two notes at one pitch cannot overlap, since the
+ * How long note [index] may grow, in quarter steps: to the end of the grid, or to the next
+ * note at its degree, whichever is first -- two notes at one pitch cannot overlap, since the
  * second's start would be heard as nothing.
  */
-internal fun PatchModule.dotRoom(index: Int): Int {
-    val dot = dots[index]
-    val next = dots.filter {
-        it !== dot && it.degree == dot.degree && it.step > dot.step && (it.versions and dot.versions) != 0
+internal fun PatchModule.seqNoteRoom(index: Int): Int {
+    val note = seqNotes[index]
+    val next = seqNotes.filter {
+        it !== note && it.degree == note.degree && it.step > note.step && (it.versions and note.versions) != 0
     }
-        .minOfOrNull { it.step } ?: dotColumns(this)
-    return ((minOf(next, dotColumns(this)) - dot.step) * DOT_SUBSTEPS).coerceAtLeast(1)
+        .minOfOrNull { it.step } ?: seqColumns(this)
+    return ((minOf(next, seqColumns(this)) - note.step) * SEQ_SUBSTEPS).coerceAtLeast(1)
 }
 
 /**
@@ -3183,9 +3183,9 @@ internal fun PatchModule.dotRoom(index: Int): Int {
  * What a stretch measures against. The column is not enough any more: a note may end partway
  * through a step, so where inside the cell the finger is decides the length.
  */
-internal fun dotSubstepAt(area: Rect, columns: Int, x: Float): Int {
-    val per = area.width / (columns * DOT_SUBSTEPS)
-    return ((x - area.left) / per).toInt().coerceIn(0, columns * DOT_SUBSTEPS - 1)
+internal fun seqSubstepAt(area: Rect, columns: Int, x: Float): Int {
+    val per = area.width / (columns * SEQ_SUBSTEPS)
+    return ((x - area.left) / per).toInt().coerceIn(0, columns * SEQ_SUBSTEPS - 1)
 }
 
 /**
@@ -3231,7 +3231,7 @@ private const val SEQUENCE_OCTAVES_ABOVE = 4f
 internal fun gridWindow(module: PatchModule, area: Rect, d: Float, scale: Scale): GridWindow {
     if (module.type.grid == GridKind.DRONE) return droneWindow(module, area, d, scale)
     val rows = gridRows(area, d)
-    val written = if (module.type.grid == GridKind.DOTS) module.dots.map { it.degree }
+    val written = if (module.type.grid == GridKind.NOTES) module.seqNotes.map { it.degree }
         else module.steps.map { it.degree }
     val lowest = minOf(
         floor(-SEQUENCE_OCTAVES_BELOW / scale.period).toInt() * scale.size,
@@ -5570,7 +5570,7 @@ fun PatchCanvas(
         // A sequencer's only, of either kind. A drone has no position to report, and polling one every
         // frame for a -1 is a frame's work for nothing.
         val id = openModule?.takeIf {
-            it.type.grid == GridKind.SEQUENCE || it.type.grid == GridKind.DOTS ||
+            it.type.grid == GridKind.SEQUENCE || it.type.grid == GridKind.NOTES ||
                 it.type.grid == GridKind.PATTERN || it.type.grid == GridKind.LEVELS ||
                 it.type.grid == GridKind.SONG
         }?.id
@@ -5961,11 +5961,11 @@ fun PatchCanvas(
                                 open.toggleEnd()
                                 return@awaitEachGesture
                             }
-                            if (open.type.grid == GridKind.DOTS &&
+                            if (open.type.grid == GridKind.NOTES &&
                                 panelLockChip(panel, frame.density, frame.fontScale).contains(down.position)
                             ) {
                                 waitForUpRelease()
-                                open.dotsLocked = !open.dotsLocked
+                                open.notesLocked = !open.notesLocked
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 return@awaitEachGesture
                             }
@@ -6183,7 +6183,7 @@ fun PatchCanvas(
                             }
 
                             // An envelope's editor, which is not a grid of cells and has its
-                            // own loop for that reason -- as the dot grid does below.
+                            // own loop for that reason -- as the note grid does below.
                             //
                             // Three targets, never a mode: the shape in the middle, a rail of
                             // levels above it and a rail of times below. A node carries a time
@@ -6263,7 +6263,7 @@ fun PatchCanvas(
                                 // whole editor feel unreliable: a tap is what a finger does
                                 // when it means to grab something, so segments vanished while
                                 // people were trying to drag them, and a removed node costs
-                                // its time and its curve where a removed dot costs one tap to
+                                // its time and its curve where a removed note costs one tap to
                                 // put back. Deliberate gesture, deliberate loss. The release
                                 // mark is kept off the tap for the same reason: the node most
                                 // often touched and not moved is the release node itself, with
@@ -6316,8 +6316,8 @@ fun PatchCanvas(
                                     val travel = change.position - down.position
                                     if (!envMoved && travel.getDistance() > slop) envMoved = true
                                     if (envMoved && grabbed != null && node >= 0) {
-                                        // Both axes at once, unlike a dot, which locks to one:
-                                        // a dot is a cell in a grid and a node is a point, and
+                                        // Both axes at once, unlike a note, which locks to one:
+                                        // a note is a cell in a grid and a node is a point, and
                                         // carrying a point to a new time almost always wants a
                                         // new level with it.
                                         open.setSegment(
@@ -6379,31 +6379,31 @@ fun PatchCanvas(
                             val rowHeight = gridArea.height / window.rows
                             var moved = false
 
-                            // A dot sequencer's grid: a drag that starts on a dot either
+                            // A note sequencer's grid: a drag that starts on a note either
                             // stretches it or takes it somewhere, one that starts on an empty
-                            // cell scrolls, and a tap adds a dot or takes one away. Its own
+                            // cell scrolls, and a tap adds a note or takes one away. Its own
                             // loop, since none of it is a Steps cell's toggle.
                             //
-                            // Which of the two a drag on a dot is gets decided once, on the
+                            // Which of the two a drag on a note is gets decided once, on the
                             // first move, from the direction it went -- the same way the
                             // canvas loop decides what a gesture is, and for the same reason:
                             // a drag that keeps changing its mind halfway is unusable. Across
                             // is the length, since a length is a distance along the grid;
                             // down the grid is the degree, since that is what the rows are.
-                            // With the dots locked there is no position to change, so a
+                            // With the notes locked there is no position to change, so a
                             // vertical drag sets how hard the note is struck instead.
-                            if (cell != null && inEditor && open.type.grid == GridKind.DOTS) {
+                            if (cell != null && inEditor && open.type.grid == GridKind.NOTES) {
                                 val (column, degree) = cell
-                                // A dot in the version shown; failing that, a faint one another
+                                // A note in the version shown; failing that, a faint one another
                                 // version has, which only a tap can take -- into this version.
-                                var hit = open.dotAt(column, degree)
-                                val faint = if (hit < 0) open.faintDotAt(column, degree) else -1
-                                val columns = dotColumns(open)
-                                val startVelocity = open.dots.getOrNull(hit)?.velocity ?: 1f
-                                // Where in the dot the finger landed, so a long one carried
+                                var hit = open.seqNoteAt(column, degree)
+                                val faint = if (hit < 0) open.faintSeqNoteAt(column, degree) else -1
+                                val columns = seqColumns(open)
+                                val startVelocity = open.seqNotes.getOrNull(hit)?.velocity ?: 1f
+                                // Where in the note the finger landed, so a long one carried
                                 // by its third step does not jump to put its start under the
                                 // finger. It is held by the part that was grabbed.
-                                val grabbed = column - (open.dots.getOrNull(hit)?.step ?: column)
+                                val grabbed = column - (open.seqNotes.getOrNull(hit)?.step ?: column)
                                 var lengthwise = false
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -6414,32 +6414,32 @@ fun PatchCanvas(
                                         lengthwise = abs(travel.x) >= abs(travel.y)
                                         // A drag edits the version shown's own note: one it shares
                                         // with others is split first, so they keep the old one.
-                                        if (hit >= 0) hit = open.ownDot(hit)
+                                        if (hit >= 0) hit = open.ownSeqNote(hit)
                                     }
                                     if (moved && hit >= 0 && lengthwise) {
                                         // In quarter steps, so a drag can end a note partway
                                         // through a cell -- which is the whole of what the
                                         // retired gate knob did, said per note.
-                                        val under = dotSubstepAt(gridArea, columns, change.position.x)
-                                        val dot = open.dots[hit]
-                                        val from = dot.step * DOT_SUBSTEPS
-                                        open.setDotLength(hit, (under - from + 1).coerceIn(1, open.dotRoom(hit)))
-                                    } else if (moved && hit >= 0 && open.dotsLocked) {
-                                        // Relative to where the dot already was, so a pass
+                                        val under = seqSubstepAt(gridArea, columns, change.position.x)
+                                        val note = open.seqNotes[hit]
+                                        val from = note.step * SEQ_SUBSTEPS
+                                        open.setSeqNoteLength(hit, (under - from + 1).coerceIn(1, open.seqNoteRoom(hit)))
+                                    } else if (moved && hit >= 0 && open.notesLocked) {
+                                        // Relative to where the note already was, so a pass
                                         // over a phrase never jumps to wherever the finger
                                         // happens to have landed. Up is louder.
-                                        open.setDotVelocity(
+                                        open.setSeqNoteVelocity(
                                             hit,
                                             startVelocity - travel.y / (VELOCITY_TRAVEL * frame.density),
                                         )
                                     } else if (moved && hit >= 0) {
                                         // Both axes once it is moving: the drag was vertical
-                                        // to begin with, but a dot being carried to another
+                                        // to begin with, but a note being carried to another
                                         // degree usually wants a different step too.
                                         panelCellAt(
                                             panel, frame.density, open, change.position, gridScale,
                                         )?.let { (toColumn, toDegree) ->
-                                            open.moveDot(hit, toColumn - grabbed, toDegree)
+                                            open.moveSeqNote(hit, toColumn - grabbed, toDegree)
                                         }
                                     } else if (moved) {
                                         val rows = (change.position.y - down.position.y) / rowHeight
@@ -6449,9 +6449,9 @@ fun PatchCanvas(
                                 }
                                 if (!moved) {
                                     when {
-                                        hit >= 0 -> open.removeShownDot(hit)
-                                        faint >= 0 -> open.adoptDot(faint)
-                                        else -> open.addDot(Dot(column, degree, versions = open.shownBits))
+                                        hit >= 0 -> open.removeShownSeqNote(hit)
+                                        faint >= 0 -> open.adoptSeqNote(faint)
+                                        else -> open.addSeqNote(SeqNote(column, degree, versions = open.shownBits))
                                     }
                                 }
                                 return@awaitEachGesture
@@ -6854,7 +6854,7 @@ fun PatchCanvas(
                 val color = patch.kindOf(conn.from).cable.copy(alpha = if (dim) 0.3f else CABLE_ALPHA)
                 drawCable(a, b, color, 2.5f * d, intoBottom = conn.to.dir == PortDirection.MOD)
                 // A plug at each end, in the cable's color. Drawn over, the stroke would cover the
-                // jack's own dot; this puts one back, and says the jack is taken, as a patched jack
+                // jack's own note; this puts one back, and says the jack is taken, as a patched jack
                 // on the open panel already does.
                 for ((ref, at) in listOf(conn.from to a, conn.to to b)) {
                     val pinned = patch.module(ref.moduleId)?.isPinned == true
@@ -8141,7 +8141,7 @@ internal class EnvGeometry(val area: Rect, val axis: Float, private val inset: F
     /**
      * How far a drag of [dx]/[dy] pixels moves a node, in seconds and in level.
      *
-     * Relative rather than absolute, like the dot grid's velocity drag and for the same
+     * Relative rather than absolute, like the note grid's velocity drag and for the same
      * reason: a node taken by its edge should not jump to put its centre under the finger.
      */
     fun timeDelta(dx: Float): Float = (dx / area.width) * axis
@@ -8616,10 +8616,10 @@ private fun DrawScope.drawEuclidPattern(area: Rect, d: Float, module: PatchModul
 }
 
 /**
- * A dot sequencer's grid: the same rows of degrees as a sequence, with each dot drawn as one
+ * A note sequencer's grid: the same rows of degrees as a sequence, with each note drawn as one
  * bar across the steps it lasts, so a long note looks long.
  */
-private fun DrawScope.drawDotGrid(
+private fun DrawScope.drawSeqGrid(
     area: Rect,
     d: Float,
     module: PatchModule,
@@ -8629,7 +8629,7 @@ private fun DrawScope.drawDotGrid(
     playingStep: Int,
     beatsPerBar: Int = 4,
 ) {
-    val columns = dotColumns(module)
+    val columns = seqColumns(module)
     val window = gridWindow(module, area, d, scale)
     val rows = window.rows
     val cellW = area.width / columns
@@ -8666,23 +8666,23 @@ private fun DrawScope.drawDotGrid(
 
     drawBeatLines(area, d, columns, module.interval, beatsPerBar)
 
-    val substep = cellW / DOT_SUBSTEPS
-    module.dots.forEach { dot ->
-        if (dot.step >= columns) return@forEach
-        // Its own width, in quarter steps, clipped to the grid: a dot that ends partway
+    val substep = cellW / SEQ_SUBSTEPS
+    module.seqNotes.forEach { note ->
+        if (note.step >= columns) return@forEach
+        // Its own width, in quarter steps, clipped to the grid: a note that ends partway
         // through a cell is drawn ending there, because that is when the note ends.
-        val left = area.left + dot.step * cellW
-        val right = minOf(left + dot.length * substep, area.right)
-        val sounding = playingStep in dot.step until dot.step + dot.stepsSpanned
-        if (dot.degree in window.bottom..window.top) {
-            val row = window.top - dot.degree
+        val left = area.left + note.step * cellW
+        val right = minOf(left + note.length * substep, area.right)
+        val sounding = playingStep in note.step until note.step + note.stepsSpanned
+        if (note.degree in window.bottom..window.top) {
+            val row = window.top - note.degree
             val rect = Rect(
                 Offset(left + inset, area.top + row * cellH + inset),
                 Size(maxOf(right - left - inset * 2f, substep / 2f), cellH - inset * 2f),
             )
             val corner = CornerRadius(cellH / 3f, cellH / 3f)
             // How hard it is struck, as how much of it is filled -- Bespoke's DotSequencer
-            // shows velocity this way and it is the right answer here too: the dot keeps its
+            // shows velocity this way and it is the right answer here too: the note keeps its
             // full outline, so a quiet note is still a note at that step rather than a
             // smaller thing that has to be aimed at. Filled from the bottom, because that is
             // the direction the drag that sets it goes.
@@ -8690,27 +8690,27 @@ private fun DrawScope.drawDotGrid(
             // and not every version is that version's color, outlined where others share it;
             // one in another version only is faint, an outline a tap can take into this one.
             // With two versions, Forrest's three colors exactly.
-            val shown = module.shows(dot)
+            val shown = module.shows(note)
             val color = when {
-                module.versionCount <= 1 || dot.versions == module.everyVersion -> accent
-                module.shownVersion == 0 -> versionColor(Integer.numberOfTrailingZeros(dot.versions) + 1)
+                module.versionCount <= 1 || note.versions == module.everyVersion -> accent
+                module.shownVersion == 0 -> versionColor(Integer.numberOfTrailingZeros(note.versions) + 1)
                 else -> versionColor(module.shownVersion)
             }
             if (!shown) {
                 // In the color of the version it is in, so a faint note says whose it is.
-                val whose = if (dot.versions == module.everyVersion) accent
-                    else versionColor(Integer.numberOfTrailingZeros(dot.versions) + 1)
+                val whose = if (note.versions == module.everyVersion) accent
+                    else versionColor(Integer.numberOfTrailingZeros(note.versions) + 1)
                 drawRoundRect(
                     whose.copy(alpha = 0.45f), rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d),
                 )
                 return@forEach
             }
             drawRoundRect(color.copy(alpha = 0.3f), rect.topLeft, rect.size, corner)
-            val fill = rect.height * dot.velocity.coerceIn(0f, 1f)
+            val fill = rect.height * note.velocity.coerceIn(0f, 1f)
             clipRect(rect.left, rect.bottom - fill, rect.right, rect.bottom) {
                 drawRoundRect(color, rect.topLeft, rect.size, corner)
             }
-            if (color != accent && dot.versions != module.shownBits && module.shownVersion != 0) {
+            if (color != accent && note.versions != module.shownBits && module.shownVersion != 0) {
                 drawRoundRect(accent, rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d))
             }
             if (sounding) {
@@ -8722,11 +8722,11 @@ private fun DrawScope.drawDotGrid(
         } else {
             // Out of sight above or below: a mark on that edge across the steps it lasts, so
             // a stretch of grid is never silently empty -- as a sequence's scrolled notes.
-            val above = dot.degree > window.top
+            val above = note.degree > window.top
             val y = if (above) area.top else area.bottom - 3f * d
             // Another version's, faint here as on the grid.
             val alpha = when {
-                !module.shows(dot) -> 0.2f
+                !module.shows(note) -> 0.2f
                 sounding -> 1f
                 else -> 0.6f
             }
@@ -9912,13 +9912,13 @@ internal const val STEP_COUNT = 16
 /** Cells in a drone's grid; mirrors DroneNode::kCells, which is capped by a scale's degrees. */
 internal const val DRONE_CELLS = 64
 
-/** Steps on a dot sequencer's grid. Mirrors SeqNode::kSteps. */
-internal const val DOT_STEPS = 32
+/** Steps on a note sequencer's grid. Mirrors SeqNode::kSteps. */
+internal const val SEQ_STEPS = 32
 
 /**
- * Divisions of a step a dot's length is counted in. Mirrors SeqNode::kDotSubsteps.
+ * Divisions of a step a note's length is counted in. Mirrors SeqNode::kSubsteps.
  *
- * A dot's length *is* its duration -- that is what a dot sequencer is, and it is Bespoke's
+ * A note's length *is* its duration -- that is what a note sequencer is, and it is Bespoke's
  * model. It was whole steps once, which meant nothing could be shorter than a step, and a
  * `gate` knob was added to take a share off the last step of every note at once when Seq
  * took Steps' place in the menu. Quarter steps say the same thing per note and say more, so
@@ -9928,23 +9928,23 @@ internal const val DOT_STEPS = 32
  * is 20dp and a quarter of it is 5dp, past what a drag can aim at -- but 32 columns is the
  * longest loop there is, and a short one has room to spare.
  */
-internal const val DOT_SUBSTEPS = 4
+internal const val SEQ_SUBSTEPS = 4
 
 /**
- * The quietest a dot can be dragged to.
+ * The quietest a note can be dragged to.
  *
- * Not zero: a silent dot draws and takes its step like any other, so the only way to learn
- * it was there would be to drag it back up. A dot you do not want is removed with a tap.
+ * Not zero: a silent note draws and takes its step like any other, so the only way to learn
+ * it was there would be to drag it back up. A note you do not want is removed with a tap.
  */
 internal const val MIN_VELOCITY = 0.05f
 
 /**
- * How far a finger travels, in dp, to take a dot's velocity across its whole range.
+ * How far a finger travels, in dp, to take a note's velocity across its whole range.
  *
  * A fixed distance rather than a share of the grid, because the grid's height is however
  * many rows a scale happens to show and the drag should not get coarser on a long scale.
  * 120dp is about a comfortable thumb swing on the reference device, and the drag is
- * relative to where the dot already was, so a long pass over a phrase never jumps.
+ * relative to where the note already was, so a long pass over a phrase never jumps.
  */
 internal const val VELOCITY_TRAVEL = 120f
 
@@ -9978,8 +9978,8 @@ internal const val MAX_BUTTONS = 16
 /** Seq's accent, a green that clears the others; see ModuleColorTest. */
 internal const val SEQ_ACCENT = 0xFFD8F0AC
 
-/** Dots one sequencer holds. Mirrors SeqNode::kMaxDots. */
-internal const val MAX_DOTS = 128
+/** Notes one sequencer holds. Mirrors SeqNode::kMaxNotes. */
+internal const val MAX_SEQ_NOTES = 128
 
 /**
  * Segments one envelope holds. Mirrors EnvNode::kMaxSegments.
@@ -11016,10 +11016,10 @@ private fun DrawScope.drawPanel(
         drawChip(panelIntervalChip(panel, d, fontScale), d, module.stepLabel, intervalMenu, scaleAccent, measurer)
     }
 
-    // Only where there are dots to pin: it is the lock on their position, not a panel
+    // Only where there are notes to pin: it is the lock on their position, not a panel
     // ornament, and no other grid has anything for it to mean.
-    if (module.type.grid == GridKind.DOTS) {
-        drawLockChip(panelLockChip(panel, d, fontScale), d, module.dotsLocked, scaleAccent)
+    if (module.type.grid == GridKind.NOTES) {
+        drawLockChip(panelLockChip(panel, d, fontScale), d, module.notesLocked, scaleAccent)
     }
     if (module.type.versionsParam >= 0) {
         val label = if (module.shownVersion == 0) "all" else "v${module.shownVersion}"
@@ -11099,7 +11099,7 @@ private fun DrawScope.drawPanel(
             gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
         )
         GridKind.DRONE -> drawDroneGrid(gridArea, d, module, scale, module.type.accent)
-        GridKind.DOTS -> drawDotGrid(
+        GridKind.NOTES -> drawSeqGrid(
             gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
         )
         GridKind.PATTERN -> drawEuclidPattern(gridArea, d, module, module.type.accent, playingStep)

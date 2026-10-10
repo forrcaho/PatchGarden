@@ -443,7 +443,7 @@ private:
 };
 
 /**
- * A sequencer of notes with lengths: a grid of steps by degrees, each note ("dot") its own
+ * A sequencer of notes with lengths: a grid of steps by degrees, each note ("note") its own
  * length, and as many to a column as make a chord. Bespoke's DotSequencer is the shape, and
  * the reason notes became events at all (ROADMAP, Phase 6). Called DotSeq for a night, then
  * Seq, when it took over from Steps.
@@ -453,10 +453,10 @@ private:
  * a step, and a gap between two notes is made by shortening the first.
  *
  * That is Bespoke's model and was this module's own until Seq took Steps' place in the Add
- * menu: a dot's length was whole steps, nothing could be shorter than one, and a `gate` knob
+ * menu: a note's length was whole steps, nothing could be shorter than one, and a `gate` knob
  * was added to take a share off the last step of every note at once. A length in quarter
  * steps says the same thing per note and says more -- Steps' half step is a length of 2 --
- * so the knob went and duration is the dot's own extent again.
+ * so the knob went and duration is the note's own extent again.
  *
  * The whole steps of a length are counted in ticks, so a stopped transport holds a note
  * exactly as it holds a Steps note; the part step left over is counted in frames from the
@@ -469,22 +469,22 @@ private:
  */
 class SeqNode : public Node {
 public:
-    /** Mirrored by DOT_STEPS in PatchCanvas.kt. */
+    /** Mirrored by SEQ_STEPS in PatchCanvas.kt. */
     static constexpr int32_t kSteps = 32;
-    /** Mirrored by MAX_DOTS in PatchCanvas.kt. */
-    static constexpr int32_t kMaxDots = 128;
+    /** Mirrored by MAX_SEQ_NOTES in PatchCanvas.kt. */
+    static constexpr int32_t kMaxNotes = 128;
     /**
-     * Divisions of a step a note's length is counted in. Mirrored by DOT_SUBSTEPS.
+     * Divisions of a step a note's length is counted in. Mirrored by SEQ_SUBSTEPS.
      *
      * Four, which is what a finger can place on a cell a finger can hit: at 32 columns a
      * cell is 20dp and a quarter of it is 5dp, which is already past what a drag can aim
      * at and is only reachable on a short loop. It also makes Steps' half step -- the
      * length the retired `gate` knob defaulted to -- an exact 2.
      */
-    static constexpr int32_t kDotSubsteps = 4;
+    static constexpr int32_t kSubsteps = 4;
     /** Notes sounding at once. Two chords of eight overlapping, which no voice here can play anyway. */
     static constexpr int32_t kMaxHeld = 16;
-    /** Mirrored by MAX_VERSIONS in PatchCanvas.kt: the bits a dot's versions are. */
+    /** Mirrored by MAX_VERSIONS in PatchCanvas.kt: the bits a note's versions are. */
     static constexpr int32_t kMaxVersions = 8;
 
     int32_t inputCount() const override { return 0; }
@@ -529,14 +529,14 @@ private:
     Interval interval_ = intervalOf(kDefaultInterval);
     float transposeCents_ = 0.0f;
 
-    int32_t dotStep_[kMaxDots] = {};
-    int32_t dotDegree_[kMaxDots] = {};
+    int32_t noteStep_[kMaxNotes] = {};
+    int32_t noteDegree_[kMaxNotes] = {};
     /** In quarter steps; 0 for an empty slot. */
-    int32_t dotLength_[kMaxDots] = {};
+    int32_t noteLength_[kMaxNotes] = {};
     /** 0 to 1, how hard the note is struck. */
-    float dotVelocity_[kMaxDots] = {};
-    /** Which versions each dot is in, as bits; see the version knob. */
-    uint32_t dotVersions_[kMaxDots] = {};
+    float noteVelocity_[kMaxNotes] = {};
+    /** Which versions each note is in, as bits; see the version knob. */
+    uint32_t noteVersions_[kMaxNotes] = {};
 
     /**
      * The version playing, from 1, or 0 for silence -- so one knob says whether and which,

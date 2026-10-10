@@ -647,7 +647,7 @@ class GestureTest {
         assertEquals(0.012f, rig.env.segments[0].time, 1e-6f)
     }
 
-    // ------------------------------------------------------------------ the dot grid
+    // ------------------------------------------------------------------ the note grid
 
     /** A Seq with its panel open, and where its grid is drawn. */
     private inner class SeqRig {
@@ -666,7 +666,7 @@ class GestureTest {
 
         /** The middle of the cell [column] steps along and [row] rows down. */
         fun cell(column: Int, row: Int) = Offset(
-            grid.left + (column + 0.5f) * grid.width / dotColumns(seq),
+            grid.left + (column + 0.5f) * grid.width / seqColumns(seq),
             grid.top + (row + 0.5f) * grid.height / rows,
         )
 
@@ -674,38 +674,38 @@ class GestureTest {
     }
 
     @Test
-    fun `a tap on the dot grid adds a dot, and a tap on the dot takes it away`() {
+    fun `a tap on the note grid adds a note, and a tap on the note takes it away`() {
         val rig = SeqRig()
         val at = rig.cell(3, 2)
         rig.host.tap(at)
-        assertEquals(listOf(3 to rig.degreeAt(at)), rig.seq.dots.map { it.step to it.degree })
+        assertEquals(listOf(3 to rig.degreeAt(at)), rig.seq.seqNotes.map { it.step to it.degree })
         rig.host.tap(at)
-        assertTrue(rig.seq.dots.isEmpty())
+        assertTrue(rig.seq.seqNotes.isEmpty())
     }
 
     @Test
-    fun `a dot dragged across is stretched, in quarter steps`() {
+    fun `a note dragged across is stretched, in quarter steps`() {
         val rig = SeqRig()
         val at = rig.cell(2, 2)
         rig.host.tap(at)
-        val before = rig.seq.dots.single().length
-        // From the dot's right end to three steps further on.
+        val before = rig.seq.seqNotes.single().length
+        // From the note's right end to three steps further on.
         rig.host.drag(at, rig.cell(5, 2))
-        assertTrue("stretched: $before -> ${rig.seq.dots.single().length}", rig.seq.dots.single().length > before)
-        assertEquals("and still where it started", 2, rig.seq.dots.single().step)
+        assertTrue("stretched: $before -> ${rig.seq.seqNotes.single().length}", rig.seq.seqNotes.single().length > before)
+        assertEquals("and still where it started", 2, rig.seq.seqNotes.single().step)
     }
 
     @Test
-    fun `with the dots locked, a drag down a dot is its velocity`() {
+    fun `with the seqNotes locked, a drag down a note is its velocity`() {
         val rig = SeqRig()
         val at = rig.cell(4, 3)
         rig.host.tap(at)
-        val dot = rig.seq.dots.single()
+        val note = rig.seq.seqNotes.single()
         rig.host.tap(panelLockChip(rig.panel, rig.host.d).center)
         rig.host.drag(at, at + Offset(0f, 200f))
-        val after = rig.seq.dots.single()
-        assertEquals("not moved", dot.step to dot.degree, after.step to after.degree)
-        assertTrue("softer: ${dot.velocity} -> ${after.velocity}", after.velocity < dot.velocity)
+        val after = rig.seq.seqNotes.single()
+        assertEquals("not moved", note.step to note.degree, after.step to after.degree)
+        assertTrue("softer: ${note.velocity} -> ${after.velocity}", after.velocity < note.velocity)
     }
 
     // ------------------------------------------------------------------ Seq versions
@@ -726,9 +726,9 @@ class GestureTest {
         assertEquals(2, rig.seq.versionCount)
         assertEquals(2, rig.seq.shownVersion)
         rig.host.tap(at)
-        assertEquals("still there, in version 1", 0b01, rig.seq.dots.single().versions)
+        assertEquals("still there, in version 1", 0b01, rig.seq.seqNotes.single().versions)
         rig.host.tap(at)
-        assertEquals("and a tap on the faint note takes it back into version 2", 0b11, rig.seq.dots.single().versions)
+        assertEquals("and a tap on the faint note takes it back into version 2", 0b11, rig.seq.seqNotes.single().versions)
     }
 
     @Test
@@ -738,9 +738,9 @@ class GestureTest {
         rig.host.tap(at)
         rig.pickVersion(VersionPick.Add)
         rig.host.drag(at, rig.cell(4, 2))
-        val (v1, v2) = rig.seq.dots.partition { it.versions == 0b01 }
-        assertEquals("version 1 keeps a note one step long", DOT_SUBSTEPS, v1.single().length)
-        assertTrue("version 2's is longer", v2.single().length > DOT_SUBSTEPS)
+        val (v1, v2) = rig.seq.seqNotes.partition { it.versions == 0b01 }
+        assertEquals("version 1 keeps a note one step long", SEQ_SUBSTEPS, v1.single().length)
+        assertTrue("version 2's is longer", v2.single().length > SEQ_SUBSTEPS)
     }
 
     @Test
@@ -822,7 +822,7 @@ class GestureTest {
         assertEquals(before, rig.seq.interval)
         // Closed: the next tap lands on the grid, as it would with no chooser ever opened.
         rig.host.tap(rig.cell(1, 1))
-        assertEquals(1, rig.seq.dots.size)
+        assertEquals(1, rig.seq.seqNotes.size)
     }
 
     /**

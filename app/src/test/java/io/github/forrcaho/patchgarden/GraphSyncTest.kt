@@ -25,7 +25,7 @@ private sealed interface Cmd {
     data class ConnectMod(val src: Long, val srcPort: Int, val dst: Long, val index: Int) : Cmd
     data class DisconnectMod(val src: Long, val srcPort: Int, val dst: Long, val index: Int) : Cmd
     data class SetFont(val id: Long, val font: Long) : Cmd
-    data class SetDot(
+    data class SetSeqNote(
         val id: Long, val slot: Int, val step: Int, val degree: Int, val length: Int,
         val velocity: Float = 1f,
         val versions: Int = 1,
@@ -63,8 +63,8 @@ private class Recorder : GraphCommands {
     }
     override fun setTempo(bpm: Float) { log += Cmd.SetTempo(bpm) }
     override fun setFont(id: Long, font: Long) { log += Cmd.SetFont(id, font) }
-    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
-        log += Cmd.SetDot(id, slot, step, degree, length, velocity, versions)
+    override fun setSeqNote(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) {
+        log += Cmd.SetSeqNote(id, slot, step, degree, length, velocity, versions)
     }
     override fun setSegment(
         id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean,
@@ -574,11 +574,11 @@ class ModuleContractTest {
     }
 
     /**
-     * The same again for the slot kinds, which became a crossing the day steps, dots and
+     * The same again for the slot kinds, which became a crossing the day steps, notes and
      * segments started sharing one command.
      *
      * The tag is what tells the engine which member of a union it was handed, so a Kotlin
-     * id that disagreed would not be a dropped edit -- it would be a segment read as a dot,
+     * id that disagreed would not be a dropped edit -- it would be a segment read as a note,
      * its time reinterpreted as a step index. Silent, and wrong in the loudest possible way.
      */
     @Test
@@ -587,7 +587,8 @@ class ModuleContractTest {
         val body = header.substringAfter("enum class SlotKind : int32_t {").substringBefore("}")
         val engine = Regex("""(\w+)\s*=\s*(\d+)""")
             .findAll(body)
-            .associate { it.groupValues[1].uppercase() to it.groupValues[2].toInt() }
+            // SeqNote in C++ is SEQ_NOTE in Kotlin: each side's own casing for the same name.
+            .associate { it.groupValues[1].replace(Regex("(?<=[a-z])(?=[A-Z])"), "_").uppercase() to it.groupValues[2].toInt() }
         assertEquals(SlotKind.entries.size, engine.size)
         assertEquals(engine, SlotKind.entries.associate { it.name to it.id })
     }
@@ -602,12 +603,12 @@ class ModuleContractTest {
     }
 
     @Test
-    fun `the dot sequencer's limits are the engine's`() {
+    fun `the note sequencer's limits are the engine's`() {
         val header = java.io.File("src/main/cpp/nodes.h").readText().substringAfter("class SeqNode")
         fun constant(name: String) =
             Regex("""constexpr int32_t $name = (\d+);""").find(header)!!.groupValues[1].toInt()
-        assertEquals(constant("kSteps"), DOT_STEPS)
-        assertEquals(constant("kMaxDots"), MAX_DOTS)
+        assertEquals(constant("kSteps"), SEQ_STEPS)
+        assertEquals(constant("kMaxNotes"), MAX_SEQ_NOTES)
     }
 
     @Test
@@ -1385,46 +1386,46 @@ class SoundFontSyncTest {
     }
 }
 
-/** Dots cross by slot: only what changed, a cleared slot for one that went, all of them for a new node. */
-class DotSyncTest {
+/** Notes cross by slot: only what changed, a cleared slot for one that went, all of them for a new node. */
+class SeqNoteSyncTest {
 
     @Test
-    fun `dots cross by slot, and only when they change`() {
+    fun `seqNotes cross by slot, and only when they change`() {
         val patch = Patch()
         val seq = patch.add(Types.Seq, Offset.Zero)!!
-        seq.addDot(Dot(0, 0, 2))
-        seq.addDot(Dot(4, 7, 1))
+        seq.addSeqNote(SeqNote(0, 0, 2))
+        seq.addSeqNote(SeqNote(4, 7, 1))
         val rec = Recorder()
         val sync = GraphSync(rec)
         sync.sync(patch)
         assertEquals(
-            listOf(Cmd.SetDot(seq.id, 0, 0, 0, 2), Cmd.SetDot(seq.id, 1, 4, 7, 1)),
-            rec.log.filterIsInstance<Cmd.SetDot>(),
+            listOf(Cmd.SetSeqNote(seq.id, 0, 0, 0, 2), Cmd.SetSeqNote(seq.id, 1, 4, 7, 1)),
+            rec.log.filterIsInstance<Cmd.SetSeqNote>(),
         )
 
         rec.log.clear()
-        seq.setDotLength(1, 3)
+        seq.setSeqNoteLength(1, 3)
         sync.sync(patch)
-        assertEquals(listOf(Cmd.SetDot(seq.id, 1, 4, 7, 3)), rec.log.filterIsInstance<Cmd.SetDot>())
+        assertEquals(listOf(Cmd.SetSeqNote(seq.id, 1, 4, 7, 3)), rec.log.filterIsInstance<Cmd.SetSeqNote>())
 
-        // How hard it is struck is part of the dot, so it crosses the same way and for the
+        // How hard it is struck is part of the note, so it crosses the same way and for the
         // same reason: the engine is told the slot that changed and nothing else.
         rec.log.clear()
-        seq.setDotVelocity(1, 0.4f)
+        seq.setSeqNoteVelocity(1, 0.4f)
         sync.sync(patch)
         assertEquals(
-            listOf(Cmd.SetDot(seq.id, 1, 4, 7, 3, 0.4f)),
-            rec.log.filterIsInstance<Cmd.SetDot>(),
+            listOf(Cmd.SetSeqNote(seq.id, 1, 4, 7, 3, 0.4f)),
+            rec.log.filterIsInstance<Cmd.SetSeqNote>(),
         )
 
         // The first goes: the second moves to slot 0, and slot 1 is cleared.
         rec.log.clear()
-        seq.removeDot(0)
+        seq.removeSeqNote(0)
         sync.sync(patch)
         assertEquals(
             // A cleared slot is in no version, which is what its length of 0 already says.
-            listOf(Cmd.SetDot(seq.id, 0, 4, 7, 3, 0.4f), Cmd.SetDot(seq.id, 1, 0, 0, 0, versions = 0)),
-            rec.log.filterIsInstance<Cmd.SetDot>(),
+            listOf(Cmd.SetSeqNote(seq.id, 0, 4, 7, 3, 0.4f), Cmd.SetSeqNote(seq.id, 1, 0, 0, 0, versions = 0)),
+            rec.log.filterIsInstance<Cmd.SetSeqNote>(),
         )
 
         rec.log.clear()

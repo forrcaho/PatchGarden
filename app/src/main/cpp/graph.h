@@ -110,7 +110,7 @@ public:
      * One entry of a node's slot-indexed list. See [SlotValue].
      *
      * The three helpers under it are the typed way in, and the only reason they exist: a
-     * call site reading `postSetDot(id, 3, step, degree, length, velocity)` says what it
+     * call site reading `postSetSeqNote(id, 3, step, degree, length, velocity)` says what it
      * means where a packed struct literal would not.
      */
     bool postSetSlot(int64_t id, const SlotValue &slot);
@@ -119,10 +119,10 @@ public:
     bool postSetStep(int64_t id, int32_t index, int32_t degree, bool gate) {
         return postSetSlot(id, stepSlot(index, degree, gate));
     }
-    /** One dot of a dot sequencer, by slot; a length of 0 clears the slot. */
-    bool postSetDot(int64_t id, int32_t slot, int32_t step, int32_t degree, int32_t length,
+    /** One note of a note sequencer, by slot; a length of 0 clears the slot. */
+    bool postSetSeqNote(int64_t id, int32_t slot, int32_t step, int32_t degree, int32_t length,
                     float velocity) {
-        return postSetSlot(id, dotSlot(slot, step, degree, length, velocity));
+        return postSetSlot(id, seqNoteSlot(slot, step, degree, length, velocity));
     }
     /** One segment of an envelope, by slot; a time of 0 clears the slot. */
     bool postSetSegment(int64_t id, int32_t slot, float time, float level, float curve,
@@ -207,7 +207,7 @@ private:
         NodeType nodeType = NodeType::Unknown;
         Node *node = nullptr;
         int32_t paramIndex = 0;
-        /** SetParam's value, the low end of SetModRange's, and SetDot's velocity. */
+        /** SetParam's value, the low end of SetModRange's, and SetSeqNote's velocity. */
         float value = 0.0f;
         /** SetModRange only: the high end, and whether the sweep between them is geometric. */
         float high = 0.0f;
@@ -218,7 +218,7 @@ private:
         ScaleList *scales = nullptr;
         /** SetResource only: what the node takes. */
         Resource *resource = nullptr;
-        /** SetSlot only: one entry of a step, dot or segment list, tagged with which. */
+        /** SetSlot only: one entry of a step, note or segment list, tagged with which. */
         SlotValue slot;
     };
 

@@ -476,7 +476,7 @@ void StepsNode::tick(int32_t offset, int64_t count) {
  * How much of its step a note sounds for.
  *
  * Fixed for now. The note length used to be the width of the clock's gate, and a knob to
- * replace it would be a third row on a panel that fits two; the dot sequencer brings a
+ * replace it would be a third row on a panel that fits two; the note sequencer brings a
  * length on every note, which is where the control belongs. Half keeps notes distinct
  * and leaves the envelope a release before the next one.
  */
@@ -575,15 +575,15 @@ void StepsNode::setParam(int32_t index, float value) {
 // ---------------------------------------------------------------- Seq
 
 void SeqNode::setSlot(const SlotValue &slot) {
-    if (slot.kind != SlotKind::Dot) return;
+    if (slot.kind != SlotKind::SeqNote) return;
     const int32_t i = slot.index;
-    if (i < 0 || i >= kMaxDots) return;
-    const DotSlot &d = slot.dot;
-    dotStep_[i] = std::max(0, std::min(d.step, kSteps - 1));
-    dotDegree_[i] = d.degree;
-    dotLength_[i] = std::max(0, std::min(d.length, kSteps * kDotSubsteps));
-    dotVelocity_[i] = clampf(d.velocity, 0.0f, 1.0f);
-    dotVersions_[i] = d.versions;
+    if (i < 0 || i >= kMaxNotes) return;
+    const SeqNoteSlot &d = slot.note;
+    noteStep_[i] = std::max(0, std::min(d.step, kSteps - 1));
+    noteDegree_[i] = d.degree;
+    noteLength_[i] = std::max(0, std::min(d.length, kSteps * kSubsteps));
+    noteVelocity_[i] = clampf(d.velocity, 0.0f, 1.0f);
+    noteVersions_[i] = d.versions;
 }
 
 void SeqNode::tick(int32_t offset, int64_t count) {
@@ -636,30 +636,30 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
     const int64_t length = length_ > 0 ? length_ : 1;
     const int64_t at = count - origin_;
     step_ = static_cast<int32_t>(((at % length) + length) % length);
-    // Version 0 is silence; past that, a dot plays in the versions its bits say.
+    // Version 0 is silence; past that, a note plays in the versions its bits say.
     const uint32_t playing = version_ > 0 ? 1u << static_cast<uint32_t>(version_ - 1) : 0u;
     // The beat the boundary falls on, in integers, which decides the scale -- as Steps.
     const int64_t beat = floorDiv(count * interval.num, interval.den);
-    for (int32_t d = 0; d < kMaxDots; ++d) {
-        if (dotLength_[d] <= 0 || dotStep_[d] != step_) continue;
-        if ((dotVersions_[d] & playing) == 0) continue;
+    for (int32_t d = 0; d < kMaxNotes; ++d) {
+        if (noteLength_[d] <= 0 || noteStep_[d] != step_) continue;
+        if ((noteVersions_[d] & playing) == 0) continue;
         if (heldCount_ >= kMaxHeld) break;
         NoteEvent on;
         on.id = nextNoteId_++;
         on.kind = NoteKind::On;
         on.offset = offset;
-        on.degree = dotDegree_[d];
+        on.degree = noteDegree_[d];
         on.beat = beat;
         on.cents = transposeCents_;
-        on.velocity = dotVelocity_[d];
+        on.velocity = noteVelocity_[d];
         if (!notes.push(on)) break;
         // Whole steps in ticks, the part step in frames. A length under one step has no
         // whole steps at all, so its part starts on this very tick -- which is why the
         // pass below runs after the starts rather than beside the ends above.
         held_[heldCount_++] = Held{
                 on.id, on.degree, beat,
-                count + dotLength_[d] / kDotSubsteps,
-                dotLength_[d] % kDotSubsteps,
+                count + noteLength_[d] / kSubsteps,
+                noteLength_[d] % kSubsteps,
                 -1,
         };
     }
@@ -672,7 +672,7 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
         if (held.gateLeft >= 0 || held.tail == 0 || held.endCount > count) continue;
         const int64_t frames = beatsPerFrame_ > 0.0
                 ? static_cast<int64_t>(held.tail * interval.num /
-                                       (kDotSubsteps * interval.den * beatsPerFrame_))
+                                       (kSubsteps * interval.den * beatsPerFrame_))
                 : 0;
         if (frames > 0) held.gateLeft = frames; else held.tail = 0;
     }

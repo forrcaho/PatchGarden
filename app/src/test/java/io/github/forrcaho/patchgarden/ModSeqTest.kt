@@ -150,7 +150,7 @@ internal object NoCommands : GraphCommands {
     override fun setScales(entries: List<ScaleEntry>, beatsPerBar: Int) = Unit
     override fun setTempo(bpm: Float) = Unit
     override fun setFont(id: Long, font: Long) = Unit
-    override fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) = Unit
+    override fun setSeqNote(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int) = Unit
     override fun setSegment(id: Long, slot: Int, time: Float, level: Float, curve: Float, sustain: Boolean) = Unit
     override fun setSection(id: Long, slot: Int, scene: Int, length: Int) = Unit
     override fun collectGarbage() = Unit

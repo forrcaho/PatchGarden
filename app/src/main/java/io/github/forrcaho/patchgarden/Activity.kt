@@ -34,7 +34,7 @@ internal data class Watch(val id: Long, val versionKnob: Int)
 
 /** Whether the engine reports where this module has got to. */
 internal val PatchModule.reportsPosition: Boolean
-    get() = type.grid == GridKind.SEQUENCE || type.grid == GridKind.DOTS || type.grid == GridKind.PATTERN ||
+    get() = type.grid == GridKind.SEQUENCE || type.grid == GridKind.NOTES || type.grid == GridKind.PATTERN ||
         type.grid == GridKind.LEVELS || type.grid == GridKind.SONG
 
 /** Whether something is patched into [module]'s version knob, so only the engine knows its value. */

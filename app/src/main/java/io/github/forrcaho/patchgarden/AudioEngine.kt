@@ -82,9 +82,9 @@ object AudioEngine {
     fun setStep(id: Long, index: Int, degree: Int, gate: Boolean): Boolean =
         slot(SlotKind.STEP, id, index, i0 = degree, flag = gate)
 
-    /** One dot of a dot sequencer, by slot, with the versions it is in as bits; a length of 0 clears it. */
-    fun setDot(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int): Boolean =
-        slot(SlotKind.DOT, id, slot, i0 = step, i1 = degree, i2 = length, i3 = versions, f0 = velocity)
+    /** One note of a note sequencer, by slot, with the versions it is in as bits; a length of 0 clears it. */
+    fun setSeqNote(id: Long, slot: Int, step: Int, degree: Int, length: Int, velocity: Float, versions: Int): Boolean =
+        slot(SlotKind.SEQ_NOTE, id, slot, i0 = step, i1 = degree, i2 = length, i3 = versions, f0 = velocity)
 
     /** One segment of an envelope, by slot; a time of 0 clears it. */
     fun setSegment(

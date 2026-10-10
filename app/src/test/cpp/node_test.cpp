@@ -2576,15 +2576,15 @@ void anSfWithoutItsFontIsSilent() {
     check(peak(voiceIdle(sf, 200)) > 0.05f, "and sounds once it has one");
 }
 
-/** Whole steps, in the quarter steps a dot's length is counted in. See SeqNode. */
-constexpr int32_t Q(int32_t steps) { return steps * SeqNode::kDotSubsteps; }
+/** Whole steps, in the quarter steps a note's length is counted in. See SeqNode. */
+constexpr int32_t Q(int32_t steps) { return steps * SeqNode::kSubsteps; }
 
-/** Ticks [dots] once at [count] and returns what it said. */
-NoteBuffer tickDots(SeqNode &dots, int64_t count, int32_t offset = 0) {
-    dots.setTiming(0.0, true, nullptr);
-    dots.tick(offset, count);
-    dots.process(kBlockSize);
-    return *dots.noteOutput(0);
+/** Ticks [seqNotes] once at [count] and returns what it said. */
+NoteBuffer tickNotes(SeqNode &seqNotes, int64_t count, int32_t offset = 0) {
+    seqNotes.setTiming(0.0, true, nullptr);
+    seqNotes.tick(offset, count);
+    seqNotes.process(kBlockSize);
+    return *seqNotes.noteOutput(0);
 }
 
 int countKind(const NoteBuffer &notes, NoteKind kind) {
@@ -2593,28 +2593,28 @@ int countKind(const NoteBuffer &notes, NoteKind kind) {
     return n;
 }
 
-void aDotLastsItsLength() {
-    std::printf("a dot lasts its length, in steps\n");
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setSlot(dotSlot(0, 0, 7, Q(3), 1.0f));
-    const NoteBuffer first = tickDots(dots, 0);
+void aNoteLastsItsLength() {
+    std::printf("a note lasts its length, in steps\n");
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setSlot(seqNoteSlot(0, 0, 7, Q(3), 1.0f));
+    const NoteBuffer first = tickNotes(seqNotes, 0);
     check(countKind(first, NoteKind::On) == 1 && first.events[0].degree == 7, "starts on its step");
     const uint32_t id = first.events[0].id;
-    check(countKind(tickDots(dots, 1), NoteKind::Off) == 0, "held through the second step");
-    check(countKind(tickDots(dots, 2), NoteKind::Off) == 0, "and the third");
-    const NoteBuffer end = tickDots(dots, 3);
+    check(countKind(tickNotes(seqNotes, 1), NoteKind::Off) == 0, "held through the second step");
+    check(countKind(tickNotes(seqNotes, 2), NoteKind::Off) == 0, "and the third");
+    const NoteBuffer end = tickNotes(seqNotes, 3);
     check(countKind(end, NoteKind::Off) == 1 && end.events[0].id == id, "and ends as the fourth begins");
 }
 
-void aDotIsStruckAtItsVelocity() {
-    std::printf("a dot is struck at its own velocity\n");
+void aNoteIsStruckAtItsVelocity() {
+    std::printf("a note is struck at its own velocity\n");
     const auto same = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setSlot(dotSlot(0, 0, 0, Q(1), 0.4f));
-    dots.setSlot(dotSlot(1, 0, 7, Q(1), 1.0f));
-    const NoteBuffer said = tickDots(dots, 0);
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(1), 0.4f));
+    seqNotes.setSlot(seqNoteSlot(1, 0, 7, Q(1), 1.0f));
+    const NoteBuffer said = tickNotes(seqNotes, 0);
     check(said.count == 2, "two notes");
     check(same(said.events[0].velocity, 0.4f), "the quiet one says so");
     check(same(said.events[1].velocity, 1.0f), "and the other is full");
@@ -2623,9 +2623,9 @@ void aDotIsStruckAtItsVelocity() {
     // trusted, since a velocity above one is an oscillator amplitude above one.
     SeqNode wild;
     wild.setParam(2, kEighth);
-    wild.setSlot(dotSlot(0, 0, 0, Q(1), 4.0f));
-    wild.setSlot(dotSlot(1, 0, 7, Q(1), -1.0f));
-    const NoteBuffer clamped = tickDots(wild, 0);
+    wild.setSlot(seqNoteSlot(0, 0, 0, Q(1), 4.0f));
+    wild.setSlot(seqNoteSlot(1, 0, 7, Q(1), -1.0f));
+    const NoteBuffer clamped = tickNotes(wild, 0);
     check(same(clamped.events[0].velocity, 1.0f), "above one is one");
     check(same(clamped.events[1].velocity, 0.0f), "below zero is zero");
 }
@@ -2634,7 +2634,7 @@ void aDotIsStruckAtItsVelocity() {
  * The click velocity brought with it, and the reason the level lives in GateRamp.
  *
  * Two notes that abut -- the second's On in the same block as the first's Off, which is what
- * a sequencer sends when a dot is a whole step long -- leave the gate ramp open on purpose,
+ * a sequencer sends when a note is a whole step long -- leave the gate ramp open on purpose,
  * because closing and reopening it is the step the ramp exists to avoid. Velocity as an
  * oscillator amplitude, set outright at the strike, then put that step back: the waveform
  * jumped by the whole difference between the two velocities. Found on the phone as clicking
@@ -2708,69 +2708,69 @@ void velocityIsHeard() {
     check(half < full * 0.6f && half > full * 0.4f, "and half the velocity is about half of it");
 }
 
-void aColumnOfDotsIsAChord() {
-    std::printf("a column of dots is a chord, each note its own length\n");
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setSlot(dotSlot(0, 0, 0, Q(1), 1.0f));
-    dots.setSlot(dotSlot(1, 0, 4, Q(2), 1.0f));
-    dots.setSlot(dotSlot(2, 0, 7, Q(4), 1.0f));
-    check(countKind(tickDots(dots, 0), NoteKind::On) == 3, "three notes start together");
-    check(countKind(tickDots(dots, 1), NoteKind::Off) == 1, "the shortest ends first");
-    check(countKind(tickDots(dots, 2), NoteKind::Off) == 1, "then the next");
-    check(dots.notesHeld() == 1, "leaving the longest");
+void aColumnOfNotesIsAChord() {
+    std::printf("a column of seqNotes is a chord, each note its own length\n");
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(1), 1.0f));
+    seqNotes.setSlot(seqNoteSlot(1, 0, 4, Q(2), 1.0f));
+    seqNotes.setSlot(seqNoteSlot(2, 0, 7, Q(4), 1.0f));
+    check(countKind(tickNotes(seqNotes, 0), NoteKind::On) == 3, "three notes start together");
+    check(countKind(tickNotes(seqNotes, 1), NoteKind::Off) == 1, "the shortest ends first");
+    check(countKind(tickNotes(seqNotes, 2), NoteKind::Off) == 1, "then the next");
+    check(seqNotes.notesHeld() == 1, "leaving the longest");
     NoteBuffer held;
-    dots.heldNotes(0, held);
+    seqNotes.heldNotes(0, held);
     check(held.count == 1 && held.events[0].degree == 7, "which is what a new cable is told is held");
 }
 
-void aDotEndsBeforeTheNextStarts() {
-    std::printf("a dot ends before the next one at its degree starts\n");
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setSlot(dotSlot(0, 0, 5, Q(2), 1.0f));
-    dots.setSlot(dotSlot(1, 2, 5, Q(1), 1.0f));
-    tickDots(dots, 0);
-    tickDots(dots, 1);
-    const NoteBuffer turn = tickDots(dots, 2);
+void aNoteEndsBeforeTheNextStarts() {
+    std::printf("a note ends before the next one at its degree starts\n");
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setSlot(seqNoteSlot(0, 0, 5, Q(2), 1.0f));
+    seqNotes.setSlot(seqNoteSlot(1, 2, 5, Q(1), 1.0f));
+    tickNotes(seqNotes, 0);
+    tickNotes(seqNotes, 1);
+    const NoteBuffer turn = tickNotes(seqNotes, 2);
     check(turn.count == 2, "an off and an on");
     check(turn.events[0].kind == NoteKind::Off && turn.events[1].kind == NoteKind::On,
           "the off first, so the two are two notes");
 }
 
-void dotsLoopAtTheLength() {
-    std::printf("dots loop at the sequence's length\n");
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setParam(0, 4.0f);
-    dots.setSlot(dotSlot(0, 1, 2, Q(1), 1.0f));
+void notesLoopAtTheLength() {
+    std::printf("seqNotes loop at the sequence's length\n");
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(0, 4.0f);
+    seqNotes.setSlot(seqNoteSlot(0, 1, 2, Q(1), 1.0f));
     int ons = 0;
     for (int64_t count = 0; count < 12; ++count) {
-        const NoteBuffer said = tickDots(dots, count);
+        const NoteBuffer said = tickNotes(seqNotes, count);
         if (countKind(said, NoteKind::On) > 0) {
             check(count % 4 == 1, "only on step 1 of each turn, not " + std::to_string(count));
             ++ons;
         }
     }
     check(ons == 3, "three turns, three notes");
-    dots.setSlot(dotSlot(0, 0, 0, 0, 1.0f));
+    seqNotes.setSlot(seqNoteSlot(0, 0, 0, 0, 1.0f));
     int after = 0;
-    for (int64_t count = 12; count < 20; ++count) after += countKind(tickDots(dots, count), NoteKind::On);
+    for (int64_t count = 12; count < 20; ++count) after += countKind(tickNotes(seqNotes, count), NoteKind::On);
     check(after == 0, "and a cleared slot plays nothing");
 }
 
 void aJumpInTimeEndsWhatWasHeld() {
     std::printf("a jump in time ends what was held\n");
-    SeqNode dots;
-    dots.setParam(2, kEighth);
-    dots.setSlot(dotSlot(0, 0, 0, Q(8), 1.0f));
-    tickDots(dots, 0);
-    check(dots.notesHeld() == 1, "held");
+    SeqNode seqNotes;
+    seqNotes.setParam(2, kEighth);
+    seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(8), 1.0f));
+    tickNotes(seqNotes, 0);
+    check(seqNotes.notesHeld() == 1, "held");
     // The transport reset: the tick eight steps on, which would have ended it, may never
     // come -- so the note ends where the count jumped.
-    const NoteBuffer reset = tickDots(dots, 0);
+    const NoteBuffer reset = tickNotes(seqNotes, 0);
     check(countKind(reset, NoteKind::Off) == 1, "ended at the jump");
-    check(countKind(reset, NoteKind::On) == 1, "and struck again, since step 0 has a dot");
+    check(countKind(reset, NoteKind::On) == 1, "and struck again, since step 0 has a note");
 }
 
 /** [events] into processor [node] as one block, and what came out. */
@@ -2810,8 +2810,8 @@ int firstOnDegree(const NoteBuffer &notes) {
  * This is what the `gate` knob used to do to every note at once, and why it went: a length
  * in quarter steps says it per note. Steps' half step is a length of 2.
  */
-void aDotEndsPartwayThroughAStep() {
-    std::printf("a dot whose length is not whole steps ends inside one\n");
+void aNoteEndsPartwayThroughAStep() {
+    std::printf("a note whose length is not whole steps ends inside one\n");
     // 120bpm is two beats a second; an eighth-note step is half a beat, 12000 frames.
     const double beatsPerFrame = 2.0 / kRate;
     const int32_t stepFrames = 12000;
@@ -2833,7 +2833,7 @@ void aDotEndsPartwayThroughAStep() {
 
     SeqNode seq;
     seq.setParam(2, kEighth);
-    seq.setSlot(dotSlot(0, 0, 0, Q(1) + 2, 1.0f)); // a step and a half
+    seq.setSlot(seqNoteSlot(0, 0, 0, Q(1) + 2, 1.0f)); // a step and a half
     check(countKind(tickAt(seq, 0), NoteKind::On) == 1, "starts");
     check(offsIn(seq, stepFrames - kBlockSize) == 0, "sounds all through its first step");
     tickAt(seq, 1);
@@ -2845,21 +2845,21 @@ void aDotEndsPartwayThroughAStep() {
     // does -- the case that has to be counted out after the starts rather than before them.
     SeqNode half;
     half.setParam(2, kEighth);
-    half.setSlot(dotSlot(0, 0, 0, 2, 1.0f));
+    half.setSlot(seqNoteSlot(0, 0, 0, 2, 1.0f));
     check(countKind(tickAt(half, 0), NoteKind::On) == 1, "a half-step note starts");
     check(offsIn(half, stepFrames / 2 - 2 * kBlockSize) == 0, "and holds half a step");
     check(offsIn(half, 4 * kBlockSize) == 1, "then ends, without waiting for a tick");
 
     SeqNode legato;
     legato.setParam(2, kEighth);
-    legato.setSlot(dotSlot(0, 0, 0, Q(1), 1.0f));
+    legato.setSlot(seqNoteSlot(0, 0, 0, Q(1), 1.0f));
     tickAt(legato, 0);
     check(offsIn(legato, stepFrames - kBlockSize) == 0, "a whole-step note sounds its whole step");
     check(countKind(tickAt(legato, 1), NoteKind::Off) == 1, "and ends on the tick after");
 }
 
 /**
- * Seq versions (roadmap item 4): a dot plays in the versions its bits name, version 0 is
+ * Seq versions (roadmap item 4): a note plays in the versions its bits name, version 0 is
  * silence, and a change of version restarts the loop from the next tick -- the cable that
  * says "play B'" also says "from the top". Not the first value a new node is sent, though:
  * one loaded on version 2 is in step with everything else.
@@ -2873,9 +2873,9 @@ void aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange() {
     };
     SeqNode seq;
     seq.setParam(0, 4.0f);  // four steps
-    seq.setSlot(dotSlot(0, 0, 0, 1, 1.0f, 0b01));  // version 1 only, on step one
-    seq.setSlot(dotSlot(1, 0, 7, 1, 1.0f, 0b10));  // version 2 only, on step one too
-    seq.setSlot(dotSlot(2, 2, 3, 1, 1.0f, 0b11));  // both, on step three
+    seq.setSlot(seqNoteSlot(0, 0, 0, 1, 1.0f, 0b01));  // version 1 only, on step one
+    seq.setSlot(seqNoteSlot(1, 0, 7, 1, 1.0f, 0b10));  // version 2 only, on step one too
+    seq.setSlot(seqNoteSlot(2, 2, 3, 1, 1.0f, 0b11));  // both, on step three
     check(ons(seq, 0) == 1, "version 1 plays its own note on step one, not version 2's");
     check(ons(seq, 1) == 0, "nothing on step two");
     check(ons(seq, 2) == 1, "a note in both plays in either");
@@ -2896,7 +2896,7 @@ void aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange() {
     SeqNode loaded;
     loaded.setParam(0, 4.0f);
     loaded.setParam(3, 2.0f);  // before any tick: how the file left it, not a change
-    loaded.setSlot(dotSlot(0, 1, 7, 1, 1.0f, 0b10));
+    loaded.setSlot(seqNoteSlot(0, 1, 7, 1, 1.0f, 0b10));
     check(ons(loaded, 5) == 1 && loaded.position() == 1, "a node made on version 2 counts from the transport, not a restart");
 }
 
@@ -4098,15 +4098,15 @@ int main() {
     anSfPlaysItsNoteInTune();
     anSfGlidesAndLetsGo();
     anSfWithoutItsFontIsSilent();
-    aDotLastsItsLength();
-    aDotIsStruckAtItsVelocity();
+    aNoteLastsItsLength();
+    aNoteIsStruckAtItsVelocity();
     abuttingNotesAtDifferentVelocitiesDoNotStep();
     velocityIsHeard();
-    aColumnOfDotsIsAChord();
-    aDotEndsBeforeTheNextStarts();
-    dotsLoopAtTheLength();
+    aColumnOfNotesIsAChord();
+    aNoteEndsBeforeTheNextStarts();
+    notesLoopAtTheLength();
     aJumpInTimeEndsWhatWasHeld();
-    aDotEndsPartwayThroughAStep();
+    aNoteEndsPartwayThroughAStep();
     aDroneTransposeMovesWhatItHolds();
     chanceDecidesEachNoteOnce();
     chordMakesEveryNoteAChord();

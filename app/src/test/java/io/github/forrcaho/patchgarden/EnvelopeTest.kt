@@ -116,7 +116,7 @@ class EnvelopeTest {
         env.segments.add(EnvSegment(0.3f, 0.7f, -0.4f))
         env.segments.add(EnvSegment(1.25f, 0.2f, 0.9f, sustain = true))
         val json = patch.toJson()
-        assertTrue(json.contains("\"version\":22"))
+        assertTrue(json.contains("\"version\":23"))
         // Legible in the file, which is why velocity and these go through Float.toString:
         // widening 0.3f to a double writes 0.30000001192092896.
         assertTrue("and readable with cat: $json", json.contains("[0.3,0.7,-0.4,0]"))
@@ -478,7 +478,7 @@ class EnvelopeTest {
     /**
      * Every path that copies a module carries the shape, not just undo.
      *
-     * All three were copying dots and none knew about a second kind of grid, so an undone
+     * All three were copying notes and none knew about a second kind of grid, so an undone
      * envelope, a duplicated one and one loaded from the library each came back as the
      * A/D/S/R default -- silently, and only for the module just edited. They share
      * [PatchModule.copyGridFrom] now, and this is what says so.

@@ -449,7 +449,7 @@ class ModulationPanelTest {
         }
         assertEquals("and six do not fit", 2, columns(Types.Mix, 6))
 
-        // Seq's three, against a dot grid that keeps half the body.
+        // Seq's three, against a note grid that keeps half the body.
         assertEquals("a sequencer reaches two columns at three", 2, columns(Types.Seq, 3))
         assertEquals("but not at two, as Steps had", 1, columns(Types.Steps, 2))
     }

@@ -192,7 +192,7 @@ class SubpatchLibraryTest {
     @Test
     fun `a name that would escape the folder cannot`() {
         assertEquals("Bass_Lead", SubpatchLibrary.safeName("Bass/Lead"))
-        // A dot is not kept either, which is what makes ".." impossible rather than handled.
+        // A note is not kept either, which is what makes ".." impossible rather than handled.
         SubpatchLibrary.safeName("../../etc/passwd").let { safe ->
             assertFalse(safe, safe.contains('/'))
             assertFalse(safe, safe.contains(".."))

@@ -15,7 +15,7 @@ import java.io.File
  *
  * Seq -> Osc -> Gain -> Out, with the same Seq opening an Env on the Gain's modulation port,
  * so what you hear is the envelope's shape and nothing else -- an Osc is one knob and the
- * Gain has no character of its own. The dots are long and well separated, because the point
+ * Gain has no character of its own. The notes are long and well separated, because the point
  * is to hear a whole shape rather than a texture.
  */
 class EnvTestPatchGen {
@@ -37,7 +37,7 @@ class EnvTestPatchGen {
         // heard through and a gap between them so the release is not covered by the next.
         seq.setParam(0, 16f)
         listOf(0, 4, 8, 12).forEachIndexed { i, step ->
-            seq.addDot(Dot(step, listOf(0, 4, 7, 12)[i], DOT_SUBSTEPS * 2))
+            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], SEQ_SUBSTEPS * 2))
         }
         // A sine, so the shape is the only thing moving.
         osc.setParam(0, 3f)
@@ -97,7 +97,7 @@ class EnvTestPatchGen {
         // A step a beat at 120bpm: four notes, each half a beat long and four beats apart.
         seq.setParam(0, 16f)
         listOf(0, 4, 8, 12).forEachIndexed { i, step ->
-            seq.addDot(Dot(step, listOf(0, 4, 7, 12)[i], DOT_SUBSTEPS / 2))
+            seq.addSeqNote(SeqNote(step, listOf(0, 4, 7, 12)[i], SEQ_SUBSTEPS / 2))
         }
         osc.setParam(0, 3f) // a sine
 

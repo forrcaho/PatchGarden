@@ -172,7 +172,7 @@ private fun Patch.changesFrom(source: Patch): Set<Long> {
             was.font != now.font ||
             was.params.toList() != now.params.toList() ||
             was.steps.toList() != now.steps.toList() ||
-            was.dots.toList() != now.dots.toList() ||
+            was.seqNotes.toList() != now.seqNotes.toList() ||
             was.modRanges != now.modRanges
         ) {
             changed += id

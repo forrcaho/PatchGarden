@@ -47,7 +47,7 @@ class EarTestPatchGen {
         seq1.setParam(2, 3f)   // half a beat
         for (step in 0 until 8) {
             // Half a step long: note, gap, note, gap.
-            seq1.addDot(Dot(step, if (step % 2 == 0) -12 else 0, 2))
+            seq1.addSeqNote(SeqNote(step, if (step % 2 == 0) -12 else 0, 2))
         }
         osc1.setParam(0, 3f)   // sine
         amp1.setParam(0, 0.4f) // clear of the limiter, so the edge is the only thing on trial
@@ -69,7 +69,7 @@ class EarTestPatchGen {
         seq2.setParam(2, 3f)
         listOf(0, 5, 3, -2).forEachIndexed { i, degree ->
             // Three and a half steps, so a chord rings and then clears before the next.
-            seq2.addDot(Dot(i * 4, degree, 14))
+            seq2.addSeqNote(SeqNote(i * 4, degree, 14))
         }
         chord2.setParam(0, 4f)
         chord2.setParam(1, 7f)
@@ -108,7 +108,7 @@ class EarTestPatchGen {
         seq3.setParam(2, 3f)
         listOf(0, 7, 3, 10).forEachIndexed { i, degree ->
             // Three steps long, a new one every two: each chord overlaps the next.
-            seq3.addDot(Dot(i * 2, degree, 12))
+            seq3.addSeqNote(SeqNote(i * 2, degree, 12))
         }
         chord3.setParam(0, 4f)
         chord3.setParam(1, 7f)
@@ -144,7 +144,7 @@ class EarTestPatchGen {
         listOf(0, 2, 4, 7, 9, 7, 4, 2).forEachIndexed { step, degree ->
             // Six quarter steps: a step and a half, so each note is still held when the
             // next one starts.
-            seq4.addDot(Dot(step, degree, 6))
+            seq4.addSeqNote(SeqNote(step, degree, 6))
         }
         osc4.setParam(0, 2f)   // triangle
         env4.setParam(0, 0.02f)

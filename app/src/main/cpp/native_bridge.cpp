@@ -156,7 +156,7 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeDisconnectMod(JNIEnv *, jo
 }
 
 /**
- * One entry of a node's slot-indexed list: a step, a dot or a segment.
+ * One entry of a node's slot-indexed list: a step, a note or a segment.
  *
  * One shim rather than one per kind, so a new kind of list adds a case here and nothing else
  * on this boundary. The arguments are the union of what the kinds carry, which makes
@@ -176,8 +176,8 @@ Java_io_github_forrcaho_patchgarden_AudioEngine_nativeSetSlot(JNIEnv *, jobject,
         case SlotKind::Step:
             slot = stepSlot(index, i0, flag == JNI_TRUE);
             break;
-        case SlotKind::Dot:
-            slot = dotSlot(index, i0, i1, i2, f0, static_cast<uint32_t>(i3));
+        case SlotKind::SeqNote:
+            slot = seqNoteSlot(index, i0, i1, i2, f0, static_cast<uint32_t>(i3));
             break;
         case SlotKind::Segment:
             slot = segmentSlot(index, f0, f1, f2, flag == JNI_TRUE);

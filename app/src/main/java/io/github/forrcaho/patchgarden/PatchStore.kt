@@ -29,9 +29,9 @@ import java.io.File
  * 9: the redesign around subpatches. Groups became subpatches, so their type names in the
  * file changed; Osc and FM lost their envelopes, so their knob lists are shorter and every
  * index after the first moved; Poly and Amp arrived. Nothing older can be read.
- * 10: a dot's length is in quarter steps, and Seq lost its gate knob. A 9 reads as a
+ * 10: a note's length is in quarter steps, and Seq lost its gate knob. A 9 reads as a
  * quarter of the music it is.
- * 11: a dot says how hard it is struck. Additive, and a 10 still reads: a dot without a
+ * 11: a note says how hard it is struck. Additive, and a 10 still reads: a note without a
  * velocity comes back at full, which is what every note in the app sounded at.
  * 12: a Filter says its type and its slope. Additive in the same way -- a filter that names
  * neither was a 12dB lowpass, which is what it comes back as -- so 11 and 10 still read.
@@ -84,14 +84,17 @@ import java.io.File
  * never a conversion.
  * 21: the overnight build of 2026-10-04 -- an LFO has a phase, and ModSeq, a loop of levels
  * sent as modulation, is a new module whose levels are saved as `levels`; a Seq has versions,
- * each dot saying which as a fifth number, with `version` and `versions` knobs; and an Osc
+ * each note saying which as a fifth number, with `version` and `versions` knobs; and an Osc
  * has its `fm` port back, a third input, with an `index` knob. Reads nothing but 21, under
  * the same policy, one bump for everything that night.
  * 22: the Arranger, roadmap item 5, a new module whose scenes are saved as `scenes` -- a name
  * and a level a lane -- and whose songs as `songs`, a list each of [scene, steps]. Reads nothing
  * but 22, under the same policy: an older build would read it as retired and autosave without it.
+ * 23: the Seq reworked, 2026-10-09 -- its notes saved as `notes` where they were `dots`, a note's
+ * length in whole steps, the sequence's length in beats or bars, and per-version notes. Reads
+ * nothing but 23: a 22 file read here would lose every note without a word.
  */
-private const val FORMAT_VERSION = 22
+private const val FORMAT_VERSION = 23
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {
@@ -105,7 +108,7 @@ fun Patch.toJson(): String {
             .put("params", paramsOf(m))
             .put("steps", stepsOf(m))
             .put("mod", modOf(m))
-        if (m.type.grid == GridKind.DOTS) entry.put("dots", dotsOf(m))
+        if (m.type.grid == GridKind.NOTES) entry.put("notes", seqNotesOf(m))
         if (m.type.grid == GridKind.ENVELOPE) entry.put("segments", segmentsOf(m))
         if (m.type.grid == GridKind.LEVELS) {
             entry.put("levels", JSONArray().apply { m.levels.forEach { put(it.toString().toDouble()) } })
@@ -245,15 +248,15 @@ private fun stepsOf(module: PatchModule): JSONArray {
 }
 
 /**
- * A dot sequencer's dots, each as [step, degree, length, velocity, versions]: positional.
+ * A note sequencer's notes, each as [step, degree, length, velocity, versions]: positional.
  *
  * The velocity is written even when it is full, so the file says what it means rather than
  * leaving a reader to know the default -- and so a byte-for-byte round trip holds, which is
  * what stops History recording a load as an edit.
  */
-private fun dotsOf(module: PatchModule): JSONArray {
+private fun seqNotesOf(module: PatchModule): JSONArray {
     val out = JSONArray()
-    module.dots.forEach {
+    module.seqNotes.forEach {
         // Through the float's own toString, because widening 0.3f to a double writes
         // 0.30000001192092896 into a file people read with `cat`. Both round-trip back to
         // the same float; only one of them is legible.
@@ -265,22 +268,22 @@ private fun dotsOf(module: PatchModule): JSONArray {
     return out
 }
 
-/** Clamped, because the file is untrusted: a dot off the grid is placed on its last step. */
-private fun restoreDots(module: PatchModule, stored: JSONArray?) {
-    if (stored == null || module.type.grid != GridKind.DOTS) return
-    for (i in 0 until minOf(stored.length(), MAX_DOTS)) {
+/** Clamped, because the file is untrusted: a note off the grid is placed on its last step. */
+private fun restoreSeqNotes(module: PatchModule, stored: JSONArray?) {
+    if (stored == null || module.type.grid != GridKind.NOTES) return
+    for (i in 0 until minOf(stored.length(), MAX_SEQ_NOTES)) {
         val d = stored.optJSONArray(i) ?: continue
         if (d.length() < 3) continue
-        module.addDot(
-            Dot(
-                d.optInt(0).coerceIn(0, DOT_STEPS - 1),
+        module.addSeqNote(
+            SeqNote(
+                d.optInt(0).coerceIn(0, SEQ_STEPS - 1),
                 d.optInt(1),
-                // In quarter steps since format 10; see DOT_SUBSTEPS.
-                d.optInt(2, DOT_SUBSTEPS).coerceIn(1, DOT_STEPS * DOT_SUBSTEPS),
+                // In quarter steps since format 10; see SEQ_SUBSTEPS.
+                d.optInt(2, SEQ_SUBSTEPS).coerceIn(1, SEQ_STEPS * SEQ_SUBSTEPS),
                 // Absent in a format 10 file, where every note was struck at full.
                 d.optDouble(3, 1.0).toFloat().takeIf { it.isFinite() }
                     ?.coerceIn(MIN_VELOCITY, 1f) ?: 1f,
-                // Which versions it is in, as bits; a dot in none would never be seen again.
+                // Which versions it is in, as bits; a note in none would never be seen again.
                 (d.optInt(4, 1) and ALL_VERSIONS).takeIf { it != 0 } ?: 1,
             ),
         )
@@ -288,7 +291,7 @@ private fun restoreDots(module: PatchModule, stored: JSONArray?) {
 }
 
 /**
- * An envelope's segments, each as [time, level, curve, sustain]: positional, like a dot.
+ * An envelope's segments, each as [time, level, curve, sustain]: positional, like a note.
  *
  * The floats go through their own toString for the same reason velocity does -- widening
  * 0.3f to a double writes 0.30000001192092896 into a file people read with `cat` -- and the
@@ -526,7 +529,7 @@ fun patchFromJson(text: String, scales: ScaleLibrary = ScaleLibrary.of(null)): P
             // Absent in files written before sequences were editable, which leaves the
             // module on the same default figure it used to have compiled in.
             restoreSteps(module, m.optJSONArray("steps"))
-            restoreDots(module, m.optJSONArray("dots"))
+            restoreSeqNotes(module, m.optJSONArray("notes"))
             restoreSegments(module, m.optJSONArray("segments"))
             restoreLevels(module, m.optJSONArray("levels"))
             restoreArranger(module, m.optJSONArray("scenes"), m.optJSONArray("songs"))
@@ -620,7 +623,7 @@ private fun upgrade(root: JSONObject): JSONObject? {
     // Nothing older, and for the reason every refusal here exists: the conversion would be
     // silent and the patch would be quietly not the one that was saved. A format 8 file
     // names a "Group", which this build reads as a retired type and skips, taking everything
-    // inside it. A 9 stores a dot's length in whole steps where this build reads quarter
+    // inside it. A 9 stores a note's length in whole steps where this build reads quarter
     // steps, so every note would come back a quarter of its length -- a sequence that still
     // loads, still plays and is not the music that was written.
     if (version != FORMAT_VERSION) {
