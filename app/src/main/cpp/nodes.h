@@ -377,6 +377,19 @@ private:
 };
 
 /**
+ * How far a note source's `degree` knob moves its notes, in degrees either way. Mirrors
+ * DEGREE_RANGE in PatchCanvas.kt, which GraphSyncTest holds it to.
+ */
+constexpr int32_t kDegreeRange = 24;
+
+/** A `degree` knob's value as whole degrees: rounded, and held to [kDegreeRange]. */
+inline int32_t degreeOffsetOf(float value) {
+    const float limit = static_cast<float>(kDegreeRange);
+    const float held = value < -limit ? -limit : (value > limit ? limit : value);
+    return static_cast<int32_t>(held < 0.0f ? held - 0.5f : held + 0.5f);
+}
+
+/**
  * A sequence, stepped by the transport at the interval it is set to.
  *
  * It has no clock input. Its step is the transport's count of intervals, modulo the loop
@@ -437,6 +450,8 @@ private:
     uint32_t nextNoteId_ = 1;
     /** Cents, so a tuning with no semitone in it is still expressible. */
     float transposeCents_ = 0.0f;
+    /** Whole degrees added to every note as it starts, before its scale is looked up. */
+    int32_t degreeOffset_ = 0;
     /** Degrees of the patch's scale; which scale is decided when each note starts. */
     int32_t degree_[kSteps] = {};
     bool gate_[kSteps] = {};
@@ -529,6 +544,8 @@ private:
     int32_t length_ = 16;
     Interval interval_ = intervalOf(kDefaultInterval);
     float transposeCents_ = 0.0f;
+    /** Whole degrees added to every note as it starts, before its scale is looked up. */
+    int32_t degreeOffset_ = 0;
 
     int32_t noteStep_[kMaxNotes] = {};
     int32_t noteDegree_[kMaxNotes] = {};
@@ -616,6 +633,8 @@ public:
 
 private:
     float transposeCents_ = 0.0f;
+    /** Whole degrees added to every note as it starts, before its scale is looked up. */
+    int32_t degreeOffset_ = 0;
     int32_t degree_[kCells] = {};
     bool on_[kCells] = {};
     /**
@@ -639,6 +658,9 @@ private:
 
     /** A degree's pitch in the scale sounding on [beat], resolved as OscNode resolves it. */
     float octavesAt(int64_t beat, int32_t degree) const;
+
+    /** The degree [cell] sounds: its own, moved by the degree knob. */
+    int32_t degreeOf(int32_t cell) const { return degree_[cell] + degreeOffset_; }
 
     /**
      * A retune waiting for process() to say it. Set by a tick, since events can only be

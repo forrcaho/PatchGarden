@@ -790,7 +790,7 @@ void idle(StepsNode &steps, int blocks, bool running = true) {
 void stepsTakeTheirStepFromTheCount() {
     std::printf("steps take their step from the count\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 4.0f);
 
@@ -811,7 +811,7 @@ void stepsTakeTheirStepFromTheCount() {
 void stepsPlayTheirOwnPattern() {
     std::printf("steps play the pattern they are given\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
 
     // One octave up on step 1, which no default pattern contains.
@@ -833,7 +833,7 @@ void stepsPlayTheirOwnPattern() {
 void aClosedGateIsARestNotASkip() {
     std::printf("a closed gate is a rest, not a skip\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 6, true));
     steps.setSlot(stepSlot(1, 3, false));  // a rest, remembering a pitch of its own
@@ -857,7 +857,7 @@ void aClosedGateIsARestNotASkip() {
 void aRestKeepsTheNoteItRemembers() {
     std::printf("a rest keeps the note it remembers\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 2.0f);          // a two-step loop, so step 1 comes round quickly
     steps.setSlot(stepSlot(0, 6, true));
@@ -881,7 +881,7 @@ void aRestKeepsTheNoteItRemembers() {
 void aNoteLastsHalfItsStep() {
     std::printf("a note lasts half its step\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 0, true));
 
@@ -906,7 +906,7 @@ void aNoteLastsHalfItsStep() {
 void aStoppedTransportHoldsTheNote() {
     std::printf("a stopped transport holds the note\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 0, true));
 
@@ -925,7 +925,7 @@ void aStoppedTransportHoldsTheNote() {
 void aTickLandsOnItsOwnSample() {
     std::printf("a tick lands on its own sample\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 0, true));
     steps.setSlot(stepSlot(1, 12, true));
@@ -968,7 +968,7 @@ const ScaleList &chromaticThenMajor() {
 void aNoteTakesTheScaleOfTheBeatItStartsOn() {
     std::printf("a note takes the scale of the beat it starts on\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 16.0f);
     steps.setSlot(stepSlot(7, 2, true));
@@ -995,10 +995,10 @@ void aNoteTakesTheScaleOfTheBeatItStartsOn() {
 void aTripletOnTheSwitchBeatTakesTheNewScale() {
     std::printf("a triplet on the switch beat takes the new scale\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 16.0f);
-    steps.setParam(2, 3.0f); // a third of a beat
+    steps.setParam(3, 3.0f); // a third of a beat
     steps.setSlot(stepSlot(11, 2, true));
     steps.setSlot(stepSlot(12, 2, true));
 
@@ -1031,7 +1031,7 @@ const ScaleList &cThenG() {
 void aKeyChangeLandsOnItsBeat() {
     std::printf("a key change lands on its beat\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 16.0f);
     steps.setSlot(stepSlot(7, 0, true));
@@ -1053,16 +1053,16 @@ void theIntervalIsChosenByParameter() {
     const Interval initial = steps.interval();
     check(initial.num == 1 && initial.den == 1, "starts on a step a beat, one beat divided into one");
 
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     check(steps.interval().num == 1 && steps.interval().den == 2, "one beat in two is an eighth");
     // Literals, and the same ones IntervalTest writes: the formula lives once on each side of
     // the boundary, and these numbers are what hold the two to each other.
-    steps.setParam(2, 1027.0f);
+    steps.setParam(3, 1027.0f);
     check(steps.interval().num == 2 && steps.interval().den == 3, "1027 is two beats in three");
-    steps.setParam(2, 2050.0f);
+    steps.setParam(3, 2050.0f);
     check(steps.interval().num == 3 && steps.interval().den == 2, "2050 is three beats in two");
 
-    steps.setParam(2, 9.0e6f);
+    steps.setParam(3, 9.0e6f);
     check(steps.interval().num == kMaxCount && steps.interval().den == kMaxCount,
           "an out-of-range value clamps to the last there is rather than reading past it");
 }
@@ -1472,7 +1472,7 @@ const NoteBuffer &notesOf(const StepsNode &steps) { return *steps.noteOutput(0);
 void theNotesOutputSaysWhatTheGateSays() {
     std::printf("the notes output says what the gate says\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 5, true));
 
@@ -1642,7 +1642,7 @@ void aDroneIgnoresACellOutsideItsGrid() {
 void aRestStartsNothing() {
     std::printf("a rest starts nothing\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setParam(0, 2.0f); // two steps, so the rest comes round quickly
     steps.setSlot(stepSlot(0, 0, true));
@@ -1658,7 +1658,7 @@ void aRestStartsNothing() {
 void aTransposeRidesOnTheNote() {
     std::printf("a transpose rides on the note\n");
     StepsNode steps;
-    steps.setParam(2, kEighth);
+    steps.setParam(3, kEighth);
     steps.prepare(kRate);
     steps.setSlot(stepSlot(0, 0, true));
     steps.setParam(1, 700.0f);
@@ -2596,7 +2596,7 @@ int countKind(const NoteBuffer &notes, NoteKind kind) {
 void aNoteLastsItsLength() {
     std::printf("a note lasts its length, in steps\n");
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setSlot(seqNoteSlot(0, 0, 7, Q(3), 1.0f));
     const NoteBuffer first = tickNotes(seqNotes, 0);
     check(countKind(first, NoteKind::On) == 1 && first.events[0].degree == 7, "starts on its step");
@@ -2611,7 +2611,7 @@ void aNoteIsStruckAtItsVelocity() {
     std::printf("a note is struck at its own velocity\n");
     const auto same = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(1), 0.4f));
     seqNotes.setSlot(seqNoteSlot(1, 0, 7, Q(1), 1.0f));
     const NoteBuffer said = tickNotes(seqNotes, 0);
@@ -2622,7 +2622,7 @@ void aNoteIsStruckAtItsVelocity() {
     // Out of range from a hand-edited file or some future interface: clamped rather than
     // trusted, since a velocity above one is an oscillator amplitude above one.
     SeqNode wild;
-    wild.setParam(2, kEighth);
+    wild.setParam(3, kEighth);
     wild.setSlot(seqNoteSlot(0, 0, 0, Q(1), 4.0f));
     wild.setSlot(seqNoteSlot(1, 0, 7, Q(1), -1.0f));
     const NoteBuffer clamped = tickNotes(wild, 0);
@@ -2711,7 +2711,7 @@ void velocityIsHeard() {
 void aColumnOfNotesIsAChord() {
     std::printf("a column of seqNotes is a chord, each note its own length\n");
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(1), 1.0f));
     seqNotes.setSlot(seqNoteSlot(1, 0, 4, Q(2), 1.0f));
     seqNotes.setSlot(seqNoteSlot(2, 0, 7, Q(4), 1.0f));
@@ -2727,7 +2727,7 @@ void aColumnOfNotesIsAChord() {
 void aNoteEndsBeforeTheNextStarts() {
     std::printf("a note ends before the next one at its degree starts\n");
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setSlot(seqNoteSlot(0, 0, 5, Q(2), 1.0f));
     seqNotes.setSlot(seqNoteSlot(1, 2, 5, Q(1), 1.0f));
     tickNotes(seqNotes, 0);
@@ -2741,7 +2741,7 @@ void aNoteEndsBeforeTheNextStarts() {
 void notesLoopAtTheLength() {
     std::printf("seqNotes loop at the sequence's length\n");
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setParam(0, 4.0f);
     seqNotes.setSlot(seqNoteSlot(0, 1, 2, Q(1), 1.0f));
     int ons = 0;
@@ -2762,7 +2762,7 @@ void notesLoopAtTheLength() {
 void aJumpInTimeEndsWhatWasHeld() {
     std::printf("a jump in time ends what was held\n");
     SeqNode seqNotes;
-    seqNotes.setParam(2, kEighth);
+    seqNotes.setParam(3, kEighth);
     seqNotes.setSlot(seqNoteSlot(0, 0, 0, Q(8), 1.0f));
     tickNotes(seqNotes, 0);
     check(seqNotes.notesHeld() == 1, "held");
@@ -2831,7 +2831,7 @@ void aNoteLastsWholeSteps() {
     };
 
     SeqNode seq;
-    seq.setParam(2, kEighth);
+    seq.setParam(3, kEighth);
     seq.setSlot(seqNoteSlot(0, 0, 0, 2, 1.0f)); // two steps
     check(countKind(tickAt(seq, 0), NoteKind::On) == 1, "starts");
     check(offsIn(seq, stepFrames - kBlockSize) == 0, "sounds all through its first step");
@@ -2902,22 +2902,22 @@ void aSeqPlaysOnlyTheVersionChosenAndRestartsOnAChange() {
     check(ons(seq, 1) == 0, "nothing on step two");
     check(ons(seq, 2) == 1, "a note in both plays in either");
 
-    seq.setParam(3, 2.0f);  // at step three: the next tick is the top of the loop again
+    seq.setParam(4, 2.0f);  // at step three: the next tick is the top of the loop again
     check(ons(seq, 3) == 1, "version 2 restarts its loop, so count 3 is step one: its own note");
     check(seq.position() == 0, "and the step says so");
     check(ons(seq, 5) == 1, "count 5 is two past the restart, its step three");
 
-    seq.setParam(3, 0.0f);
+    seq.setParam(4, 0.0f);
     check(ons(seq, 6) == 0 && ons(seq, 8) == 0, "version 0 is silence");
 
-    seq.setParam(3, 1.0f);
+    seq.setParam(4, 1.0f);
     ons(seq, 9);
     check(seq.position() == 0, "back to a version, it restarts again");
     check(ons(seq, 0) == 1 && seq.position() == 0, "and a transport back at its top is at the loop's top");
 
     SeqNode loaded;
     loaded.setParam(0, 4.0f);
-    loaded.setParam(3, 2.0f);  // before any tick: how the file left it, not a change
+    loaded.setParam(4, 2.0f);  // before any tick: how the file left it, not a change
     loaded.setSlot(seqNoteSlot(0, 1, 7, 1, 1.0f, 0b10));
     check(ons(loaded, 5) == 1 && loaded.position() == 1, "a node made on version 2 counts from the transport, not a restart");
 }
@@ -2945,6 +2945,58 @@ void aDroneTransposeMovesWhatItHolds() {
     NoteBuffer held;
     drone.heldNotes(0, held);
     check(held.count == 2 && held.events[0].cents == -1200.0f, "which a late cable is told");
+}
+
+/**
+ * The degree knob (Forrest, 2026-10-10): every note source with a transpose in cents has one in
+ * degrees, added to a note's degree as it starts -- so in a scale of unequal steps it changes the
+ * intervals, which cents never could. Whole degrees, held to their range.
+ */
+void theDegreeKnobMovesNotesAlongTheScale() {
+    std::printf("the degree knob moves notes along the scale\n");
+    check(degreeOffsetOf(2.4f) == 2 && degreeOffsetOf(-2.6f) == -3, "whole degrees, rounded");
+    check(degreeOffsetOf(99.0f) == kDegreeRange && degreeOffsetOf(-99.0f) == -kDegreeRange,
+          "and held to the range");
+
+    StepsNode steps;
+    steps.prepare(kRate);
+    steps.setParam(3, kEighth);
+    steps.setSlot(stepSlot(0, 3, true));
+    steps.setParam(2, 2.0f);
+    tickAt(steps, 0);
+    check(startedNote(steps).degree == 5, "Steps: degree 3, two up, is degree 5");
+
+    SeqNode seq;
+    seq.prepare(kRate);
+    seq.setParam(3, kEighth);
+    seq.setSlot(seqNoteSlot(0, 0, 4, 1, 1.0f));
+    seq.setParam(2, -1.0f);
+    seq.setTiming(kBeatsPerFrame, true, nullptr);
+    seq.tick(0, 0);
+    seq.process(kBlockSize);
+    check(firstOnDegree(*seq.noteOutput(0)) == 3, "Seq: degree 4, one down, is degree 3");
+    seq.audition(7, 1.0f, 0.5);
+    seq.setTiming(kBeatsPerFrame, true, nullptr);
+    seq.process(kBlockSize);
+    check(firstOnDegree(*seq.noteOutput(0)) == 6, "and an audition is heard where the note will play");
+
+    DroneNode drone;
+    drone.setSlot(stepSlot(0, 2, true));
+    drone.setTiming(0.0, false, nullptr);
+    drone.process(kBlockSize);
+    drone.setParam(1, 3.0f);
+    drone.setTiming(0.0, false, nullptr);
+    drone.process(kBlockSize);
+    const NoteBuffer &moved = *drone.noteOutput(0);
+    check(moved.count == 1 && moved.events[0].kind == NoteKind::Change && moved.events[0].degree == 5,
+          "Drone: a turned knob glides what it holds three degrees up");
+    NoteBuffer held;
+    drone.heldNotes(0, held);
+    check(held.count == 1 && held.events[0].degree == 5, "which a late cable is told");
+    drone.setParam(1, 3.0f);
+    drone.setTiming(0.0, false, nullptr);
+    drone.process(kBlockSize);
+    check(drone.noteOutput(0)->count == 0, "and the same value again says nothing");
 }
 
 void chanceDecidesEachNoteOnce() {
@@ -3164,8 +3216,8 @@ void theIntervalCodeSaysBeatsAndDivisions() {
     check(intervalOf(-5.0f).none(), "as is anything below it");
     // A sequencer set to free never ticks, rather than reading a length that is not one.
     StepsNode steps;
-    steps.setParam(2, kEighth);
-    steps.setParam(2, static_cast<float>(kFreeInterval));
+    steps.setParam(3, kEighth);
+    steps.setParam(3, static_cast<float>(kFreeInterval));
     check(steps.interval().none(), "a sequencer at free is not ticked");
 }
 
@@ -4131,6 +4183,7 @@ int main() {
     aNoteLastsWholeSteps();
     anAuditionPlaysForItsBeats();
     aDroneTransposeMovesWhatItHolds();
+    theDegreeKnobMovesNotesAlongTheScale();
     chanceDecidesEachNoteOnce();
     chordMakesEveryNoteAChord();
     anArpPlaysWhatIsHeld();

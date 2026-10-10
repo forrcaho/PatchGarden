@@ -643,6 +643,26 @@ slots.
 played or heard. Two things to look at there: the version strip marks the version shown in the
 selection blue, which is close to v2's blue; and whether the stripes read at the phone's size.
 
+### The degree knob, 2026-10-10
+
+Forrest, the next morning: `transp` moves notes by cents, and he wanted a second knob moving them
+by scale degrees, which changes the intervals in a scale of unequal steps -- "offset" was his
+first thought for a name, and not clear about what is offset. Asked as menus, he took every
+recommendation: **`degree`**, which matches the degree numbers labeling the grid's rows; on
+**Steps, Seq and Drone**, the three with a transpose, so the two knobs always come together; and
+**±24 degrees**. Built that night, format 24 (reads nothing older), with `degree` right after
+`transp` in each module so the two rows sit together -- which moved every later knob along one
+index in the engine, and `CatalogTest` now reads those indices out of each node's `setParam`
+rather than trusting them. The engine adds it to a note's degree as the note starts, before the
+scale is looked up; a Seq's audition is moved too, so a note is heard where it will play, and a
+Drone glides what it holds, as for a change of scale.
+
+Measured on the emulator: C major, a Seq playing degrees 0 to 3 with `degree` at 2, plays E F G A
+at 329.6, 349.2, 392.0 and 440.0Hz -- the scale's own half step where 400 cents would have given E
+F♯ G♯ A. Found there: the third row sent Steps' panel to two columns, where its sixteen length
+buttons ran into each other; a row of buttons too narrow for them is now a bar with a reading.
+Not on the phone, not heard.
+
 ### Out's limiter, replaced 2026-10-05
 
 **It saturated everything.** DaisySP's `Limiter` runs every sample through `SoftLimit`,
@@ -787,7 +807,7 @@ sequenced notes, each onset a hit from silence, peaked at 0.4247 too. Not heard.
 
 ### Still to be heard on the phone
 
-- **The Seq reworked** (2026-10-09, above): not installed there yet. Auditions by ear, the
+- **The Seq reworked** (2026-10-09, above) and **the degree knob** (2026-10-10): not installed there yet. Auditions by ear, the
   versions menu and the stripes by finger and eye, and a change of step on a real sequence.
 - **The Arranger** (item 5, 2026-10-05): ABAB′ by ear, the table by finger at the phone's own
   size, and a song nested a level down -- an Arranger in a box driven by another's lane.

@@ -212,7 +212,7 @@ While compatibility was kept, **a table a knob indexed grew by appending, never 
 and when the knob stopped indexing it the table stayed as the way old values were read -- which
 is what kept 17 and 18 additive rather than refusals. **19 reads nothing but 19**, under the
 policy below: every synth gained a level jack, `Amp` became `Gain`, and the interval table went.
-20, 21 and 22 each read only themselves under the same policy; 22 is the Arranger, 23 the Seq reworked. **A knob or
+20, 21 and 22 each read only themselves under the same policy; 22 is the Arranger, 23 the Seq reworked, 24 the degree knob. **A knob or
 a port added to an existing module bumps the version too**, for that same reason: knobs are
 keyed by name and port indices are positional, so an 11 build would read a bandpass, ignore
 the two knobs it does not know, and autosave it as a lowpass. **Adding a module type bumps the version** even though
@@ -267,7 +267,14 @@ short in the engine. Scales are `.scl` files seeded
 into `getExternalFilesDir/scales`, where a user can add their own; `Scale.Chromatic` is
 the only one defined in code, and exists so the app still works when that folder is
 unreadable. Tuning controls are in **cents**, never semitones: a semitone is a fact about 12-TET and
-means nothing in the tunings these knobs still have to work in.
+means nothing in the tunings these knobs still have to work in. **A note source moves its notes
+two ways**: `transp` in cents, which keeps every interval, and `degree` in degrees of the scale
+sounding, which in a scale of unequal steps changes them -- C D E F up two in Major is E F G A
+(Forrest, 2026-10-10, who named it). Steps, Seq and Drone have both, `degree` right after
+`transp`, from one `degreeParam()`, ±24. It is added to a note's degree as the note starts, before
+`octavesOf`, so the engine still knows only degrees; a held note keeps its pitch, except a
+Drone's, which glides there as it does for a change of scale. The engine reads these modules'
+knobs by position, so `CatalogTest` reads every case of their `setParam` out of `nodes.cpp`.
 
 **Signal types are enforced.** Audio, CV and gate used to color the cable without
 constraining it, because in hardware it is all voltage. That was Eurorack's cable, and the
@@ -762,6 +769,11 @@ song. Polled once a frame for the modules in view, as an open panel polls its ow
 `position()` is two numbers in one -- section * 4096 + steps into it (`kStepStride` /
 `SECTION_STEP_STRIDE`) -- and the graph goes on publishing a node's position once it has published
 one, -1 included, so an Arranger that stops at the end of its song is seen to stop.
+
+**A row of buttons is a bar where its buttons will not fit** (`Param.buttonsIn`, under 28dp
+each): Steps' sixteen lengths in half a two-column panel ran into each other. A tap lands on the
+same option either way. A row of buttons also gets the extra height its label needs, where the
+grid can give it up (`panelSplit`), and the grid's floor wins where it cannot.
 
 **A knob that means nothing is faint, not gone.** `Param.liveWhen` names another knob and the
 value it must hold -- a Delay's time is live only while its interval is "free" -- and such a

@@ -93,8 +93,11 @@ import java.io.File
  * 23: the Seq reworked, 2026-10-09 -- its notes saved as `notes` where they were `dots`, a note's
  * length in whole steps, the sequence's length in beats or bars, and per-version notes. Reads
  * nothing but 23: a 22 file read here would lose every note without a word.
+ * 24: Steps, Seq and Drone have a `degree` knob, moving their notes by degrees of the scale, after
+ * `transp` -- which moves every later knob of theirs along one index in the engine. Reads nothing
+ * but 24: a 23 build would read the knob it does not know as nothing and autosave without it.
  */
-private const val FORMAT_VERSION = 23
+private const val FORMAT_VERSION = 24
 private const val TAG = "PatchStore"
 
 fun Patch.toJson(): String {

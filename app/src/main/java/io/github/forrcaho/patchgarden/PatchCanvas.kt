@@ -301,6 +301,15 @@ data class Param(
      */
     val buttons: Boolean get() = curve == ParamCurve.STEPPED && steps <= MAX_BUTTONS
 
+    /**
+     * Whether this row is drawn as buttons in [row]: [buttons], and each one wide enough for its
+     * label. Sixteen in half a panel -- Steps' length, once its degree knob sent the panel to two
+     * columns -- ran their numbers into each other on the emulator, so there it is a bar with a
+     * reading. A tap lands on the same option either way, since the buttons share out the row as
+     * the bar's travel does.
+     */
+    fun buttonsIn(row: Rect, d: Float): Boolean = buttons && row.width / steps >= CHOICE_MIN_W * d
+
     /** Which option a value is, 0-based. */
     fun indexOf(value: Float): Int =
         (value - min).roundToInt().coerceIn(0, steps - 1)
@@ -355,7 +364,7 @@ data class Step(val degree: Int, val on: Boolean = true)
 
 /**
  * A note on a note sequencer's grid: which step it starts on, which degree, how many
- * quarter steps it lasts, and how hard it is struck. Bespoke's DotSequencer is the shape,
+ * steps it lasts, and how hard it is struck. Bespoke's DotSequencer is the shape,
  * and the reason notes are events with a start and an end rather than a gate a sequencer
  * holds for half a step.
  *
@@ -856,7 +865,7 @@ object Types {
     )
     /**
      * No clock input: the transport steps it, at the interval chosen in its header. Order
-     * mirrors StepsNode::setParam -- length, transpose, interval.
+     * mirrors StepsNode::setParam -- length, transpose, degree, interval.
      */
     val Steps = ModuleType(
         "Steps", emptyList(), listOf(Port("notes", N)),
@@ -864,6 +873,7 @@ object Types {
         params = listOf(
             Param("len", 1f, STEP_COUNT.toFloat(), 8f, "", STEP),
             Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
+            degreeParam(),
             intervalParam(),
         ),
         stepCount = STEP_COUNT,
@@ -879,7 +889,7 @@ object Types {
      * A note's length is whole steps (it was quarter steps until 2026-10-09), so a shorter note
      * is a finer step; the sequence's length is said in beats or bars, and changing the step
      * carries the notes across (Seq.kt). Order mirrors SeqNode::setParam -- length (in steps),
-     * transpose, interval, version, versions, and lenBars, which the engine ignores.
+     * transpose, degree, interval, version, versions, and lenBars, which the engine ignores.
      */
     val Seq = ModuleType(
         "Seq", emptyList(), listOf(Port("notes", N)),
@@ -889,6 +899,7 @@ object Types {
             // bars, beside the step in its chooser (Forrest, 2026-10-09), so it lives in the header.
             Param("len", 1f, SEQ_STEPS.toFloat(), 16f, "", STEP, header = true),
             Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
+            degreeParam(),
             intervalParam(),
             // The version playing, from 1, or 0 for silence -- so one knob says whether and which,
             // and an Arranger lane of version numbers is a whole song's worth of this Seq. A change
@@ -963,16 +974,19 @@ object Types {
     /**
      * Notes that stay on until they are turned off, laid out as degrees by octaves.
      *
-     * No transport, and one knob, a transpose: it is the plainest thing a note cable can carry, and
-     * the only note source here that sounds with the transport stopped. Order mirrors
-     * DroneNode, which knows only degrees.
+     * No transport, and two knobs, a transpose in cents and one in degrees: it is the plainest thing
+     * a note cable can carry, and the only note source here that sounds with the transport stopped.
+     * Order mirrors DroneNode::setParam.
      */
     val Drone = ModuleType(
         "Drone", emptyList(), listOf(Port("notes", N)),
         Color(0xFF91DA58),
         // Its one knob: the whole grid up or down, as Steps' and Seq's transpose -- asked for
         // on the phone, to move a drone's notes down an octave without redoing them.
-        params = listOf(Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn")),
+        params = listOf(
+            Param("transp", -TUNE_RANGE, TUNE_RANGE, 0f, "\u00A2", LIN, marks = true, short = "trn"),
+            degreeParam(),
+        ),
         stepCount = DRONE_CELLS,
         grid = GridKind.DRONE,
         engine = NodeType.Drone, category = Category.NOTES,
@@ -2341,7 +2355,7 @@ internal fun choiceBox(row: Rect, d: Float, param: Param, i: Int): Rect {
  * option still reads as a range, not as two marks drawn over each other.
  */
 internal fun panelBracketX(row: Rect, d: Float, param: Param, value: Float, closing: Boolean): Float =
-    if (param.buttons) {
+    if (param.buttonsIn(row, d)) {
         val box = choiceBox(row, d, param, param.indexOf(value))
         if (closing) box.right else box.left
     } else {
@@ -2408,8 +2422,8 @@ internal fun panelValueAt(
 ): Pair<ParamRow, ValueTarget>? {
     rows.forEachIndexed { slot, entry ->
         val param = entry.view.param
-        if (param.buttons || !entry.owner.isLive(entry.index)) return@forEachIndexed
         val row = place(slot)
+        if (param.buttonsIn(row, d) || !entry.owner.isLive(entry.index)) return@forEachIndexed
         val range = rangeOf(entry)?.let(entry.view::shown)
         val text = if (range != null) rangeReading(param, range)
             else entry.plainReading(entry.owner.params.getOrElse(entry.index) { entry.param.default }, beatsPerBar)
@@ -10235,6 +10249,9 @@ internal val REVERB_TYPES = listOf("room", "plate")
 /** A Euclid's longest pattern. Mirrors EuclidNode::kMaxSteps. */
 internal const val EUCLID_STEPS = 32
 
+/** The narrowest a row's button may be before the row is a bar instead; see [Param.buttonsIn]. */
+internal const val CHOICE_MIN_W = 28f
+
 /** The most options a stepped row draws as buttons; past it, a bar. See [Param.buttons]. */
 internal const val MAX_BUTTONS = 16
 
@@ -10417,6 +10434,20 @@ internal fun intervalParam(default: Int = DEFAULT_INTERVAL) = Param(
 internal fun periodParam(period: Boolean) = Param(
     "period", 0f, 1f, if (period) 1f else 0f, curve = ParamCurve.STEPPED, header = true,
 )
+
+/**
+ * Moves a note source's notes by degrees of the scale sounding, where `transp` moves them by
+ * cents -- so in a scale of unequal steps it changes the intervals, a melody moved within its
+ * scale (Forrest, 2026-10-10, who named it). One definition for Steps, Seq and Drone, the three
+ * with a transpose. Whole degrees, so a modulator's step lands on one; the engine adds it to a
+ * note's degree as the note starts, before the scale is looked up.
+ */
+internal fun degreeParam() = Param(
+    "degree", -DEGREE_RANGE, DEGREE_RANGE, 0f, "", ParamCurve.STEPPED, short = "deg",
+)
+
+/** How far [degreeParam] moves notes, either way: two octaves of 12-TET, three and more of most scales. */
+internal const val DEGREE_RANGE = 24f
 
 /**
  * A sound source's level, one definition for every one of them: Osc, Pluck, FM, SF and Noise.
@@ -11608,10 +11639,13 @@ private fun DrawScope.drawKnobRow(
     val range = storedRange?.let(view::shown)
     // A stepped parameter shows no numeric readout: the lit button is the reading,
     // and "0" next to a picture of a sawtooth is noise.
-    if (!param.buttons) {
+    val buttons = param.buttonsIn(row, d)
+    if (!buttons) {
         // An exposed parameter reads its range, not a value it is not going to hold.
         val text = when {
             range != null -> rangeReading(param, range)
+            // Options drawn as a bar, because their buttons did not fit: the option's word.
+            param.buttons && param.choice != null -> choiceWord(param, param.indexOf(value))
             param.degree -> "${param.format(value)}  ${degreeName(value.roundToInt(), scale, rootCents)}"
             else -> entry.plainReading(stored, beatsPerBar)
         }
@@ -11623,7 +11657,7 @@ private fun DrawScope.drawKnobRow(
         )
     }
 
-    if (param.buttons) {
+    if (buttons) {
         drawChoices(row, d, param, value, accent, measurer)
         if (range != null) {
             val box = choiceBox(row, d, param, 0)

@@ -78,8 +78,8 @@ class SeqNoteTest {
         assertEquals("never shorter than a step", 1, seq.seqNotes[0].length)
 
         assertTrue("and Seq has no gate knob", Types.Seq.params.none { it.name == "gate" })
-        assertEquals("six knobs: four of them in the header -- length, interval, versions and the length's unit",
-            listOf("len", "transp", "interval", "version", "versions", "lenBars"), Types.Seq.params.map { it.name })
+        assertEquals("seven knobs: four of them in the header -- length, interval, versions and the length's unit",
+            listOf("len", "transp", "degree", "interval", "version", "versions", "lenBars"), Types.Seq.params.map { it.name })
     }
 
     /**
@@ -122,7 +122,7 @@ class SeqNoteTest {
         seq.addSeqNote(SeqNote(0, 0, 4))
         seq.addSeqNote(SeqNote(31, -3, 1, 0.25f))
         val json = patch.toJson()
-        assertTrue(json.contains("\"version\":23"))
+        assertTrue(json.contains("\"version\":24"))
         assertEquals(seq.seqNotes.toList(), patchFromJson(json)!!.modules.first { it.type == Types.Seq }.seqNotes.toList())
 
         // The fifth number is which versions the note is in; bits past the eight there can be
@@ -156,7 +156,7 @@ class SeqNoteTest {
         val current = patch.toJson()
         assertNotNull("the current version still opens", patchFromJson(current))
         (10..20).forEach { version ->
-            val older = current.replace("\"version\":23", "\"version\":$version")
+            val older = current.replace("\"version\":24", "\"version\":$version")
             assertNull("format $version must be refused", patchFromJson(older))
         }
     }

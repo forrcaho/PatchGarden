@@ -178,12 +178,25 @@ class PatchModelTest {
         )
     }
 
+    /**
+     * Steps' length is sixteen buttons, and once its degree knob sent its panel to two columns they
+     * ran into each other on the emulator: a row too narrow for its buttons is a bar instead.
+     */
+    @Test
+    fun `a row of buttons too narrow for them is a bar`() {
+        val len = Types.Steps.params[0]
+        assertTrue(len.buttons)
+        assertTrue("sixteen across a whole panel", len.buttonsIn(Rect(0f, 0f, 600f, 60f), 1f))
+        assertFalse("but not across half of one", len.buttonsIn(Rect(0f, 0f, 270f, 60f), 1f))
+        assertFalse("and a bar is never buttons", Types.Steps.params[1].buttonsIn(Rect(0f, 0f, 600f, 60f), 1f))
+    }
+
     /** At the floor a row of buttons drew its label behind its buttons: the Arranger's, then the Seq's. */
     @Test
     fun `a row of buttons gets the height its label needs, where there is room`() {
         // Tall enough for the rows a button row needs inside half the body, short enough that the
-        // share the knobs always had is not already that much.
-        val panel = Rect(0f, 0f, 1000f, 450f)
+        // share the knobs always had is not already that much -- for the Seq's three rows.
+        val panel = Rect(0f, 0f, 1000f, 620f)
         val grid = panelGrid(panel, 1f, Types.Seq)
         val body = panelBody(panel, 1f)
         val rows = Types.Seq.rowParams.size

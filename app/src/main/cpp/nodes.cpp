@@ -341,7 +341,7 @@ void DroneNode::heldNotes(int32_t port, NoteBuffer &into) const {
         on.id = sounding_[i];
         on.kind = NoteKind::On;
         on.offset = 0;
-        on.degree = degree_[i];
+        on.degree = degreeOf(i);
         // The beat every retune so far has been worked out against, so a newcomer starts
         // at the pitch the others are already at rather than the one the note began on.
         on.beat = beat_;
@@ -353,14 +353,18 @@ void DroneNode::heldNotes(int32_t port, NoteBuffer &into) const {
 
 float DroneNode::octavesAt(int64_t beat, int32_t degree) const {
     // The transpose is part of where a note is, so a moved knob is a retune like a changed
-    // scale: every held note whose pitch it moves is sent a Change and glides there.
+    // scale: every held note whose pitch it moves is sent a Change and glides there. The degree
+    // knob is too, and is already in [degree] (degreeOf).
     return (scales_ != nullptr ? scales_->tableAt(beat).octavesOf(degree)
                                : ScaleTable{}.octavesOf(degree)) + transposeCents_ / 1200.0f;
 }
 
 void DroneNode::setParam(int32_t index, float value) {
-    if (index != 0) return;
-    transposeCents_ = clampf(value, -kTuneRange, kTuneRange);
+    switch (index) {
+        case 0: transposeCents_ = clampf(value, -kTuneRange, kTuneRange); break;
+        case 1: degreeOffset_ = degreeOffsetOf(value); break;
+        default: return;
+    }
     if (!retuneDue_) {
         retuneDue_ = true;
         retuneBeat_ = beat_;
@@ -383,13 +387,13 @@ void DroneNode::process(int32_t frames) {
             on.id = nextNoteId_++;
             on.kind = NoteKind::On;
             on.offset = 0;
-            on.degree = degree_[i];
+            on.degree = degreeOf(i);
             on.beat = beat_;
             on.cents = transposeCents_;
             on.velocity = 1.0f;
             if (notes.push(on)) {
                 sounding_[i] = on.id;
-                octaves_[i] = octavesAt(beat_, degree_[i]);
+                octaves_[i] = octavesAt(beat_, degreeOf(i));
             }
         } else if (!on_[i] && sounding_[i] != 0) {
             NoteEvent off;
@@ -417,14 +421,14 @@ void DroneNode::process(int32_t frames) {
         if (!on_[i] || sounding_[i] == 0) continue;
         // Exact comparison on purpose: both sides come from the same lookup on the same
         // inputs, so an unchanged degree compares equal and sends nothing.
-        const float target = octavesAt(retuneBeat_, degree_[i]);
+        const float target = octavesAt(retuneBeat_, degreeOf(i));
         if (target == octaves_[i]) continue;
 
         NoteEvent change;
         change.id = sounding_[i];
         change.kind = NoteKind::Change;
         change.offset = retuneOffset_;
-        change.degree = degree_[i];
+        change.degree = degreeOf(i);
         change.beat = retuneBeat_;
         change.cents = transposeCents_;
         change.velocity = 1.0f;
@@ -522,7 +526,7 @@ void StepsNode::process(int32_t frames) {
                 on.id = nextNoteId_++;
                 on.kind = NoteKind::On;
                 on.offset = static_cast<uint16_t>(i);
-                on.degree = degree_[voiced_];
+                on.degree = degree_[voiced_] + degreeOffset_;
                 on.beat = voicedBeat_;
                 on.cents = transposeCents_;
                 on.velocity = 1.0f;
@@ -567,7 +571,8 @@ void StepsNode::setParam(int32_t index, float value) {
             break;
         }
         case 1: transposeCents_ = clampf(value, -kTuneRange, kTuneRange); break;
-        case 2: interval_ = intervalOf(value); break;
+        case 2: degreeOffset_ = degreeOffsetOf(value); break;
+        case 3: interval_ = intervalOf(value); break;
         default: break;
     }
 }
@@ -647,7 +652,7 @@ void SeqNode::onTick(NoteBuffer &notes, uint16_t offset, int64_t count) {
         on.id = nextNoteId_++;
         on.kind = NoteKind::On;
         on.offset = offset;
-        on.degree = noteDegree_[d];
+        on.degree = noteDegree_[d] + degreeOffset_;
         on.beat = beat;
         on.cents = transposeCents_;
         on.velocity = noteVelocity_[d];
@@ -685,7 +690,8 @@ void SeqNode::process(int32_t frames) {
             on.id = audition.id;
             on.kind = NoteKind::On;
             on.offset = 0;
-            on.degree = audition.degree;
+            // Moved as the loop's notes are, so a note is heard where it will play.
+            on.degree = audition.degree + degreeOffset_;
             on.beat = static_cast<int64_t>(std::floor(beat_));
             on.cents = transposeCents_;
             on.velocity = audition.velocity;
@@ -748,8 +754,9 @@ void SeqNode::setParam(int32_t index, float value) {
     switch (index) {
         case 0: length_ = static_cast<int32_t>(clampf(value, 1.0f, static_cast<float>(kSteps)) + 0.5f); break;
         case 1: transposeCents_ = clampf(value, -kTuneRange, kTuneRange); break;
-        case 2: interval_ = intervalOf(value); break;
-        case 3: {
+        case 2: degreeOffset_ = degreeOffsetOf(value); break;
+        case 3: interval_ = intervalOf(value); break;
+        case 4: {
             const auto version = static_cast<int32_t>(clampf(value, 0.0f, static_cast<float>(kMaxVersions)) + 0.5f);
             // Only a change restarts, and not the first value a new node is sent: one loaded
             // on version 2 starts in step with everything else, at the transport's own top.
@@ -757,7 +764,7 @@ void SeqNode::setParam(int32_t index, float value) {
             version_ = version;
             break;
         }
-        // 4 is how many versions there are, which only the interface needs.
+        // 5 is how many versions there are and 6 the length's unit, which only the interface needs.
         default: break;
     }
 }

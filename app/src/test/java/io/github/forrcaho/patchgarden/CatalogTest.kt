@@ -42,6 +42,41 @@ class CatalogTest {
         }
     }
 
+    /**
+     * Steps, Seq and Drone each have a degree knob right after their transpose (Forrest, 2026-10-10),
+     * and the engine reads their knobs by position -- so the index of every knob the new one moved
+     * along is read out of each node's setParam rather than trusted, and so is the range.
+     */
+    @Test
+    fun `the degree knob follows the transpose, where the engine reads it`() {
+        val source = java.io.File("src/main/cpp/nodes.cpp").readText()
+        val header = java.io.File("src/main/cpp/nodes.h").readText()
+        assertEquals(
+            Regex("""constexpr int32_t kDegreeRange = (\d+);""").find(header)!!.groupValues[1].toFloat(),
+            DEGREE_RANGE,
+        )
+        fun engineCase(node: String, what: String): Int {
+            val body = source.substringAfter("void $node::setParam(").substringBefore("\n}\n")
+            return Regex("""case (\d+):\s*(?:\{\s*)?[^\n]*$what""").find(body)!!.groupValues[1].toInt()
+        }
+        mapOf(Types.Steps to "StepsNode", Types.Seq to "SeqNode", Types.Drone to "DroneNode").forEach { (type, node) ->
+            val transp = type.params.indexOfFirst { it.name == "transp" }
+            val degree = type.params.indexOfFirst { it.name == "degree" }
+            assertEquals("${type.name}: degree right after transp", transp + 1, degree)
+            val knob = type.params[degree]
+            assertEquals(-DEGREE_RANGE, knob.min)
+            assertEquals(DEGREE_RANGE, knob.max)
+            assertEquals(0f, knob.default)
+            assertEquals("whole degrees", ParamCurve.STEPPED, knob.curve)
+            assertEquals("${type.name}: the engine's transpose", transp, engineCase(node, "transposeCents_"))
+            assertEquals("${type.name}: the engine's degree", degree, engineCase(node, "degreeOffset_"))
+            if (type.intervalParam >= 0) {
+                assertEquals("${type.name}: the engine's interval", type.intervalParam, engineCase(node, "interval_ = intervalOf"))
+            }
+        }
+        assertEquals("the Seq's version", Types.Seq.versionParam, engineCase("SeqNode", "const auto version"))
+    }
+
     @Test
     fun `an Osc's tune is in cents, and can be exposed for vibrato`() {
         val tune = Types.Osc.params[1]

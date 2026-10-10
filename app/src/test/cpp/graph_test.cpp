@@ -850,7 +850,7 @@ void anAuditionEndsThroughTheGraph() {
         graph.postAdd(1, NodeType::Osc);
         graph.postAdd(2, NodeType::Seq);
         graph.postAdd(3, NodeType::Out);
-        graph.postSetParam(2, 3, 0.0f); // version off: the loop plays nothing
+        graph.postSetParam(2, 4, 0.0f); // version off: the loop plays nothing
         graph.postConnect(2, 0, 1, 0);
         graph.postConnect(1, 0, 3, 0);
         graph.postSetTempo(120.0f);
@@ -922,7 +922,7 @@ void aRemovedSourceEndsTheNotesItStarted() {
     graph.postConnect(2, 0, 3, 0);
     // Whole notes at 60bpm: four seconds a step, so the note under test is still held
     // rather than having ended on its own while the test was looking away.
-    graph.postSetParam(1, 2, 3073.0f); // four beats divided into one
+    graph.postSetParam(1, 3, 3073.0f); // four beats divided into one
     graph.postSetTempo(60.0f);
     graph.applyCommands();
     graph.setTransportRunning(true);
@@ -1332,8 +1332,8 @@ void twoSequencersMergeIntoOnePolySubpatch() {
     graph.postConnect(1, 0, kEdge, 0);
     graph.postConnect(2, 0, kEdge, 0); // the same input: a note input merges rather than replaces
     graph.postSetParam(2, 1, 700.0f);  // a fifth up, so the two are not the same note
-    graph.postSetParam(1, 2, 2.0f);    // both at half a beat
-    graph.postSetParam(2, 2, 2.0f);
+    graph.postSetParam(1, 3, 2.0f);    // both at half a beat
+    graph.postSetParam(2, 3, 2.0f);
     graph.postSetTempo(300.0f);        // and fast, so both keep starting notes throughout
     graph.applyCommands();
     graph.setTransportRunning(true);
@@ -1376,8 +1376,8 @@ void anIdIsOnlyUniqueToItsOwnSource() {
     polyRig(graph, 2);
     graph.postConnect(1, 0, kEdge, 0);
     graph.postConnect(2, 0, kEdge, 0);
-    graph.postSetParam(1, 2, 1025.0f); // two beats: one long note held across many short ones
-    graph.postSetParam(2, 2, 8.0f);  // an eighth of a beat, starting and ending inside it over and over
+    graph.postSetParam(1, 3, 1025.0f); // two beats: one long note held across many short ones
+    graph.postSetParam(2, 3, 8.0f);  // an eighth of a beat, starting and ending inside it over and over
     graph.postSetParam(2, 1, 700.0f);
     graph.postSetTempo(240.0f);
     graph.applyCommands();
@@ -1579,7 +1579,7 @@ void aModulatorIsEvaluatedBeforeTheKnobItTurns() {
     // and with it the gain -- is shut until that second step lands.
     graph.postSetStep(4, 0, 0, false);
     graph.postSetStep(4, 1, 0, true);
-    graph.postSetParam(4, 2, 2.0f); // one beat in two, as the knob writes it
+    graph.postSetParam(4, 3, 2.0f); // one beat in two, as the knob writes it
     graph.postSetParam(5, 0, 0.001f); // an instant attack, so the note is heard at once
     graph.postConnect(4, 0, 5, 0);
     graph.postSetParam(2, 0, 0.0f);
