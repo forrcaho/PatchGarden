@@ -698,7 +698,14 @@ recommendation but one.
 
 Seen on the emulator: the tab folds and unfolds, the triangles sit at their notes' starts in their
 versions' colors, an overlap's blue stripes reach 40% where its note is struck at 0.4, and Start here
-at step 4 of eight moved every note four back. Not on the phone yet, not played.
+at step 4 of eight moved every note four back.
+
+**On the phone the same day.** On Forrest's own patch, without editing it: the triangles at its Seq's
+hidden notes, the tab folding the knobs, the Seq opening on all while playing and on v1 stopped, and
+an overlap's amber stripes stopping at its 0.4 velocity under v2's full blue. On a test patch, Start
+here twice -- the second time across a held note -- and the capture plays C#4 C5 - - G3 - C4 C#4 and
+C#4 again at the top: the split note, struck again where the loop now starts. No xruns, no crash; his
+patch restored byte for byte afterwards. Not yet played by him.
 
 ### Out's limiter, replaced 2026-10-05
 
