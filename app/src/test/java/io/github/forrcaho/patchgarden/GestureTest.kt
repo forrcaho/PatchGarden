@@ -81,6 +81,8 @@ class GestureTest {
     /** A PatchCanvas filling the screen, with a camera the test can aim through. */
     private inner class Host(val patch: Patch = Patch(), val library: SubpatchLibrary? = null) {
         var canUndo by mutableStateOf(false)
+        /** The output switch, which is what runs the transport. */
+        var playing by mutableStateOf(false)
         var undone = 0
         var outputSwitched = 0
         /** Every note a Seq's grid auditioned, in order. */
@@ -94,6 +96,7 @@ class GestureTest {
                     patch, Modifier.fillMaxSize(),
                     canUndo = canUndo, onUndo = { undone++ },
                     onToggleOutput = { outputSwitched++ },
+                    outputActive = playing,
                     library = library,
                     camera = camera,
                     audition = { _, note -> auditions += note },
@@ -837,6 +840,82 @@ class GestureTest {
         host.tap(panelVersionChip(panel, host.d, host.frame.fontScale).center)
         val strip = versionStrip(panel, host.d, host.frame.fontScale, seq.versionCount)
         host.tap(strip.tiles.single { it.second == pick }.first.center)
+    }
+
+    /**
+     * Forrest, 2026-10-11: a loop can sound as though another beat is its start. A long press on an
+     * empty cell offers "Start here", out of sight until then; a tap off it closes it and adds no
+     * note there, and its tile starts the loop at that beat.
+     */
+    @Test
+    fun `a long press on an empty cell offers Start here, which starts the loop at that beat`() {
+        val rig = SeqRig()
+        val d = rig.host.d
+        rig.host.tap(rig.cell(0, 2))
+        rig.host.tap(rig.cell(5, 3))
+        assertEquals(listOf(0, 5), rig.seq.seqNotes.map { it.step }.sorted())
+
+        val press = rig.cell(4, 0)
+        rig.host.hold(press)
+        rig.host.tap(rig.cell(10, rig.rows - 1))
+        assertEquals("a tap off the menu closes it and adds nothing", 2, rig.seq.seqNotes.size)
+
+        rig.host.hold(press)
+        assertEquals("the press alone moves nothing", listOf(0, 5), rig.seq.seqNotes.map { it.step }.sorted())
+        val (_, tile) = startMenuLayout(panelBody(rig.panel, d), d, rig.host.frame.fontScale, press)
+        rig.host.tap(tile.center)
+        assertEquals("step 4 is the top now", listOf(1, 12), rig.seq.seqNotes.map { it.step }.sorted())
+    }
+
+    /**
+     * Forrest, 2026-10-11: a Seq's knobs took nearly half the screen. The tab under the grid folds
+     * them away -- the grid takes the panel, and a tap where a knob was is a tap on the grid -- and
+     * brings them back.
+     */
+    @Test
+    fun `the fold tab folds a Seq's knobs away under its grid, and back`() {
+        val rig = SeqRig()
+        val d = rig.host.d
+        val unfolded = panelGrid(rig.panel, d, Types.Seq)
+        rig.host.tap(panelFoldTab(rig.panel, d, rig.seq).center)
+        assertTrue(rig.seq.knobsFolded)
+        val folded = panelGrid(rig.panel, d, Types.Seq, folded = true)
+        assertTrue("the grid reaches further down", folded.bottom > unfolded.bottom + 40f * d)
+
+        // Where the first knob row was: the grid's now, so a tap there is a note.
+        val y = unfolded.bottom + 30f * d
+        rig.host.tap(Offset(folded.left + folded.width * 0.1f, y))
+        assertEquals("a note where a knob was", 1, rig.seq.seqNotes.size)
+
+        rig.host.tap(panelFoldTab(rig.panel, d, rig.seq).center)
+        assertFalse(rig.seq.knobsFolded)
+    }
+
+    /**
+     * Forrest, 2026-10-11: a Seq opened while playing showed the version last edited, so the notes
+     * playing were not all there to see. Opened while playing it shows all of them; opened stopped,
+     * the version chosen last -- which a Seq opened while playing has not changed.
+     */
+    @Test
+    fun `a Seq opened while playing shows all its versions, and stopped the one chosen last`() {
+        val rig = SeqRig()
+        rig.pickVersion(VersionPick.Add)
+        assertEquals(2, rig.seq.shownVersion)
+        val panel = panelRect(rig.host.frame)
+        val outside = Offset(panel.center.x, (panel.bottom + rig.host.frame.canvas.height) / 2f)
+        rig.host.tap(outside)
+        assertFalse(rig.seq.expanded)
+
+        rig.host.playing = true
+        compose.waitForIdle()
+        rig.host.tap(rig.host.body(rig.seq))
+        assertEquals("playing: all", 0, rig.seq.shownVersion)
+        rig.host.tap(outside)
+
+        rig.host.playing = false
+        compose.waitForIdle()
+        rig.host.tap(rig.host.body(rig.seq))
+        assertEquals("stopped: the version chosen last", 2, rig.seq.shownVersion)
     }
 
     @Test

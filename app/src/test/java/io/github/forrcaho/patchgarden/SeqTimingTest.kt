@@ -141,6 +141,77 @@ class SeqTimingTest {
     }
 
     /**
+     * Forrest, 2026-10-11: Steps' triangles for notes out of sight, which the Seq lacked. One at
+     * each hidden note's start (or the first step on screen, for one that started before it), in
+     * its colors, the version being edited on top and another version's faint.
+     */
+    @Test
+    fun `a note out of sight is a triangle at its start, the version edited on top`() {
+        val (_, seq) = seq()
+        seq.addVersion()
+        seq.addVersion()
+        seq.showVersion(2)
+        seq.seqNotes.add(SeqNote(2, 20, 3, versions = 0b010))  // v2, above
+        seq.seqNotes.add(SeqNote(2, 21, 1, versions = 0b001))  // v1, above, starting with it
+        seq.seqNotes.add(SeqNote(5, -9, 1, versions = 0b100))  // v3, below
+        seq.seqNotes.add(SeqNote(0, 3, 1, versions = 0b001))   // in sight: no mark
+        seq.seqNotes.add(SeqNote(1, 30, 6, versions = 0b111))  // shared, started before the window
+        val marks = seq.seqEdgeMarks(bottom = 0, top = 7, first = 2, shown = 8, playingStep = -1, playingVersion = 1)
+        assertEquals(
+            listOf(
+                EdgeMark(2, true, listOf(
+                    MarkLayer(versionColor(1), 0.35f),
+                    MarkLayer(SHARED_NOTE_COLOR, 0.9f),
+                    MarkLayer(versionColor(2), 0.9f),
+                )),
+                EdgeMark(5, false, listOf(MarkLayer(versionColor(3), 0.35f))),
+            ),
+            marks.sortedBy { it.step },
+        )
+        val playing = seq.seqEdgeMarks(0, 7, 2, 8, playingStep = 3, playingVersion = 2).single { it.step == 2 }
+        assertTrue("a note sounding is on top", playing.layers.last().sounding)
+    }
+
+    /** "Start here" starts the loop on the beat the press was in, or on the step where beats and steps do not line up. */
+    @Test
+    fun `the loop starts on the beat pressed`() {
+        val (patch, seq) = seq()
+        seq.stepTo(Interval(1, 4), patch)
+        assertEquals("quarter steps: the beat step 6 is in begins at step 4", 4, seq.loopStartAt(6, patch.beatsPerBar))
+        seq.stepTo(Interval(2, 3), patch)
+        assertEquals("two-thirds of a beat: beat 1 begins between steps, so the step itself", 2, seq.loopStartAt(2, patch.beatsPerBar))
+    }
+
+    /**
+     * Every note moves back round the loop, and one held across the new start is split there,
+     * the part after it struck again at the top -- Forrest's choice of two.
+     */
+    @Test
+    fun `starting the loop elsewhere moves every note round, and splits one held across the start`() {
+        val (patch, seq) = seq()
+        seq.setSeqLength(4, bars = false, patch.beatsPerBar)
+        seq.addSeqNote(SeqNote(0, 0, 1))
+        seq.addSeqNote(SeqNote(1, 2, 2, 0.5f))  // held across step 2
+        seq.addSeqNote(SeqNote(3, 4, 1))
+        seq.startLoopAt(2)
+        assertEquals(
+            listOf(SeqNote(0, 2, 1, 0.5f), SeqNote(1, 4, 1), SeqNote(2, 0, 1), SeqNote(3, 2, 1, 0.5f)),
+            seq.seqNotes.sortedWith(compareBy({ it.step }, { it.degree })),
+        )
+        assertEquals("the loop is as long as it was", 4, seq.seqSteps)
+    }
+
+    /** Forrest, 2026-10-11: striped overlaps still say how hard each note is struck. */
+    @Test
+    fun `an overlap's stripes reach each note's own velocity`() {
+        val (_, seq) = seq()
+        seq.addVersion()
+        val soft = SeqNote(0, 0, 2, 0.5f, versions = 0b01)
+        val loud = SeqNote(1, 0, 2, 1f, versions = 0b10)
+        assertEquals(listOf(versionColor(1) to 0.5f, versionColor(2) to 1f), seq.overlapFill(soft, loud))
+    }
+
+    /**
      * Version 0 reads "off", and a version knob reaches only the versions there are: exposed over
      * all eight, a modulator at its middle asked for version four of a Seq with two, and nothing
      * played -- which read as "0 is the default" (Forrest, 2026-10-09).

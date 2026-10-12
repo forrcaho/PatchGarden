@@ -3,6 +3,7 @@ package io.github.forrcaho.patchgarden
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import kotlin.math.roundToInt
 
@@ -300,4 +301,129 @@ internal fun noteMenuLayout(body: Rect, d: Float, fontScale: Float, versions: In
     val okTop = top + pad + tileH + gap
     tiles += Rect(ground.right - pad - okW, okTop, ground.right - pad, okTop + tileH) to NoteMenuPick.Ok
     return NoteMenuLayout(ground, tiles)
+}
+
+// ---------------------------------------------------------------- what the grid draws
+
+/**
+ * One layer of a hidden note's marker: a triangle in [color] at [alpha], or the sounding white when
+ * [sounding] (the drawing's own color, so it is not named here).
+ */
+internal data class MarkLayer(val color: Color, val alpha: Float, val sounding: Boolean = false)
+
+/**
+ * Where notes above or below the rows on screen start, so a stretch of grid is never silently
+ * empty: a triangle on that edge at step [step] -- Steps' marker, which the Seq lacked (Forrest,
+ * 2026-10-11) -- in the colors of every note starting there, overlapping, drawn first to last.
+ */
+internal data class EdgeMark(val step: Int, val above: Boolean, val layers: List<MarkLayer>)
+
+/**
+ * The [EdgeMark]s for the notes outside degrees [bottom]..[top] that reach steps [first] to
+ * [first] + [shown]: at the step each starts, or the first on screen for one that started before
+ * it. A note's colors are its versions' (gray when shared); one the version shown does not have is
+ * faint; the version being edited is on top, and a note sounding above everything.
+ */
+internal fun PatchModule.seqEdgeMarks(
+    bottom: Int, top: Int, first: Int, shown: Int, playingStep: Int, playingVersion: Int,
+): List<EdgeMark> {
+    val end = first + shown
+    val edited = if (shownVersion > 0 && versionCount > 1) versionColor(shownVersion) else null
+    // (step, above) -> color -> (rank, layer); the highest rank of a color wins.
+    val marks = LinkedHashMap<Pair<Int, Boolean>, MutableMap<Color, Pair<Int, MarkLayer>>>()
+    seqNotes.forEach { note ->
+        if (note.degree in bottom..top) return@forEach
+        val last = note.step + note.stepsSpanned
+        if (last <= first || note.step >= end) return@forEach
+        val key = maxOf(note.step, first) to (note.degree > top)
+        val sounding = playingStep in note.step until last && note.playsIn(playingVersion)
+        val layers = marks.getOrPut(key) { LinkedHashMap() }
+        noteColors(note).forEach { color ->
+            val (rank, layer) = when {
+                sounding -> 3 to MarkLayer(color, 1f, sounding = true)
+                !shows(note) -> 0 to MarkLayer(color, 0.35f)
+                color == edited -> 2 to MarkLayer(color, 0.9f)
+                else -> 1 to MarkLayer(color, 0.9f)
+            }
+            val had = layers[color]
+            if (had == null || had.first < rank) layers[color] = rank to layer
+        }
+    }
+    return marks.map { (key, layers) ->
+        EdgeMark(key.first, key.second, layers.values.sortedBy { it.first }.map { it.second })
+    }
+}
+
+/**
+ * Two notes of different versions overlapping at one pitch, as the all view stripes them: each
+ * color with how high its stripes reach -- its own note's velocity, as a single note's fill shows
+ * it (Forrest, 2026-10-11).
+ */
+internal fun PatchModule.overlapFill(a: SeqNote, b: SeqNote): List<Pair<Color, Float>> =
+    (noteColors(a).map { it to a.velocity } + noteColors(b).map { it to b.velocity })
+        .distinctBy { it.first }
+        .map { (color, velocity) -> color to velocity.coerceIn(0f, 1f) }
+
+// ---------------------------------------------------------------- starting the loop elsewhere
+
+/**
+ * The step a "Start here" pressed at [column] starts the loop on: the start of the beat that
+ * column is in, where that beat begins on a step -- Forrest asked for the beat that sounds like
+ * the start -- and the column itself where it does not, as with steps of 2/3 of a beat.
+ */
+internal fun PatchModule.loopStartAt(column: Int, beatsPerBar: Int): Int {
+    val step = stepBeats(interval, beatsPerBar)
+    val beat = (step * column.toLong()).floor
+    val at = Beats(beat, 1) / step
+    return if (at.isWhole) (at.num / at.den).toInt() else column
+}
+
+/**
+ * Starts the loop at step [start] (Forrest, 2026-10-11: a different beat can sound like the top of
+ * the loop). Every note moves back by [start], round the loop, so the music is the same circle
+ * entered elsewhere. A note held across the new start is split there -- his choice over keeping it
+ * whole across the loop's edge -- so the part after it is struck again at the top. Notes past the
+ * loop's end, which never play, stay where they are. One edit, so one undo.
+ */
+internal fun PatchModule.startLoopAt(start: Int) {
+    val length = seqSteps
+    if (start <= 0 || start >= length) return
+    val room = MAX_SEQ_NOTES - seqNotes.size
+    var splits = 0
+    val moved = seqNotes.flatMap { note ->
+        val end = note.step + note.length
+        when {
+            note.step >= length -> listOf(note)
+            note.step < start && end > start && splits < room -> {
+                splits++
+                listOf(
+                    note.copy(step = note.step - start + length, length = start - note.step),
+                    note.copy(step = 0, length = end - start),
+                )
+            }
+            else -> listOf(note.copy(step = (note.step - start).mod(length)))
+        }
+    }
+    val tidy = mergeIdentical(resolveCollisions(moved))
+    Snapshot.withMutableSnapshot {
+        seqNotes.clear()
+        seqNotes.addAll(tidy)
+    }
+}
+
+/** The "Start here" menu, held open by a long press on an empty cell of [column]. */
+internal data class StartMenu(val column: Int, val anchor: Offset)
+
+/** That menu laid out: its ground, and its one tile. */
+internal fun startMenuLayout(body: Rect, d: Float, fontScale: Float, anchor: Offset): Pair<Rect, Rect> {
+    val text = fontScale.coerceAtLeast(1f)
+    val pad = 10f * d
+    val tile = Size(110f * text * d, maxOf(44f, 29f * text) * d)
+    val width = tile.width + 2f * pad
+    val height = tile.height + 2f * pad
+    val left = (anchor.x - width / 2f).coerceIn(body.left + 8f * d, (body.right - 8f * d - width).coerceAtLeast(body.left + 8f * d))
+    val below = anchor.y + 16f * d
+    val top = if (below + height <= body.bottom - 4f * d) below else (anchor.y - 16f * d - height).coerceAtLeast(body.top + 4f * d)
+    val ground = Rect(left, top, left + width, top + height)
+    return ground to Rect(Offset(left + pad, top + pad), tile)
 }

@@ -698,15 +698,21 @@ not on the first value a new node is sent, and back to the top with the transpor
 edits the version shown (`shownVersion`, view state; 0 is **all**): a new note is that
 version's, a shared note tapped leaves it alone, one dragged is split first (`ownSeqNote`) so the
 others keep theirs -- which is how one note has a different velocity in each version -- and a
-faint note is taken in by a tap. **Notes that end up identical but for their versions merge back
+faint note is taken in by a tap. **A Seq opened while the transport runs shows all** (`openPanel`),
+since not seeing the notes playing was confusing; opened stopped, it shows `chosenVersion`, the
+version last picked -- and the forced all is not a pick, so it leaves that alone (Forrest,
+2026-10-11). **Notes that end up identical but for their versions merge back
 into one** (`tidySeqNotes`), so a note edited away and back is shared again. A long press on a note
 opens its versions menu -- "All", exclusive, or some versions ticked, and nothing changes until
 **OK** -- on a Seq with more than one. Overlap is judged only among notes that share a version,
 since they never sound together otherwise. **A note is drawn in its versions' colors**: one
 version's hue (`versionColor`), barber-pole stripes of each for several, gray (`SHARED_NOTE_COLOR`)
 for all of them, and the Seq's own accent while it has only one; in the all view, where two
-versions' notes overlap the overlap is striped too. The sounding highlight marks only notes in the
-version playing.
+versions' notes overlap the overlap is striped too, **each color's stripes reaching its own note's
+velocity** (`overlapFill`), as a single note's fill does. The sounding highlight marks only notes in
+the version playing. **A note out of sight above or below is a triangle at its start** on that edge
+(`seqEdgeMarks`) -- Steps' marker, which the Seq had as a thin line -- in its colors, several
+versions' overlapping a little offset, the version being edited on top and another version's faint.
 
 **A note lasts whole steps, and a shorter note is a finer step** (Forrest, 2026-10-09). Lengths were
 quarter steps for a while -- Bespoke's model, a gap made by shortening the first note -- and read as
@@ -724,6 +730,15 @@ note keeps twice its steps and the beat's leftover fifth is silent, counted from
 start; when it is coarser, each note snaps into the step it starts in and grows to cover what it
 covered, and notes of one version that then collide at one pitch are resolved (`resolveCollisions`).
 The length in beats is kept throughout.
+
+**Start here moves the loop's top, not the music** (Forrest, 2026-10-11: another beat can sound like
+the start). A long press on an empty cell offers it, a one-tile menu, since it is seldom wanted and
+must not sit over anything else; the start snaps to the beat that cell is in (`loopStartAt`), or
+the cell itself where a beat begins between steps. `startLoopAt` moves every note back round the
+loop in one undoable edit, and a note held across the new start is **split there**, the part after
+it struck again at the top -- Forrest's choice over keeping it whole across the loop's edge, which
+would have sounded the same but needed a note the grid draws in two pieces. Not under the lock,
+which pins the notes.
 
 **A note put on the grid is heard**, running or not -- added, taken in, grabbed, and again at each
 new pitch a drag carries it to, for its own length. It is an `Audition` command to the Seq, which
@@ -769,6 +784,14 @@ song. Polled once a frame for the modules in view, as an open panel polls its ow
 `position()` is two numbers in one -- section * 4096 + steps into it (`kStepStride` /
 `SECTION_STEP_STRIDE`) -- and the graph goes on publishing a node's position once it has published
 one, -1 included, so an Arranger that stops at the end of its song is seen to stop.
+
+**A panel's knobs fold away under its grid** (`PatchModule.knobsFolded`, view state like the lock):
+a tab in the left gutter just below where the grid ends, in the promote chips' column above the
+first of them, which is the one empty place at that height -- a tab across the divider would take
+taps from the grid's bottom row. Folded, the knobs leave a strip of `FOLD_STRIP` for the tab and the
+grid takes the rest; `shownRows` is empty, so nothing answers where a knob was. Every panel whose
+grid is edited and has knobs under it (`ModuleType.canFold`), not a pattern's. Forrest's ask on
+2026-10-11: a Seq's knobs took nearly half the screen.
 
 **A row of buttons is a bar where its buttons will not fit** (`Param.buttonsIn`, under 28dp
 each): Steps' sixteen lengths in half a two-column panel ran into each other. A tap lands on the

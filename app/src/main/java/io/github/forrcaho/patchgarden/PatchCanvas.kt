@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -646,6 +647,12 @@ data class ModuleType(
      * Found by tapping it on a screen; nothing else would have.
      */
     val hasPanel: Boolean get() = params.isNotEmpty() || grid != GridKind.NONE
+
+    /**
+     * Whether this panel's knobs can be folded away under its grid: a grid that is edited, with
+     * knobs under it. Not a pattern, whose grid is a strip that is only looked at.
+     */
+    val canFold: Boolean get() = grid != GridKind.NONE && grid != GridKind.PATTERN && rowParams.isNotEmpty()
 
     /** The parameter choosing a clocked module's interval, or -1 for one the transport does not drive. */
     val intervalParam: Int get() = params.indexOfFirst { it.choice == Choice.DIVISION }
@@ -1609,6 +1616,30 @@ class PatchModule(
      */
     var shownVersion by mutableIntStateOf(1)
 
+    /**
+     * The version last chosen to edit, which a Seq opened while stopped goes back to; one opened
+     * while playing shows **all**, since not seeing the notes playing was confusing (Forrest,
+     * 2026-10-11) -- and that is not a choice, so it leaves this alone. View state, as above.
+     */
+    var chosenVersion by mutableIntStateOf(1)
+
+    /** Shows [version] in the grid, as a choice: the one a Seq opened while stopped shows again. */
+    fun showVersion(version: Int) {
+        shownVersion = version
+        chosenVersion = version
+    }
+
+    /**
+     * Opens this module's panel, which shows the version [chosenVersion] says -- or, for a Seq of
+     * several versions opened while [playing], all of them.
+     */
+    fun openPanel(playing: Boolean) {
+        expanded = true
+        if (type.grid == GridKind.NOTES) {
+            shownVersion = if (playing && versionCount > 1) 0 else chosenVersion.coerceIn(0, versionCount)
+        }
+    }
+
     /** How many versions this Seq has. */
     val versionCount: Int get() {
         val index = type.versionsParam
@@ -1669,7 +1700,7 @@ class PatchModule(
             songs.add(songs.getOrElse(shownSong) { defaultSongs().first() })
             setParam(type.versionsParam, (count + 1).toFloat())
             followVersionRange(count, count + 1)
-            shownVersion = count + 1
+            showVersion(count + 1)
             return true
         }
         if (count >= MAX_VERSIONS || type.versionsParam < 0) return false
@@ -1681,7 +1712,7 @@ class PatchModule(
         }
         setParam(type.versionsParam, (count + 1).toFloat())
         followVersionRange(count, count + 1)
-        shownVersion = count + 1
+        showVersion(count + 1)
         return true
     }
 
@@ -1723,6 +1754,7 @@ class PatchModule(
             if (playing > version || playing > count - 1) setParam(knob, (playing - 1).toFloat())
         }
         if (shownVersion > count - 1 || shownVersion > version) shownVersion = (shownVersion - 1).coerceAtLeast(1)
+        if (chosenVersion > count - 1 || chosenVersion > version) chosenVersion = (chosenVersion - 1).coerceAtLeast(1)
         return true
     }
 
@@ -1785,6 +1817,16 @@ class PatchModule(
      * you left on last week is not part of the instrument.
      */
     var notesLocked by mutableStateOf(false)
+
+    /**
+     * Whether this panel's knobs are folded away under its grid, which then has the panel to
+     * itself bar the strip the tab sits in (Forrest, 2026-10-11: a Seq's knobs took nearly half
+     * the screen). View state, like the lock: not saved, not undone.
+     */
+    var knobsFolded by mutableStateOf(false)
+
+    /** [knobsFolded], where there is a grid and knobs to fold: see [ModuleType.canFold]. */
+    val foldsKnobs: Boolean get() = knobsFolded && type.canFold
 
     /**
      * The first step a Seq's grid shows, when its loop is longer than fits -- up to sixteen bars,
@@ -2140,14 +2182,23 @@ internal fun panelPort(panel: Rect, d: Float, dir: PortDirection, index: Int, co
  * panel empty. A drone had no parameters at all until 2026-09-19, and without this a third of the screen
  * said nothing while the thing being edited was squeezed above it.
  */
-internal fun panelGrid(panel: Rect, d: Float, type: ModuleType? = null): Rect {
+internal fun panelGrid(
+    panel: Rect,
+    d: Float,
+    type: ModuleType? = null,
+    /** The knobs folded away ([PatchModule.foldsKnobs]): the grid has all but the tab's strip. */
+    folded: Boolean = false,
+): Rect {
     val body = panelBody(panel, d)
     val side = PatchModule.PANEL_SIDE * d
     // The complement of the knobs, so the two can never overlap or leave a gap between them
     // however the split is decided. A grid-bearing module's rows are always its own, so the
     // count is its own -- only a subpatch's panel shows somebody else's, and it has no grid.
-    val controls = if (type == null) body.height * (1f - GRID_SHARE)
-    else panelSplit(panel, d, type, type.rowParams.size).controls
+    val controls = when {
+        type == null -> body.height * (1f - GRID_SHARE)
+        folded && type.canFold -> FOLD_STRIP * d
+        else -> panelSplit(panel, d, type, type.rowParams.size).controls
+    }
     return Rect(panel.left + side, body.top, panel.right - side, body.bottom - controls)
 }
 
@@ -2166,6 +2217,33 @@ internal fun panelGrid(panel: Rect, d: Float, type: ModuleType? = null): Rect {
  * drawn through the bottom of every label. Seen on the phone.
  */
 internal const val PANEL_ROW_MIN = 60f
+
+/** What is left of the knobs while they are folded: the strip the fold tab sits in. */
+internal const val FOLD_STRIP = 32f
+
+/**
+ * The tab that folds a panel's knobs away and back: in the left gutter, hanging just below where
+ * the grid ends -- which, folded, is the top of the strip the knobs leave. In the column the
+ * promote chips use, above the first of them, since that is the one place a gutter is empty at
+ * that height: the grid's degree labels are above it, the panel's jacks at its edges, and a tab
+ * across the divider would take taps from the grid's bottom row.
+ */
+internal fun panelFoldTab(panel: Rect, d: Float, module: PatchModule): Rect {
+    val grid = panelGrid(panel, d, module.type, module.foldsKnobs)
+    val width = PatchModule.PANEL_PROMOTE_W * d
+    return Rect(
+        Offset(grid.left - PatchModule.PANEL_MOD_GAP * d - width, grid.bottom + 4f * d),
+        Size(width, FOLD_TAB_H * d),
+    )
+}
+
+/** Where a tap takes the fold tab: a little past it, but never down to the first row's chips. */
+internal fun panelFoldTarget(panel: Rect, d: Float, module: PatchModule): Rect {
+    val tab = panelFoldTab(panel, d, module)
+    return Rect(tab.left - 8f * d, tab.top - 4f * d, tab.right + 8f * d, tab.bottom + 2f * d)
+}
+
+private const val FOLD_TAB_H = 22f
 
 /** What a row of buttons needs beyond [PANEL_ROW_MIN]: its label sits above the buttons. */
 internal const val BUTTON_ROW_EXTRA = 20f
@@ -2560,6 +2638,22 @@ private val scaleAccent = Color(0xFF6FA8E5)
  * over the body when locked, lifted and hinged to one side when not. The fill says it too,
  * as every other chip's does, but the shackle is the part that reads at arm's length.
  */
+/** The fold tab: a chevron that points the way the knobs will go -- down to fold, up to bring back. */
+private fun DrawScope.drawFoldTab(rect: Rect, d: Float, folded: Boolean) {
+    val corner = CornerRadius(7f * d, 7f * d)
+    drawRoundRect(ChipFill, rect.topLeft, rect.size, corner)
+    drawRoundRect(ChipEdge, rect.topLeft, rect.size, corner, style = Stroke(width = 1.5f * d))
+    val half = 6f * d
+    val rise = 3.5f * d
+    val tip = if (folded) -rise else rise
+    val chevron = Path().apply {
+        moveTo(rect.center.x - half, rect.center.y - tip)
+        lineTo(rect.center.x, rect.center.y + tip)
+        lineTo(rect.center.x + half, rect.center.y - tip)
+    }
+    drawPath(chevron, Color(0xFFC3CBD6), style = Stroke(width = 2f * d, cap = StrokeCap.Round, join = StrokeJoin.Round))
+}
+
 private fun DrawScope.drawLockChip(rect: Rect, d: Float, locked: Boolean, accent: Color) {
     val corner = CornerRadius(7f * d, 7f * d)
     drawRoundRect(if (locked) accent else ChipFill, rect.topLeft, rect.size, corner)
@@ -3218,7 +3312,7 @@ internal fun panelCellAt(
     ) {
         return null
     }
-    val area = panelGrid(panel, d, module.type)
+    val area = panelGrid(panel, d, module.type, module.foldsKnobs)
     if (!area.contains(at)) return null
 
     val window = gridWindow(module, area, d, scale)
@@ -3956,6 +4050,10 @@ class Patch {
      * promoted to its edge, resolved to the modules inside that really hold them. A
      * reference to a module that has since gone is dropped rather than drawn empty.
      */
+    /** The rows an open panel draws and answers: [panelRows], or none while its knobs are folded. */
+    fun shownRows(module: PatchModule): List<ParamRow> =
+        if (module.foldsKnobs) emptyList() else panelRows(module)
+
     fun panelRows(module: PatchModule): List<ParamRow> =
         if (module.type.box) {
             // A Poly's own voices knob comes first, then the promoted ones. It is the only
@@ -5224,6 +5322,8 @@ internal class CanvasControls(
     val onLoadSubpatch: (String, Offset) -> Unit = { _, _ -> },
     /** Takes a saved subpatch out of the library. */
     val onDeleteSaved: (String) -> Unit = {},
+    /** Whether the transport is running -- which it does exactly while the output is on. */
+    val playing: Boolean = false,
 )
 
 /**
@@ -5610,6 +5710,7 @@ fun PatchCanvas(
                     libraryChanged++
                 }
             },
+            playing = outputActive,
         ),
     )
 
@@ -5635,10 +5736,13 @@ fun PatchCanvas(
     var arrangerPop by remember { mutableStateOf<ArrangerPop?>(null) }
     // A Seq note's versions menu, held open over its grid.
     var noteMenu by remember { mutableStateOf<NoteMenu?>(null) }
+    // A Seq's "Start here", held open over an empty cell.
+    var startMenu by remember { mutableStateOf<StartMenu?>(null) }
     // Through rememberUpdatedState, as every value the gesture loop reads must be.
     val auditionNote by rememberUpdatedState(audition)
     LaunchedEffect(openModule?.id) {
         noteMenu = null
+        startMenu = null
         intervalMenu = false
         intervalDropdown = null
         versionMenu = false
@@ -5923,14 +6027,14 @@ fun PatchCanvas(
                                         if (open.versionCount > 1) versionDelete = pick.n
                                         waitForUpRelease()
                                     } else {
-                                        open.shownVersion = pick.n
+                                        open.showVersion(pick.n)
                                         versionMenu = false
                                     }
                                     return@awaitEachGesture
                                 }
                                 waitForUpRelease()
                                 when (pick) {
-                                    VersionPick.All -> open.shownVersion = 0
+                                    VersionPick.All -> open.showVersion(0)
                                     VersionPick.Add -> open.addVersion()
                                     else -> {}
                                 }
@@ -5979,6 +6083,21 @@ fun PatchCanvas(
                                 return@awaitEachGesture
                             }
 
+                            // "Start here" owns the panel while it is open, as the versions menu does:
+                            // its tile starts the loop at the beat pressed, and a tap off it closes it.
+                            val starting = startMenu
+                            if (open.type.grid == GridKind.NOTES && starting != null) {
+                                waitForUpRelease()
+                                val (_, tile) = startMenuLayout(
+                                    panelBody(panel, frame.density), frame.density, frame.fontScale, starting.anchor,
+                                )
+                                if (tile.contains(down.position)) {
+                                    open.startLoopAt(open.loopStartAt(starting.column, patch.beatsPerBar))
+                                }
+                                startMenu = null
+                                return@awaitEachGesture
+                            }
+
                             // An Arranger's chooser owns the panel while it is open, as the strip
                             // does: a tap on a tile picks, a drag on the slider sets the cell and
                             // follows the finger, the reading is typed, and a tap anywhere else
@@ -5987,7 +6106,7 @@ fun PatchCanvas(
                             val pop = arrangerPop
                             if (open.type.grid == GridKind.SONG && pop != null) {
                                 val d = frame.density
-                                val table = arrangerTable(panelGrid(panel, d, open.type), d, frame.fontScale, open)
+                                val table = arrangerTable(panelGrid(panel, d, open.type, open.foldsKnobs), d, frame.fontScale, open)
                                 val chooser = arrangerChooser(
                                     patch, open, table, panelBody(panel, d), d, frame.fontScale, pop,
                                 )
@@ -6133,6 +6252,12 @@ fun PatchCanvas(
                                 open.toggleEnd()
                                 return@awaitEachGesture
                             }
+                            // The fold tab: the knobs away under the grid, or back.
+                            if (open.type.canFold && panelFoldTarget(panel, frame.density, open).contains(down.position)) {
+                                waitForUpRelease()
+                                open.knobsFolded = !open.knobsFolded
+                                return@awaitEachGesture
+                            }
                             if (open.type.grid == GridKind.NOTES &&
                                 panelLockChip(panel, frame.density, frame.fontScale).contains(down.position)
                             ) {
@@ -6146,7 +6271,7 @@ fun PatchCanvas(
                             // for dragging is in the same row a finger's width below.
                             // The rows this panel shows: its own knobs, or -- for a subpatch --
                             // the ones promoted to its edge, which belong to modules inside it.
-                            val rows = patch.panelRows(open)
+                            val rows = patch.shownRows(open)
                             // What each row is bracketed by, for every hit test below: only the
                             // patch can see the cable that brackets a driven knob.
                             val rangeOfRow = { row: ParamRow -> patch.rangeOf(row.owner, row.index) }
@@ -6235,7 +6360,7 @@ fun PatchCanvas(
                             // area evenly once their count is fixed, so the two differ by
                             // the remainder and a drag measured against the nominal value
                             // slides against the grid it is supposed to be moving.
-                            val gridArea = panelGrid(panel, frame.density, open.type)
+                            val gridArea = panelGrid(panel, frame.density, open.type, open.foldsKnobs)
 
                             // Where this panel's editor -- whichever kind it is -- is allowed to
                             // claim a touch.
@@ -6605,6 +6730,13 @@ fun PatchCanvas(
                                     if (target >= 0 && open.versionCount > 1) {
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         noteMenu = NoteMenu.of(open, target, down.position)
+                                    } else if (target < 0 && !locked) {
+                                        // Held on an empty cell: "Start here", to start the loop at
+                                        // that beat (Forrest, 2026-10-11) -- out of sight until asked
+                                        // for, since it is seldom wanted. Not under the lock, which
+                                        // pins the notes where they are.
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        startMenu = StartMenu(column, down.position)
                                     }
                                     waitForUpRelease()
                                     return@awaitEachGesture
@@ -7148,7 +7280,7 @@ fun PatchCanvas(
                     open, patch, panelRect(frame), d, screenMeasurer, playing, playingStep,
                     intervalMenu, intervalDropdown, VersionView(versionMenu, versionDelete), liveParams, sfView,
                     patch.scales.getOrElse(playingEntry) { patch.scales.first() }.rootCents,
-                    frame.fontScale, arrangerPop, noteMenu,
+                    frame.fontScale, arrangerPop, noteMenu, startMenu,
                 )
             }
 
@@ -8929,10 +9061,12 @@ private fun DrawScope.drawSeqGrid(
     }
 
     module.seqNotes.forEach { note ->
+        // Out of sight above or below: a triangle on that edge, drawn after the notes.
+        if (note.degree !in window.bottom..window.top) return@forEach
         val (left, right) = span(note.step, note.stepsSpanned) ?: return@forEach
         val sounding = playingStep in note.step until note.step + note.stepsSpanned && note.playsIn(playingVersion)
         val colors = module.noteColors(note)
-        if (note.degree in window.bottom..window.top) {
+        run {
             val row = window.top - note.degree
             val rect = Rect(
                 Offset(left + inset, area.top + row * cellH + inset),
@@ -8952,17 +9086,30 @@ private fun DrawScope.drawSeqGrid(
             if (sounding) {
                 drawRoundRect(GridPlaying, rect.topLeft, rect.size, corner, style = Stroke(width = 2f * d))
             }
-        } else {
-            // Out of sight above or below: a mark on that edge across the steps it lasts, so
-            // a stretch of grid is never silently empty -- as a sequence's scrolled notes.
-            val above = note.degree > window.top
-            val y = if (above) area.top else area.bottom - 3f * d
-            val alpha = when {
-                !module.shows(note) -> 0.2f
-                sounding -> 1f
-                else -> 0.6f
+        }
+    }
+
+    // Notes out of sight above or below: Steps' triangles on that edge, at each one's start, in
+    // its colors -- overlapping a little where several versions' notes start in one column, the
+    // version being edited on top (Forrest, 2026-10-11). A thin line along the note was the first
+    // drawing, and said less than the triangle Steps already had.
+    module.seqEdgeMarks(window.bottom, window.top, view.first, view.shown, playingStep, playingVersion).forEach { mark ->
+        val centerX = area.left + (mark.step - view.first + 0.5f) * cellW
+        val edgeY = if (mark.above) area.top else area.bottom
+        val point = if (mark.above) edgeY + 1f * d else edgeY - 1f * d
+        val base = if (mark.above) edgeY + 8f * d else edgeY - 8f * d
+        val half = 6f * d
+        val n = mark.layers.size
+        val spacing = if (n > 1) minOf(4f * d, (cellW - 2f * half).coerceAtLeast(0f) / (n - 1)) else 0f
+        mark.layers.forEachIndexed { i, layer ->
+            val x = centerX + (i - (n - 1) / 2f) * spacing
+            val triangle = Path().apply {
+                moveTo(x, point)
+                lineTo(x - half, base)
+                lineTo(x + half, base)
+                close()
             }
-            drawRect(colors.first().copy(alpha = alpha), Offset(left + inset, y), Size(maxOf(right - left - inset * 2f, cellW / 2f), 3f * d))
+            drawPath(triangle, if (layer.sounding) GridPlaying else layer.color.copy(alpha = layer.alpha))
         }
     }
 
@@ -8980,8 +9127,14 @@ private fun DrawScope.drawSeqGrid(
             val (left, right) = span(from, to - from) ?: continue
             val row = window.top - x.degree
             val rect = Rect(Offset(left + inset, area.top + row * cellH + inset), Size(right - left - inset * 2f, cellH - inset * 2f))
-            val colors = (module.noteColors(x) + module.noteColors(y)).distinct()
-            drawNoteFill(rect, CornerRadius(cellH / 3f, cellH / 3f), colors, 1f, d)
+            // Each color's stripes reach its own note's velocity, over a faint whole, as a single
+            // note's fill does -- full height said every overlap was struck at full (Forrest).
+            val fill = module.overlapFill(x, y)
+            val corner = CornerRadius(cellH / 3f, cellH / 3f)
+            val colors = fill.map { it.first }
+            drawRoundRect(GridCell, rect.topLeft, rect.size, corner)
+            drawNoteFill(rect, corner, colors, 0.3f, d)
+            drawNoteFill(rect, corner, colors, 1f, d, heights = fill.map { it.second })
         }
     }
 
@@ -9001,7 +9154,15 @@ private fun DrawScope.drawSeqGrid(
  * A note's ground in [colors] -- one solid, several as diagonal stripes, a barber pole -- clipped to
  * its rounded [rect].
  */
-private fun DrawScope.drawNoteFill(rect: Rect, corner: CornerRadius, colors: List<Color>, alpha: Float, d: Float) {
+private fun DrawScope.drawNoteFill(
+    rect: Rect,
+    corner: CornerRadius,
+    colors: List<Color>,
+    alpha: Float,
+    d: Float,
+    /** How high each color's stripes reach, as fractions of [rect] from its foot; all the way if null. */
+    heights: List<Float>? = null,
+) {
     if (colors.size <= 1) {
         drawRoundRect(colors.firstOrNull()?.copy(alpha = alpha) ?: Color.Gray, rect.topLeft, rect.size, corner)
         return
@@ -9019,7 +9180,15 @@ private fun DrawScope.drawNoteFill(rect: Rect, corner: CornerRadius, colors: Lis
                 lineTo(x + rect.height, rect.top)
                 close()
             }
-            drawPath(stripe, colors[i % colors.size].copy(alpha = alpha))
+            val k = i % colors.size
+            val reach = heights?.getOrNull(k)
+            if (reach == null) {
+                drawPath(stripe, colors[k].copy(alpha = alpha))
+            } else {
+                clipRect(rect.left, rect.bottom - rect.height * reach, rect.right, rect.bottom) {
+                    drawPath(stripe, colors[k].copy(alpha = alpha))
+                }
+            }
             x += w
             i++
         }
@@ -10124,7 +10293,7 @@ private fun handleTap(
             // screen, so there is nowhere for a second one to go.
             if (!module.isPinned && module.type.hasPanel) {
                 patch.modules.forEach { it.expanded = false }
-                module.expanded = true
+                module.openPanel(controls.playing)
                 return Interaction.Idle
             }
         }
@@ -11246,6 +11415,8 @@ private fun DrawScope.drawPanel(
     arrangerPop: ArrangerPop? = null,
     /** A Seq note's versions menu, when one is open over its grid. */
     noteMenu: NoteMenu? = null,
+    /** A Seq's "Start here", when it is open over its grid. */
+    startMenu: StartMenu? = null,
 ) {
     val corner = CornerRadius(14f * d, 14f * d)
 
@@ -11332,6 +11503,8 @@ private fun DrawScope.drawPanel(
         }
         drawChip(panelIntervalChip(panel, d, fontScale, module.type), d, chipLabel, intervalMenu, scaleAccent, measurer)
     }
+
+    if (module.type.canFold) drawFoldTab(panelFoldTab(panel, d, module), d, module.foldsKnobs)
 
     // Only where there are notes to pin: it is the lock on their position, not a panel
     // ornament, and no other grid has anything for it to mean.
@@ -11427,7 +11600,7 @@ private fun DrawScope.drawPanel(
         return
     }
 
-    val gridArea = panelGrid(panel, d, module.type)
+    val gridArea = panelGrid(panel, d, module.type, module.foldsKnobs)
     when (module.type.grid) {
         GridKind.SEQUENCE -> drawStepGrid(
             gridArea, d, module, scale, module.type.accent, measurer, playingStep, patch.beatsPerBar,
@@ -11476,7 +11649,7 @@ private fun DrawScope.drawPanel(
     // Knobs -- the rows only. Walking every parameter drew the interval, which lives in the
     // header, as a row of buttons laid over the first real row: it showed intervals where
     // taps set the length.
-    val rows = patch.panelRows(module)
+    val rows = patch.shownRows(module)
     rows.forEachIndexed { slot, entry ->
         val owner = entry.owner
         val index = entry.index
@@ -11547,6 +11720,12 @@ private fun DrawScope.drawPanel(
                 )
             }
         }
+    }
+    if (startMenu != null && module.type.grid == GridKind.NOTES) {
+        val (ground, tile) = startMenuLayout(panelBody(panel, d), d, fontScale, startMenu.anchor)
+        drawRoundRect(Color(0xFF1F232A), ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d))
+        drawRoundRect(ChipEdge, ground.topLeft, ground.size, CornerRadius(10f * d, 10f * d), style = Stroke(width = 1.5f * d))
+        drawChip(tile, d, "Start here", false, scaleAccent, measurer)
     }
     if (arrangerPop != null && module.type.grid == GridKind.SONG) {
         val table = arrangerTable(gridArea, d, fontScale, module)

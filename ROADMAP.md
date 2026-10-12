@@ -673,6 +673,33 @@ off it closes it without adding a note underneath, a tap under the lock changes 
 Steps' length is a bar in its two-column panel. Still for Forrest's eye: the version strip fills
 the version shown with the selection blue, close to v2's own blue.
 
+### From Forrest's notes, 2026-10-11
+
+Five notes after playing the reworked Seq; four decisions taken from menus, each his pick of the
+recommendation but one.
+
+- **The knobs under a Seq take nearly half the screen.** A tab in the left gutter, just below where
+  the grid ends, folds them away and the grid takes the panel; for every panel whose grid is edited
+  and has knobs (not Euclid's pattern), view state like the lock. Over a header chip (the header is
+  full at font scale 1.5) and a draggable divider (a thin target, competing with the rows).
+- **Opened while playing, a Seq should show all its versions**; stopped, the one last edited, as it
+  did. Built so: "playing" is the output switch, which is what runs the transport, and the forced
+  all is not a choice, so it never overwrites the version last picked.
+- **Steps' arrows for notes out of sight, in the Seq too, as overlapping colored triangles with the
+  version being edited on top.** One triangle at each hidden note's start (or the first step on
+  screen), replacing the thin edge line; over a triangle on every column a note covers, which turns
+  a long note into a row of them.
+- **Overlapping notes' stripes should still show velocity.** Each color's stripes reach its own
+  note's velocity, over a faint whole.
+- **A way to make another beat the start of the loop, not prominent.** A long press on an empty cell
+  offers "Start here", snapping to the beat that cell is in; every note moves round the loop. A note
+  held across the new start is **split** there -- his choice over keeping it whole across the loop's
+  edge, which would have sounded the same but needed a note drawn in two pieces. Not under the lock.
+
+Seen on the emulator: the tab folds and unfolds, the triangles sit at their notes' starts in their
+versions' colors, an overlap's blue stripes reach 40% where its note is struck at 0.4, and Start here
+at step 4 of eight moved every note four back. Not on the phone yet, not played.
+
 ### Out's limiter, replaced 2026-10-05
 
 **It saturated everything.** DaisySP's `Limiter` runs every sample through `SoftLimit`,
